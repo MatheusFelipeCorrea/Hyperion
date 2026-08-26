@@ -1,10 +1,12 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
-import { listCardsMarkdownFiles } from "./lib.mjs";
+import { listCardsMarkdownFiles, checkCardPathLayout } from "./lib.mjs";
 
 const workspaceRoot = process.cwd();
 const cardsRoot = path.join(workspaceRoot, ".github", "cards");
+const strictLayout = process.argv.includes("--strict-layout");
+const warnings = [];
 
 const ALLOWED_TYPES = new Set(["Epic", "Feature", "Story", "Task", "Subtask", "Bug"]);
 const ALLOWED_PRIORITIES = new Set(["Highest", "High", "Medium", "Low"]);
@@ -214,6 +216,23 @@ for (const file of allMd) {
 
   if (!Array.isArray(card.categories)) errors.push(`${relative}: categories must be an array.`);
   if (card.categories.some((c) => typeof c !== "string")) errors.push(`${relative}: categories must be an array of strings.`);
+
+  // Nested-by-parent layout (warning by default; --strict-layout promotes to error)
+  if (!relative.includes("/_examples/")) {
+    const layout = checkCardPathLayout(relative, {
+      type: card.type,
+      cardId: card.cardId,
+      parent: card.parent,
+    });
+    if (!layout.ok) {
+      const hint = layout.legacyFlat
+        ? `legacy flat path — prefer nested: ${layout.expected} (run npm run cards:migrate-layout)`
+        : `expected path ${layout.expected} (parent folder = parent card_id)`;
+      const msg = `${relative}: layout — ${hint}`;
+      if (strictLayout) errors.push(msg);
+      else warnings.push(msg);
+    }
+  }
 }
 
 const byId = new Map(cards.map((c) => [c.cardId, c]));
@@ -229,5 +248,9 @@ if (errors.length) {
   process.exit(1);
 }
 
-console.log(`[validate] ✅ OK. Valid cards: ${cards.length}`);
+if (warnings.length) {
+  console.log("[validate] ⚠️  Layout warnings (use --strict-layout to fail):");
+  for (const w of warnings) console.log(`- ${w}`);
+}
 
+console.log(`[validate] ✅ OK. Valid cards: ${cards.length}`);

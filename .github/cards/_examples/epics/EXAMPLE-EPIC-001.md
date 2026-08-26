@@ -15,7 +15,7 @@ categories:
   - Database
 ---
 
-> **Kit sample** — never synced to your board. Copy the pattern into `epics/` / `features/` / `stories/` with your own IDs.
+> **Kit sample** — never synced. Real epics stay flat: `epics/{CARD_ID}.md`. Children nest under the parent id.
 
 # [EPIC] User Authentication
 

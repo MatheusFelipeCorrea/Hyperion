@@ -17,16 +17,16 @@ In a fresh Hyperion clone, only the starter examples below are pre-filled. Repla
 These ship with the kit and demonstrate **card format**, not application code:
 
 ### Card / planning exemplar
-- Path: `.github/cards/_examples/stories/EXAMPLE-STORY-001.md`
-- Why this file: YAML frontmatter, Gherkin acceptance criteria, task breakdown, and status fields — use as template when refining new stories.
+- Path: `.github/cards/_examples/stories/EXAMPLE-FEATURE-001/EXAMPLE-STORY-001.md`
+- Why this file: YAML frontmatter, Gherkin acceptance criteria, task breakdown, nested under parent feature — use as template when refining new stories.
 
 ### Epic hierarchy exemplar
 - Path: `.github/cards/_examples/epics/EXAMPLE-EPIC-001.md`
 - Why this file: Epic-level scope, links to features, and backlog-oriented structure.
 
 ### Feature card exemplar
-- Path: `.github/cards/_examples/features/EXAMPLE-FEATURE-001.md`
-- Why this file: Feature decomposition between epic and story layers.
+- Path: `.github/cards/_examples/features/EXAMPLE-EPIC-001/EXAMPLE-FEATURE-001.md`
+- Why this file: Feature nested under epic id; decomposition between epic and story layers.
 
 ## Replace with your project (suggested sections)
 

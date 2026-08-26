@@ -41,6 +41,7 @@
     "cards:watch": "node scripts/cards-sync/watch.mjs",
     "cards:hook": "node scripts/cards-sync/install-hook.mjs",
     "cards:labels-reset": "node scripts/cards-sync/labels-reset.mjs",
+    "cards:migrate-layout": "node scripts/cards-sync/migrate-layout.mjs",
     "cards:test": "node --test scripts/cards-sync/*.test.mjs",
     "hyperion:test": "node --test scripts/hyperion/*.test.mjs",
     "test": "npm run hyperion:test && npm run cards:test"

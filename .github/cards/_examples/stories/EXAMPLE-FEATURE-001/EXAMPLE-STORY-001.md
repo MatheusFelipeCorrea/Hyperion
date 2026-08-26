@@ -13,7 +13,7 @@ categories:
   - Backend
 ---
 
-> **Kit sample** — never synced to your board. Copy the pattern into `epics/` / `features/` / `stories/` with your own IDs.
+> **Kit sample** — never synced. Prefer nested paths: `stories/{PARENT_FEATURE_ID}/{CARD_ID}.md`.
 
 # [STORY] Login endpoint
 
