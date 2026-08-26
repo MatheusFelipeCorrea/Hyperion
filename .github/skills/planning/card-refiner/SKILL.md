@@ -83,12 +83,17 @@ See **Output: Two Artifacts** below — every card file goes under `.github/card
 
 ### Artifact 1: Individual card files (for sync)
 
-Each card becomes a separate `.md` file with YAML frontmatter. Location by type:
-- Epics: `.github/cards/epics/{CARD_ID}.md`
-- Stories: `.github/cards/stories/{CARD_ID}.md`
-- Features: `.github/cards/features/{CARD_ID}.md`
-- Tasks: `.github/cards/tasks/{CARD_ID}.md`
-- Subtasks: `.github/cards/tasks/{CARD_ID}.md`
+Each card becomes a separate `.md` file with YAML frontmatter. **Nest by parent `card_id`** (visual grouping; board hierarchy still uses `parent` + Sub-issues):
+
+- Epics: `.github/cards/epics/{CARD_ID}.md` (flat)
+- Features: `.github/cards/features/{PARENT_EPIC_ID}/{CARD_ID}.md`
+- Stories: `.github/cards/stories/{PARENT_FEATURE_OR_EPIC_ID}/{CARD_ID}.md`
+- Tasks / Subtasks: `.github/cards/tasks/{PARENT_ID}/{CARD_ID}.md`
+- No parent (non-epic): `.github/cards/{features|stories|tasks}/_orphan/{CARD_ID}.md`
+
+When you **change `parent`**, **move** the file to the new parent folder (same `card_id` filename). Sync discovery is recursive — nested paths are supported.
+
+Use `npm run cards:migrate-layout` to relocate legacy flat cards. Prefer `resolveCardRelativePath` convention documented in `scripts/cards-sync/README.md`.
 
 ### Artifact 2: Consolidated README (for human reading)
 
@@ -286,7 +291,7 @@ categories:
 
 ### Story Backend card example:
 
-File: `.github/cards/_examples/stories/EXAMPLE-STORY-001.md`
+File: `.github/cards/_examples/stories/EXAMPLE-FEATURE-001/EXAMPLE-STORY-001.md`
 
 ```markdown
 ---

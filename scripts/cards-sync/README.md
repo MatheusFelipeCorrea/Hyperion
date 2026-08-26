@@ -86,11 +86,16 @@ Maintainers testing the kit itself: `--include-samples` (optional, not for norma
 
 ## File locations
 
-- Epics: `.github/cards/epics/{CARD_ID}.md`
-- Stories: `.github/cards/stories/{CARD_ID}.md`
-- Features: `.github/cards/features/{CARD_ID}.md`
-- Tasks/Subtasks: `.github/cards/tasks/{CARD_ID}.md`
+- Epics: `.github/cards/epics/{CARD_ID}.md` (flat)
+- Features: `.github/cards/features/{PARENT_EPIC_ID}/{CARD_ID}.md`
+- Stories: `.github/cards/stories/{PARENT_ID}/{CARD_ID}.md`
+- Tasks/Subtasks: `.github/cards/tasks/{PARENT_ID}/{CARD_ID}.md`
+- Orphan (non-epic, no parent): `.github/cards/{type}/_orphan/{CARD_ID}.md`
 - Config: `.github/cards/config/projects-map.json`
+
+**Layout rule:** folder name under `features|stories|tasks` = the **`parent` card_id**. Changing `parent` means **moving** the file. Recursive discovery already syncs nested paths.
+
+Migrate legacy flat files: `npm run cards:migrate-layout` (add `--dry-run` to preview). Validate warns on flat leftovers; `cards:validate --strict-layout` fails them.
 
 ## Field mapping
 

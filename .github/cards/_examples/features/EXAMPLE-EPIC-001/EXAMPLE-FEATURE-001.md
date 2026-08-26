@@ -14,7 +14,7 @@ categories:
   - Frontend
 ---
 
-> **Kit sample** — never synced to your board. Copy the pattern into `epics/` / `features/` / `stories/` with your own IDs.
+> **Kit sample** — never synced to your board. Copy the pattern into `features/{PARENT_EPIC_ID}/` with your own IDs.
 
 # [FEATURE] Credential authentication flow
 

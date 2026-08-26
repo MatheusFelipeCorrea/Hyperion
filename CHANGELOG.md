@@ -6,14 +6,11 @@ Format inspired by [Keep a Changelog](https://keepachangelog.com/). Versioning f
 
 ## [Unreleased]
 
-### Fixed
-- Docs claimed Azure DevOps / GitLab were forward-only; reverse sync already exists in `sync.mjs` — aligned GETTING-STARTED, pitfalls PT/EN, choose-backend PT/EN, `integration-bridge`, and cards-sync README callout.
-- Softened `project.example.yml` header so adopters are not told to “copy the pack and rewrite only this YAML”.
-
 ### Added
-- README Actions badge for `hyperion-validate`.
-- Empty `epics/` and `stories/` card folders (`.gitkeep`) to match documented layout.
-- `SUPPORT.md` for adopter help routing.
+- Nested card layout by parent `card_id` (`features/{EPIC}/…`, `stories/{FEATURE}/…`, `tasks/{PARENT}/…`) with `resolveCardRelativePath`, `cards:migrate-layout`, and validate layout warnings (`--strict-layout`).
+
+### Changed
+- `_examples/` and `card-refiner` teach nested-by-parent paths; sync discovery unchanged (already recursive).
 
 ## [0.1.0] — 2026-08-21
 

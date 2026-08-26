@@ -132,6 +132,60 @@ export function filterExampleSampleCards(cards, onlyIds, options = {}) {
 const CARD_LIST_SKIP_DIRS = new Set(["config", "synced"]);
 const CARD_LIST_SYNC_SKIP_DIRS = new Set(["_examples"]);
 
+/** Map frontmatter `type` → folder under cards root. */
+export const CARD_TYPE_DIR = {
+  Epic: "epics",
+  Feature: "features",
+  Story: "stories",
+  Task: "tasks",
+  Subtask: "tasks",
+  Bug: "tasks",
+};
+
+/**
+ * Canonical relative path for a card (posix, under `.github/cards/`).
+ * Nested by direct `parent` card_id: features/{parent}/{id}.md, etc.
+ * Epics stay flat. Missing parent (non-epic) → `{typeDir}/_orphan/{id}.md`.
+ */
+export function resolveCardRelativePath({ type, cardId, parent } = {}) {
+  const id = String(cardId || "").trim();
+  if (!id) throw new Error("resolveCardRelativePath: cardId is required");
+
+  const typeDir = CARD_TYPE_DIR[type] || CARD_TYPE_DIR.Story;
+  const parentId =
+    parent === null || parent === undefined || parent === ""
+      ? null
+      : String(parent).trim();
+
+  if (typeDir === "epics") {
+    return `.github/cards/epics/${id}.md`;
+  }
+
+  if (parentId) {
+    return `.github/cards/${typeDir}/${parentId}/${id}.md`;
+  }
+
+  return `.github/cards/${typeDir}/_orphan/${id}.md`;
+}
+
+/**
+ * Compare actual relative path to the nested-by-parent convention.
+ * @returns {{ ok: boolean, expected: string, legacyFlat: boolean }}
+ */
+export function checkCardPathLayout(relativeFile, { type, cardId, parent } = {}) {
+  const actual = String(relativeFile || "").replace(/\\/g, "/");
+  const expected = resolveCardRelativePath({ type, cardId, parent });
+  if (actual === expected) {
+    return { ok: true, expected, legacyFlat: false };
+  }
+
+  const typeDir = CARD_TYPE_DIR[type] || CARD_TYPE_DIR.Story;
+  const id = String(cardId || "").trim();
+  const legacyFlat = actual === `.github/cards/${typeDir}/${id}.md`;
+
+  return { ok: false, expected, legacyFlat };
+}
+
 export async function listCardsMarkdownFiles(dir, { forSync = false } = {}) {
   let entries;
   try {
