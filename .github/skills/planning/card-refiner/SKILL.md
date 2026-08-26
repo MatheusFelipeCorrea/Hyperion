@@ -93,6 +93,8 @@ Each card becomes a separate `.md` file with YAML frontmatter. **Nest by parent 
 
 When you **change `parent`**, **move** the file to the new parent folder (same `card_id` filename). Sync discovery is recursive — nested paths are supported.
 
+If the product uses nested adoption (`kit.root: Hyperion`), all of the paths above live under `Hyperion/.github/cards/…` — read `kit.root` from `.github/project.yml` first.
+
 Use `npm run cards:migrate-layout` to relocate legacy flat cards. Prefer `resolveCardRelativePath` convention documented in `scripts/cards-sync/README.md`.
 
 ### Artifact 2: Consolidated README (for human reading)

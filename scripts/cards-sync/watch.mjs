@@ -4,9 +4,11 @@ import process from "node:process";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { cardIdFromRelativePath, isNonSyncCardPath, isKitSampleCardId } from "./lib.mjs";
+import { resolveHyperionPaths } from "../hyperion/paths.mjs";
 
-const workspaceRoot = process.cwd();
-const cardsRoot = path.join(workspaceRoot, ".github", "cards");
+const hyperionPaths = resolveHyperionPaths(process.cwd());
+const workspaceRoot = hyperionPaths.workspaceRoot;
+const cardsRoot = hyperionPaths.cardsRoot;
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 
 let debounceTimer = null;
@@ -90,7 +92,7 @@ function scheduleRun(label) {
 }
 
 if (!fs.existsSync(cardsRoot)) {
-  console.error("[cards-watch] .github/cards/ not found. Run from repository root.");
+  console.error(`[cards-watch] ${hyperionPaths.cardsPrefix}/ not found. Run from product repo root (or set kit.root).`);
   process.exit(1);
 }
 

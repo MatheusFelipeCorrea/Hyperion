@@ -83,17 +83,35 @@ Repo **já tem código** → `/migrate`. Repo **novo** → `/setup`.
 git clone https://github.com/MatheusFelipeCorrea/Hyperion.git
 ```
 
+### Preferido — pasta `Hyperion/` no produto (sem poluir a raiz)
+
+1. Clone/ZIP → pasta chamada **`Hyperion`**.
+2. Coloque-a em `seu-produto/Hyperion/` (kit inteiro: `.github`, `scripts`, `Dockerfile`, …).
+3. Na **raiz do produto**:
+
+```bash
+npm run hyperion:init --prefix Hyperion -- --adopt
+```
+
+Isso grava shims (`CLAUDE.md`, `.cursor/rules/hyperion.mdc`, `.github/project.yml` com `kit.root: Hyperion`) e **não** espalha skills na raiz.
+
+4. Abra o chat no **produto** → **`/setup`** ou **`/migrate`**.
+
+Cards e plans ficam sob `Hyperion/.github/…`. Já tem CI própria? Use `ci.policy: skip` (ou ignore `/pipeline`) — Hyperion não exige a pipeline do kit.
+
+### Legado — copiar seletivo na raiz (ainda funciona)
+
 Copie para a **raiz do seu repositório** (não o `.git` do Hyperion):
 
 | Copiar | Não copiar / cuidado |
 |--------|----------------------|
 | `.github/skills/`, `agents/`, `docs/`, `audits/`, `commands.yml`, `memory/` (templates), `cards/` (template + config limpo), `diagrams/`, `project.example.yml`, `project.schema.json`, `hyperion-origin.json` | **`.github/project.yml`** do Hyperion → use `project.example.yml` ou `/setup` |
-| `scripts/` | **`.github/workflows/`** → **`/pipeline`** no seu repo |
+| `scripts/` | **`.github/workflows/`** → **`/pipeline`** no seu repo (ou `ci.policy: skip`) |
 | Scripts `hyperion:*` / `cards:*` no **seu** `package.json` (**merge**) | Substituir o `package.json` do produto |
 | `bin/` + `Dockerfile` (sem Node) | `projects-map` de outro time |
 | `.env.example`, `CLAUDE.md`, `.cursor/rules/` conforme a IDE | Artefatos gerados (`plans/`, audit results) |
 
-Atualizar um repo que já tem o kit: `npm run hyperion:upgrade`.
+Atualizar um repo que já tem o kit: `npm run hyperion:upgrade` (na pasta do kit / com `kit.root`).
 
 Sem Node: [node-and-docker.md](./.github/docs/meta/node-and-docker.md). Gates: [definition-of-done.md](./.github/docs/meta/definition-of-done.md).
 

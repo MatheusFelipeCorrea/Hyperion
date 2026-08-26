@@ -143,14 +143,20 @@ export const CARD_TYPE_DIR = {
 };
 
 /**
- * Canonical relative path for a card (posix, under `.github/cards/`).
+ * Canonical relative path for a card (posix).
  * Nested by direct `parent` card_id: features/{parent}/{id}.md, etc.
  * Epics stay flat. Missing parent (non-epic) → `{typeDir}/_orphan/{id}.md`.
+ *
+ * @param {{ type?: string, cardId: string, parent?: string|null, cardsPrefix?: string }} opts
+ *   cardsPrefix — default `.github/cards`; use `Hyperion/.github/cards` when nested.
  */
-export function resolveCardRelativePath({ type, cardId, parent } = {}) {
+export function resolveCardRelativePath({ type, cardId, parent, cardsPrefix = ".github/cards" } = {}) {
   const id = String(cardId || "").trim();
   if (!id) throw new Error("resolveCardRelativePath: cardId is required");
 
+  const prefix = String(cardsPrefix || ".github/cards")
+    .replace(/\\/g, "/")
+    .replace(/\/+$/, "");
   const typeDir = CARD_TYPE_DIR[type] || CARD_TYPE_DIR.Story;
   const parentId =
     parent === null || parent === undefined || parent === ""
@@ -158,30 +164,36 @@ export function resolveCardRelativePath({ type, cardId, parent } = {}) {
       : String(parent).trim();
 
   if (typeDir === "epics") {
-    return `.github/cards/epics/${id}.md`;
+    return `${prefix}/epics/${id}.md`;
   }
 
   if (parentId) {
-    return `.github/cards/${typeDir}/${parentId}/${id}.md`;
+    return `${prefix}/${typeDir}/${parentId}/${id}.md`;
   }
 
-  return `.github/cards/${typeDir}/_orphan/${id}.md`;
+  return `${prefix}/${typeDir}/_orphan/${id}.md`;
 }
 
 /**
  * Compare actual relative path to the nested-by-parent convention.
  * @returns {{ ok: boolean, expected: string, legacyFlat: boolean }}
  */
-export function checkCardPathLayout(relativeFile, { type, cardId, parent } = {}) {
+export function checkCardPathLayout(
+  relativeFile,
+  { type, cardId, parent, cardsPrefix = ".github/cards" } = {}
+) {
   const actual = String(relativeFile || "").replace(/\\/g, "/");
-  const expected = resolveCardRelativePath({ type, cardId, parent });
+  const expected = resolveCardRelativePath({ type, cardId, parent, cardsPrefix });
   if (actual === expected) {
     return { ok: true, expected, legacyFlat: false };
   }
 
+  const prefix = String(cardsPrefix || ".github/cards")
+    .replace(/\\/g, "/")
+    .replace(/\/+$/, "");
   const typeDir = CARD_TYPE_DIR[type] || CARD_TYPE_DIR.Story;
   const id = String(cardId || "").trim();
-  const legacyFlat = actual === `.github/cards/${typeDir}/${id}.md`;
+  const legacyFlat = actual === `${prefix}/${typeDir}/${id}.md`;
 
   return { ok: false, expected, legacyFlat };
 }
@@ -367,6 +379,7 @@ export async function discoverGitHubProjectNumber({
 
 export async function writeSyncSummary({
   workspaceRoot,
+  plansCardsDir,
   repositorySlug,
   projectOwner,
   projectNumber,
@@ -374,7 +387,7 @@ export async function writeSyncSummary({
   cardCount,
   incrementalIds,
 }) {
-  const outDir = path.join(workspaceRoot, ".github", "plans", "cards");
+  const outDir = plansCardsDir || path.join(workspaceRoot, ".github", "plans", "cards");
   await fs.mkdir(outDir, { recursive: true });
   const outPath = path.join(outDir, "last-sync.md");
 

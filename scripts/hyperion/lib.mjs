@@ -101,10 +101,12 @@ export function runHyperionScript(scriptName, args = []) {
 }
 
 export async function collectHyperionHealth() {
-  const githubDir = path.join(workspaceRoot, ".github");
-  const projectYml = path.join(githubDir, "project.yml");
-  const memoryProject = path.join(githubDir, "memory", "PROJECT.md");
-  const projectsMap = path.join(githubDir, "cards", "config", "projects-map.json");
+  const { resolveHyperionPaths } = await import("./paths.mjs");
+  const paths = resolveHyperionPaths(workspaceRoot);
+  const githubDir = paths.githubDir;
+  const projectYml = paths.projectYmlPath;
+  const memoryProject = path.join(paths.memoryDir, "PROJECT.md");
+  const projectsMap = paths.projectsMapPath;
   const packageJson = path.join(workspaceRoot, "package.json");
 
   const nodeMajor = parseNodeMajor();
@@ -126,14 +128,26 @@ export async function collectHyperionHealth() {
   const issues = [];
   const warnings = [];
 
-  if (!hasGithubDir) issues.push("Missing `.github/` — copy the Hyperion into this repository.");
+  if (!hasGithubDir) {
+    issues.push(
+      paths.kitRootRel
+        ? `Missing kit .github/ under \`${paths.kitRootRel}/\` — copy the Hyperion folder.`
+        : "Missing `.github/` — copy the Hyperion kit into this repository (or use nested `Hyperion/` + `npm run hyperion:init -- --adopt`)."
+    );
+  }
   if (nodeMajor < 20) issues.push(`Node.js 20+ required (current: ${process.version}).`);
   if (!hasPackageJson) warnings.push("No root `package.json` — npm shortcuts unavailable.");
-  if (!hasProjectYml) warnings.push("No `.github/project.yml` — run project-discovery (Configure) or ask the agent: /setup");
-  if (!memoryFilled) warnings.push("`.github/memory/PROJECT.md` empty or template — fill for better agent context.");
+  if (!hasProjectYml) warnings.push("No `.github/project.yml` — run /setup or `hyperion:init -- --adopt`.");
+  if (!memoryFilled) {
+    warnings.push(
+      `\`${path.relative(workspaceRoot, memoryProject).replace(/\\/g, "/")}\` empty or template — fill for better agent context.`
+    );
+  }
   if (!repo) warnings.push("No git remote `origin` — cards sync cannot auto-detect repository.");
   if (!token) warnings.push("No GitHub token — run `gh auth login` or set PROJECT_SYNC_TOKEN.");
-  if (!hasProjectsMap) issues.push("Missing `.github/cards/config/projects-map.json`.");
+  if (!hasProjectsMap) {
+    issues.push(`Missing \`${path.relative(workspaceRoot, projectsMap).replace(/\\/g, "/")}\`.`);
+  }
 
   return {
     nodeMajor,
@@ -144,6 +158,9 @@ export async function collectHyperionHealth() {
     hasProjectsMap,
     hasPackageJson,
     memoryFilled,
+    layout: paths.layout,
+    kitRootRel: paths.kitRootRel,
+    cardsPrefix: paths.cardsPrefix,
     issues,
     warnings,
   };

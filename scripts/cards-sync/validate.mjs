@@ -2,9 +2,13 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
 import { listCardsMarkdownFiles, checkCardPathLayout } from "./lib.mjs";
+import { resolveHyperionPaths } from "../hyperion/paths.mjs";
 
-const workspaceRoot = process.cwd();
-const cardsRoot = path.join(workspaceRoot, ".github", "cards");
+const paths = resolveHyperionPaths(process.cwd());
+const workspaceRoot = paths.workspaceRoot;
+const cardsRoot = paths.cardsRoot;
+const cardsPrefix = paths.cardsPrefix;
+const projectYmlPath = paths.projectYmlPath;
 const strictLayout = process.argv.includes("--strict-layout");
 const warnings = [];
 
@@ -115,14 +119,13 @@ function isValidDueDate(value) {
 
 const allMd = await listCardsMarkdownFiles(cardsRoot);
 if (!allMd.length) {
-  console.log("[validate] No card files found under .github/cards/");
+  console.log(`[validate] No card files found under ${cardsPrefix}/`);
   process.exit(0);
 }
 
 // Lightweight config sanity checks (helps act as an "auto-refresh trigger")
 try {
-  const projectYmlPath = path.join(workspaceRoot, ".github", "project.yml");
-  const projectsMapPath = path.join(cardsRoot, "config", "projects-map.json");
+  const projectsMapPath = paths.projectsMapPath;
 
   const missing = [];
   try {
@@ -133,7 +136,7 @@ try {
   try {
     await fs.stat(projectsMapPath);
   } catch {
-    missing.push("`.github/cards/config/projects-map.json`");
+    missing.push(`\`${cardsPrefix}/config/projects-map.json\``);
   }
 
   if (missing.length) {
@@ -223,6 +226,7 @@ for (const file of allMd) {
       type: card.type,
       cardId: card.cardId,
       parent: card.parent,
+      cardsPrefix,
     });
     if (!layout.ok) {
       const hint = layout.legacyFlat

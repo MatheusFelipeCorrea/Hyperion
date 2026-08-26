@@ -10,9 +10,12 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
 import { listCardsMarkdownFiles, resolveCardRelativePath } from "./lib.mjs";
+import { resolveHyperionPaths } from "../hyperion/paths.mjs";
 
-const workspaceRoot = process.cwd();
-const cardsRoot = path.join(workspaceRoot, ".github", "cards");
+const paths = resolveHyperionPaths(process.cwd());
+const workspaceRoot = paths.workspaceRoot;
+const cardsRoot = paths.cardsRoot;
+const cardsPrefix = paths.cardsPrefix;
 const dryRun = process.argv.includes("--dry-run");
 
 function parseFrontmatter(content) {
@@ -39,7 +42,7 @@ function log(msg) {
 
 const allMd = await listCardsMarkdownFiles(cardsRoot);
 if (!allMd.length) {
-  log("No cards found under .github/cards/");
+  log(`No cards found under ${cardsPrefix}/`);
   process.exit(0);
 }
 
@@ -67,6 +70,7 @@ for (const file of allMd) {
     type: meta.type || "Story",
     cardId: meta.card_id,
     parent: meta.parent ?? null,
+    cardsPrefix,
   });
 
   if (relative === expected) {
