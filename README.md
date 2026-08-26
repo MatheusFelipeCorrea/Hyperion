@@ -187,20 +187,22 @@ git clone https://github.com/MatheusFelipeCorrea/Hyperion.git
 
 | # | Passo | Ação |
 |---|--------|------|
-| 1 | **Obter** | Clone ou ZIP |
-| 2 | **Copiar** | Seletivo — abra o bloco abaixo |
-| 3 | **Usar** | No chat do **seu** repo: `/setup` ou `/migrate` |
+| 1 | **Obter** | Clone ou ZIP → pasta **`Hyperion`** |
+| 2 | **Colar** | Coloque a pasta **inteira** em `seu-produto/Hyperion/` |
+| 3 | **Shims** | Na raiz do produto: `npm run hyperion:init --prefix Hyperion -- --adopt` |
+| 4 | **Usar** | Chat no **produto**: `/setup` ou `/migrate` |
 
 <details>
-<summary><strong>📦 O que copiar (e o que não)</strong></summary>
+<summary><strong>📦 Detalhes (pasta Hyperion + o que fica na raiz)</strong></summary>
 
-| Copiar | Não copiar / cuidado |
-|--------|----------------------|
-| `.github/skills/`, `agents/`, `docs/`, `audits/`, `commands.yml`, `memory/`, `cards/` limpo, `project.example.yml`, `project.schema.json`, `hyperion-origin.json`, … | **`project.yml`** do kit → `project.example.yml` ou `/setup` |
-| `scripts/` | **`workflows/`** do kit → use **`/pipeline`** |
-| Scripts `hyperion:*` / `cards:*` (**merge** no seu `package.json`) | Substituir o `package.json` do produto |
-| `bin/` + `Dockerfile` (sem Node) | `projects-map` de outro time |
-| `.cursor/rules/` ou `CLAUDE.md` | `.git/`, artefatos gerados |
+**Preferido:** não espalhar skills/scripts na raiz do produto.
+
+| Em `seu-produto/Hyperion/` | Shims só na raiz do produto |
+|----------------------------|-----------------------------|
+| Kit completo (`.github/skills`, cards, scripts, `Dockerfile`, …) | `CLAUDE.md`, `.cursor/rules/hyperion.mdc`, `.github/project.yml` com `kit.root: Hyperion` |
+| Artefatos do agente (cards, plans, audits) | Workflows `hyperion-*` **opcionais** (`ci.policy: skip` se já tem CI) |
+
+Legado (ainda suportado): copiar seletivo `.github/…` na raiz — ver GETTING-STARTED.
 
 </details>
 

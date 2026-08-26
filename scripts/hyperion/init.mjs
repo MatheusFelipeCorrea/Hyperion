@@ -12,8 +12,15 @@ import { collectHyperionHealth, fail, log, ok, runHyperionScript, warn } from ".
 
 const argYes = process.argv.includes("--yes");
 const argSetup = process.argv.includes("--setup");
+const argAdopt = process.argv.includes("--adopt");
 
 async function main() {
+  if (argAdopt) {
+    log("", "Hyperion init — adopt nested kit (product shims)");
+    const code = runHyperionScript("install-product-shims.mjs", argYes ? ["--force"] : []);
+    process.exit(code);
+  }
+
   log("", "Hyperion init — local kit checklist");
   log("", "");
 

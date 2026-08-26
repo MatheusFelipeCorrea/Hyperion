@@ -17,6 +17,17 @@
       "minLength": 1,
       "description": "Human-readable project or product name."
     },
+    "kit": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Where the Hyperion kit folder lives inside the product repo. Omit when the kit is at the workspace root (legacy / upstream).",
+      "properties": {
+        "root": {
+          "type": "string",
+          "description": "Relative path from the product repo root to the kit folder (e.g. Hyperion). Cards/skills live under {root}/.github/."
+        }
+      }
+    },
     "locale": {
       "type": "string",
       "minLength": 2,

@@ -16,11 +16,14 @@ import {
   shouldIncludeKitSamples,
   writeSyncSummary,
 } from "./lib.mjs";
+import { resolveHyperionPaths } from "../hyperion/paths.mjs";
 
-const workspaceRoot = process.cwd();
-const cardsRoot = path.join(workspaceRoot, ".github", "cards");
+const hyperionPaths = resolveHyperionPaths(process.cwd());
+const workspaceRoot = hyperionPaths.workspaceRoot;
+const cardsRoot = hyperionPaths.cardsRoot;
+const cardsPrefix = hyperionPaths.cardsPrefix;
 const configPath = path.join(cardsRoot, "config", "projects-map.json");
-const projectYmlPath = path.join(workspaceRoot, ".github", "project.yml");
+const projectYmlPath = hyperionPaths.projectYmlPath;
 
 const argDryRun = process.argv.includes("--dry-run");
 const argReverse = process.argv.includes("--reverse");
@@ -1647,7 +1650,7 @@ async function runForwardSync() {
 
   const allMd = await listMarkdownFiles(cardsRoot);
   if (!allMd.length) {
-    log("No card files found in .github/cards/");
+    log(`No card files found in ${cardsPrefix}/`);
     return;
   }
 
@@ -1672,7 +1675,7 @@ async function runForwardSync() {
   const syncableCards = applyKitSampleFilter(cards, onlyIds);
   if (!syncableCards.length) {
     log(
-      "No cards to sync. Add project cards under .github/cards/{epics,features,stories,tasks}/ — kit samples in _examples/ and *.template.md are never synced."
+      `No cards to sync. Add project cards under ${cardsPrefix}/{epics,features,stories,tasks}/ — kit samples in _examples/ and *.template.md are never synced.`
     );
     return;
   }
@@ -1879,6 +1882,7 @@ async function runForwardSync() {
     try {
       const summaryPath = await writeSyncSummary({
         workspaceRoot,
+        plansCardsDir: hyperionPaths.plansCardsDir,
         repositorySlug,
         projectOwner,
         projectNumber: projectNumber > 0 ? projectNumber : null,
@@ -2020,7 +2024,7 @@ async function runForwardSyncJira(repoConfig, management) {
 
   const allMd = await listMarkdownFiles(cardsRoot);
   if (!allMd.length) {
-    log("No card files found in .github/cards/");
+    log(`No card files found in ${cardsPrefix}/`);
     return;
   }
 
@@ -2042,7 +2046,7 @@ async function runForwardSyncJira(repoConfig, management) {
   const syncableCards = applyKitSampleFilter(cards, onlyIds);
   if (!syncableCards.length) {
     log(
-      "No cards to sync. Add project cards under .github/cards/{epics,features,stories,tasks}/ — kit samples in _examples/ and *.template.md are never synced."
+      `No cards to sync. Add project cards under ${cardsPrefix}/{epics,features,stories,tasks}/ — kit samples in _examples/ and *.template.md are never synced.`
     );
     return;
   }
@@ -2336,7 +2340,7 @@ async function runForwardSyncAzure(repoConfig, management) {
   const syncableCards = applyKitSampleFilter(cards, onlyIds);
   if (!syncableCards.length) {
     log(
-      "No cards to sync. Add project cards under .github/cards/{epics,features,stories,tasks}/ — kit samples in _examples/ and *.template.md are never synced."
+      `No cards to sync. Add project cards under ${cardsPrefix}/{epics,features,stories,tasks}/ — kit samples in _examples/ and *.template.md are never synced.`
     );
     return;
   }
@@ -2483,7 +2487,7 @@ async function runForwardSyncGitLab(repoConfig, management) {
   const syncableCards = applyKitSampleFilter(cards, onlyIds);
   if (!syncableCards.length) {
     log(
-      "No cards to sync. Add project cards under .github/cards/{epics,features,stories,tasks}/ — kit samples in _examples/ and *.template.md are never synced."
+      `No cards to sync. Add project cards under ${cardsPrefix}/{epics,features,stories,tasks}/ — kit samples in _examples/ and *.template.md are never synced.`
     );
     return;
   }
@@ -2663,7 +2667,7 @@ async function runForwardSyncLinear(repoConfig, management) {
   const syncableCards = applyKitSampleFilter(cards, onlyIds);
   if (!syncableCards.length) {
     log(
-      "No cards to sync. Add project cards under .github/cards/{epics,features,stories,tasks}/ — kit samples in _examples/ and *.template.md are never synced."
+      `No cards to sync. Add project cards under ${cardsPrefix}/{epics,features,stories,tasks}/ — kit samples in _examples/ and *.template.md are never synced.`
     );
     return;
   }

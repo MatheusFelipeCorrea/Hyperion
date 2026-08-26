@@ -5,13 +5,16 @@ import { execSync, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import readline from "node:readline";
 
+import { resolveHyperionPaths } from "../hyperion/paths.mjs";
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const workspaceRoot = process.cwd();
-const cardsRoot = path.join(workspaceRoot, ".github", "cards");
+const hyperionPaths = resolveHyperionPaths(process.cwd());
+const workspaceRoot = hyperionPaths.workspaceRoot;
+const cardsRoot = hyperionPaths.cardsRoot;
 const configPath = path.join(cardsRoot, "config", "projects-map.json");
-const projectYmlPath = path.join(workspaceRoot, ".github", "project.yml");
+const projectYmlPath = hyperionPaths.projectYmlPath;
 
 const argInteractive = process.argv.includes("--interactive");
 const argYes = process.argv.includes("--yes");

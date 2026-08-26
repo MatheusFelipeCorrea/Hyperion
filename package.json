@@ -29,6 +29,7 @@
     "hyperion:project-verify": "node scripts/hyperion/project-verify.mjs",
     "hyperion:review-verify": "node scripts/hyperion/review-verify.mjs",
     "hyperion:init": "node scripts/hyperion/init.mjs",
+    "hyperion:install-shims": "node scripts/hyperion/install-product-shims.mjs",
     "hyperion:upgrade": "node scripts/hyperion/upgrade.mjs",
     "hyperion:cli": "node scripts/hyperion/cli.mjs",
     "hyperion:docker-build": "docker build -t hyperion-cli -f Dockerfile .",

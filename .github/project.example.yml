@@ -9,6 +9,13 @@
 
 version: 1
 
+# Where the kit folder lives relative to the PRODUCT repo root.
+# Preferred adoption: copy the whole Hyperion folder into the product, then:
+#   npm run hyperion:init -- --adopt
+# Upstream Hyperion repo (this kit) omits kit.root — files stay at workspace root.
+kit:
+  root: Hyperion
+
 name: My Project
 locale: en
 
