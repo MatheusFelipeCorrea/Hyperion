@@ -50,8 +50,12 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release upload "${GITHUB_REF_NAME}" hyperion-sbom.cdx.json --clobber || \
+          set -e
+          if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
+            gh release upload "${GITHUB_REF_NAME}" hyperion-sbom.cdx.json --clobber
+          else
             echo "No GitHub Release exists yet for ${GITHUB_REF_NAME} — SBOM is still on the workflow run as a build artifact."
+          fi
 
       - name: Log in to GHCR
         uses: docker/login-action@v3
