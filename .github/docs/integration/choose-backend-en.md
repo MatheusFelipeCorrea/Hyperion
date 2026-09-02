@@ -27,7 +27,7 @@ Which management tool do you use?
 | **GitHub** | Easiest (`gh auth login`) | Full | Status column ✅ | ✅ |
 | **Jira** | API token + env vars | Forward + reverse | Workflow transition ✅ | ✅ |
 | **Azure DevOps** | PAT + env vars | Forward + reverse | `System.State` via `status_map` ✅ | ✅ |
-| **Linear** | API token | Forward + **status** | optional `status_map` | ❌ |
+| **Linear** | API token | Forward + reverse | optional `status_map` | ✅ |
 | **GitLab** | Token + project ID | Forward + reverse | open/close + `status:` label ✅ | ✅ |
 
 ---
@@ -65,7 +65,7 @@ Forward + reverse via `CARD_ID`. Remote status: `System.State` via `management.s
 
 Optional `management.status_map` in `project.yml`.
 
-Forward + workflow-state status. Reverse: not yet.
+Forward + reverse, including workflow-state status.
 
 ---
 

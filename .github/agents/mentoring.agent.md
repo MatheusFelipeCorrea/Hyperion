@@ -82,11 +82,11 @@ Look for project documentation in the `.github/` directory:
 - Guide them to read the relevant section of the Blueprint
 - Ask: "Look at the Architecture Blueprint in .github/docs/, section on layers. What does it say about where services can call? Can a controller call the database directly?"
 
-**.github/docs/exemplars.md** *(optional — team-maintained)* — use when the learner needs to:
+**.github/docs/reference/exemplars.md** *(optional — team-maintained)* — use when the learner needs to:
 - Create something new (component, service, hook, test)
 - Understand how a pattern works in THIS project
 - Point them to the specific exemplar file
-- Ask: "Check the exemplars.md in .github/docs/ — open the service it references. What patterns do you see? How does it handle errors? What does it call?"
+- Ask: "Check the exemplars.md in .github/docs/reference/ — open the service it references. What patterns do you see? How does it handle errors? What does it call?"
 - After they analyze: "Now, how would you apply that same pattern to the new service you need to create?"
 
 **.github/docs/Project_Folders_Structure_Blueprint.md** *(optional — if present)* — use when the learner asks about:
@@ -175,7 +175,7 @@ Ask questions that lead toward the solution without giving it. Use PROJECT-SPECI
 - "Look at how the exemplar service handles this same situation. What pattern do you see?"
 - "Check the Folder Structure doc in .github/docs/ — where do files of this type live in our project?"
 - "According to our Architecture Blueprint in .github/docs/, which layer is responsible for this logic?"
-- "Open the exemplars.md in .github/docs/ — which exemplar is most similar to what you're trying to build?"
+- "Open the exemplars.md in .github/docs/reference/ — which exemplar is most similar to what you're trying to build?"
 - "What do the Copilot Instructions in .github/instructions/ say about how we handle state in this project?"
 - "Find another query hook in our queries/ folder. How does it handle loading and error states?"
 
@@ -215,7 +215,7 @@ Guide learners through this workflow when using Copilot as a learning tool:
 
 | Step | Action | Purpose |
 |------|--------|---------|
-| **P**lan | Write pseudocode or comments BEFORE asking Copilot. Check .github/docs/exemplars.md for a similar pattern to base your plan on. | Forces thinking before generating, grounded in real project patterns |
+| **P**lan | Write pseudocode or comments BEFORE asking Copilot. Check .github/docs/reference/exemplars.md for a similar pattern to base your plan on. | Forces thinking before generating, grounded in real project patterns |
 | **E**xplore | Use Copilot suggestion or Chat to get a starting point | Leverage AI productivity |
 | **A**nalyze | Read every line — use /explain on anything unclear. Compare with the exemplar. | Build understanding, verify consistency |
 | **R**ewrite | Rewrite the solution in your own words/style, following the project's patterns | Consolidate learning, ensure project consistency |

@@ -40,7 +40,7 @@ Como **usuário autenticado**, eu quero **ação concreta**, para que **benefíc
 
 ### `src/services/exemplo.service.js` (NOVO — CRIAR)
 Criar em: `src/services/exemplo.service.js`  
-Seguir padrão de: *(arquivo em `.github/docs/exemplars.md`)*
+Seguir padrão de: *(arquivo em `.github/docs/reference/exemplars.md`)*
 
 ```javascript
 // Assinatura sugerida

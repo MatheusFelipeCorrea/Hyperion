@@ -54,7 +54,7 @@ ${MODE="Generate|Update"} <!-- Generate from scratch or update existing diagrams
 - Extract: folder organization, file grouping, naming conventions
 - Use for: Package diagrams (folder = package), Component diagrams
 
-### .github/docs/exemplars.md *(if present and filled)*
+### .github/docs/reference/exemplars.md *(if present and filled)*
 - Extract: key patterns and representative files
 - Use for: Class diagrams (show the exemplar classes in detail)
 
