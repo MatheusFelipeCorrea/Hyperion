@@ -360,6 +360,19 @@ if (!labelsFile) {
   else ok(`labelsFile OK: ${fullPath}`);
 }
 
+const statusColumnsFile = repoConfig.statusColumnsFile;
+if (!statusColumnsFile) {
+  warn("projects-map.json.default.statusColumnsFile missing. Status columns will use built-in fallback palette.");
+} else {
+  const resolved = statusColumnsFile.includes("{locale}")
+    ? statusColumnsFile.replaceAll("{locale}", locale)
+    : statusColumnsFile;
+  const fullPath = path.isAbsolute(resolved) ? resolved : path.join(cardsRoot, "config", resolved);
+  const exists = await fs.stat(fullPath).then(() => true).catch(() => false);
+  if (!exists) warn(`statusColumnsFile resolved path not found: ${fullPath}`);
+  else ok(`statusColumnsFile OK: ${fullPath}`);
+}
+
 // remote project checks (only if we have token + projectNumber)
 const projectOwner = process.env.PROJECT_OWNER || repoConfig.projectOwner || repoOwner;
 const projectNumber = Number(process.env.PROJECT_NUMBER || "0") || Number(repoConfig.projectNumber || "0");

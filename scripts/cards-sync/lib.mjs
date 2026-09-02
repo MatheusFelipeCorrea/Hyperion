@@ -701,3 +701,108 @@ export async function loadLabelsCatalog({ cardsRoot, repoConfig, projectLocale =
     return { locale, specs: [], names: [], file };
   }
 }
+
+// ---------------------------------------------------------------------------
+// Status columns catalog (Project single-select / board columns)
+// ---------------------------------------------------------------------------
+
+export const PROJECT_V2_SELECT_COLORS = new Set([
+  "GRAY",
+  "BLUE",
+  "GREEN",
+  "YELLOW",
+  "ORANGE",
+  "RED",
+  "PINK",
+  "PURPLE",
+]);
+
+export const DEFAULT_STATUS_COLUMN_KEYS = [
+  "Backlog",
+  "Functional Refinement",
+  "Technical Refinement",
+  "In Progress",
+  "In Tests",
+  "In Revision",
+  "Done",
+];
+
+/** @deprecated alias */
+export const DEFAULT_STATUS_OPTIONS = DEFAULT_STATUS_COLUMN_KEYS;
+
+export function normalizeProjectSelectColor(color, fallback = "GRAY") {
+  if (!color) return fallback;
+  const upper = String(color).trim().toUpperCase();
+  return PROJECT_V2_SELECT_COLORS.has(upper) ? upper : fallback;
+}
+
+/** @returns {{ key: string, color: string, description: string } | null} */
+export function normalizeStatusColumnEntry(entry) {
+  if (!entry || typeof entry !== "object") return null;
+  const key = String(entry.key || entry.name || "").trim();
+  if (!key) return null;
+  const color = normalizeProjectSelectColor(entry.color, "GRAY");
+  const description = typeof entry.description === "string" ? entry.description.trim() : "";
+  return { key, color, description };
+}
+
+export function parseStatusColumnsCatalogJson(parsed) {
+  if (!Array.isArray(parsed)) return [];
+  const specs = [];
+  const seen = new Set();
+  for (const entry of parsed) {
+    const spec = normalizeStatusColumnEntry(entry);
+    if (!spec || seen.has(spec.key)) continue;
+    seen.add(spec.key);
+    specs.push(spec);
+  }
+  return specs;
+}
+
+export function resolveStatusColumnFilePath(cardsRoot, repoConfig, locale) {
+  const statusColumnsFile = repoConfig.statusColumnsFile;
+  if (!statusColumnsFile) return null;
+  const resolvedFileName = statusColumnsFile.includes("{locale}")
+    ? statusColumnsFile.replaceAll("{locale}", locale)
+    : statusColumnsFile;
+  return path.isAbsolute(resolvedFileName)
+    ? resolvedFileName
+    : path.join(cardsRoot, "config", resolvedFileName);
+}
+
+/** Map canonical keys to localized Project option names via optionMapByLocale. */
+export function resolveStatusColumnSpecs(repoConfig, catalogSpecs, locale = "en") {
+  const statusMap = repoConfig.optionMapByLocale?.[locale]?.status || {};
+  return catalogSpecs.map((spec) => ({
+    key: spec.key,
+    name: statusMap[spec.key] || spec.key,
+    color: spec.color,
+    description: spec.description,
+  }));
+}
+
+export async function loadStatusColumnsCatalog({ cardsRoot, repoConfig, projectLocale = null }) {
+  const locale = repoConfig.locale || projectLocale || "en";
+  const file = resolveStatusColumnFilePath(cardsRoot, repoConfig, locale);
+
+  let rawSpecs = [];
+  if (file) {
+    try {
+      const raw = await fs.readFile(file, "utf8");
+      rawSpecs = parseStatusColumnsCatalogJson(JSON.parse(raw));
+    } catch {
+      rawSpecs = [];
+    }
+  }
+
+  if (!rawSpecs.length) {
+    rawSpecs = DEFAULT_STATUS_COLUMN_KEYS.map((key, index) => ({
+      key,
+      color: ["GRAY", "BLUE", "PURPLE", "YELLOW", "PINK", "ORANGE", "GREEN"][index] || "GRAY",
+      description: "",
+    }));
+  }
+
+  const specs = resolveStatusColumnSpecs(repoConfig, rawSpecs, locale);
+  return { locale, specs, keys: rawSpecs.map((s) => s.key), file: file || "(fallback)" };
+}

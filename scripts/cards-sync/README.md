@@ -260,6 +260,20 @@ This removes GitHub defaults + orphan labels, keeps Dependabot labels (`dependen
 
 **Project views:** on create/sync, Hyperion configures tabs in order: **Board** → **Tabela** → **Roadmap** (user can customize filters/grouping in the UI afterward).
 
+**Status columns (board):** workflow columns come from `status-columns.{locale}.json` (via `statusColumnsFile` in `projects-map.json`). Each entry has `key` (canonical English status), `color` (GitHub enum: GRAY, BLUE, GREEN, …), and `description` shown in Project field settings. Names on the board are localized through `optionMapByLocale.status`. Forward sync updates missing columns and refreshes color/description when metadata drifts.
+
+Default semantic palette:
+
+| Column | Color |
+|--------|-------|
+| Backlog | GRAY |
+| Functional Refinement | BLUE |
+| Technical Refinement | PURPLE |
+| In Progress | YELLOW |
+| In Tests | PINK |
+| In Revision | ORANGE |
+| Done | GREEN |
+
 **Sprint field:** auto-created as GitHub **Iteration** (`Sprint` / `Número da Sprint`). Cards may keep `sprint: null`; define sprint dates in Project Settings. Configure defaults in `projects-map.json` → `sprintField` (`durationDays`, optional `seedIterations`).
 
 **Issue body enrichment (GitHub forward sync):** after create/update, sync rewrites the issue body with:

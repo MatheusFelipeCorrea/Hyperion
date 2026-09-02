@@ -26,6 +26,10 @@ import {
   normalizeLabelEntry,
   labelNamesFromCatalog,
   colorFromString,
+  parseStatusColumnsCatalogJson,
+  resolveStatusColumnSpecs,
+  normalizeProjectSelectColor,
+  DEFAULT_STATUS_COLUMN_KEYS,
 } from "./lib.mjs";
 
 test("pickBestGitHubProject prefers Hyperion title", () => {
@@ -300,4 +304,44 @@ test("labelNamesFromCatalog returns ordered names", () => {
     { name: "B", color: colorFromString("B"), description: "" },
   ]);
   assert.deepEqual(names, ["A", "B"]);
+});
+
+test("parseStatusColumnsCatalogJson reads key color description", () => {
+  const specs = parseStatusColumnsCatalogJson([
+    { key: "Backlog", color: "gray", description: "Queue" },
+  ]);
+  assert.equal(specs.length, 1);
+  assert.equal(specs[0].key, "Backlog");
+  assert.equal(specs[0].color, "GRAY");
+  assert.equal(specs[0].description, "Queue");
+});
+
+test("resolveStatusColumnSpecs maps locale status names", () => {
+  const repoConfig = {
+    optionMapByLocale: {
+      "pt-BR": {
+        status: {
+          Backlog: "Backlog",
+          Done: "Concluído",
+        },
+      },
+    },
+  };
+  const resolved = resolveStatusColumnSpecs(
+    repoConfig,
+    [{ key: "Backlog", color: "GRAY", description: "a" }, { key: "Done", color: "GREEN", description: "b" }],
+    "pt-BR"
+  );
+  assert.equal(resolved[0].name, "Backlog");
+  assert.equal(resolved[1].name, "Concluído");
+});
+
+test("normalizeProjectSelectColor falls back for invalid values", () => {
+  assert.equal(normalizeProjectSelectColor("BLUE"), "BLUE");
+  assert.equal(normalizeProjectSelectColor("not-a-color", "PINK"), "PINK");
+});
+
+test("DEFAULT_STATUS_COLUMN_KEYS has seven workflow columns", () => {
+  assert.equal(DEFAULT_STATUS_COLUMN_KEYS.length, 7);
+  assert.equal(DEFAULT_STATUS_COLUMN_KEYS[0], "Backlog");
 });

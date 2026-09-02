@@ -1,0 +1,37 @@
+[
+  {
+    "key": "Backlog",
+    "color": "GRAY",
+    "description": "Captured but not refined; no owner, sprint, or acceptance criteria yet."
+  },
+  {
+    "key": "Functional Refinement",
+    "color": "BLUE",
+    "description": "PM/PO clarifying scope, user value, acceptance criteria, and sub-issues."
+  },
+  {
+    "key": "Technical Refinement",
+    "color": "PURPLE",
+    "description": "Engineering sizing dependencies, approach, and technical risks."
+  },
+  {
+    "key": "In Progress",
+    "color": "YELLOW",
+    "description": "Actively being implemented on a branch."
+  },
+  {
+    "key": "In Tests",
+    "color": "PINK",
+    "description": "Implementation done; QA or automated tests are running."
+  },
+  {
+    "key": "In Revision",
+    "color": "ORANGE",
+    "description": "PR open or awaiting review, fixes, or approval."
+  },
+  {
+    "key": "Done",
+    "color": "GREEN",
+    "description": "Meets Definition of Done — merged, released, or accepted by the team."
+  }
+]

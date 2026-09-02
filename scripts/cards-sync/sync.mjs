@@ -21,6 +21,10 @@ import {
   readLocalCardFromSourceFile,
   colorFromString,
   loadLabelsCatalog,
+  loadStatusColumnsCatalog,
+  DEFAULT_STATUS_COLUMN_KEYS,
+  DEFAULT_STATUS_OPTIONS,
+  normalizeProjectSelectColor,
 } from "./lib.mjs";
 import { resolveHyperionPaths } from "../hyperion/paths.mjs";
 
@@ -774,7 +778,9 @@ async function getProject(owner, projectNumber) {
     nodes {
       __typename
       ... on ProjectV2Field { id name dataType }
-      ... on ProjectV2SingleSelectField { id name options { id name } }
+      ... on ProjectV2SingleSelectField {
+        id name options { id name color description }
+      }
       ... on ProjectV2IterationField { id name configuration { iterations { id title } } }
     }
   }`;
@@ -829,15 +835,58 @@ const PRIORITY_OPTION_COLORS = {
   Medium: "YELLOW",
   Low: "GRAY",
 };
-const DEFAULT_STATUS_OPTIONS = [
-  "Backlog",
-  "Functional Refinement",
-  "Technical Refinement",
-  "In Progress",
-  "In Tests",
-  "In Revision",
-  "Done",
-];
+
+function coerceFieldOptionSpecs(options, fieldKey = null) {
+  return options.map((entry, i) => {
+    if (typeof entry === "string") {
+      return {
+        name: entry,
+        color: optionColorForField(fieldKey, entry, i),
+        description: "",
+      };
+    }
+    const name = String(entry.name || entry.key || "").trim();
+    return {
+      name,
+      color: normalizeProjectSelectColor(
+        entry.color,
+        optionColorForField(fieldKey, name, i)
+      ),
+      description: typeof entry.description === "string" ? entry.description.trim() : "",
+    };
+  });
+}
+
+function buildSingleSelectOptionInputs(specs, existingOptions = []) {
+  const byName = new Map();
+  for (const opt of existingOptions) {
+    byName.set(normalizeText(opt.name), opt);
+  }
+  return specs.map((spec) => {
+    const existing = byName.get(normalizeText(spec.name));
+    const input = {
+      name: spec.name,
+      color: spec.color,
+      description: spec.description || "",
+    };
+    if (existing?.id) input.id = existing.id;
+    return input;
+  });
+}
+
+function statusColumnMetadataDrift(desiredSpecs, existingOptions) {
+  for (const spec of desiredSpecs) {
+    const existing = (existingOptions || []).find(
+      (opt) => normalizeText(opt.name) === normalizeText(spec.name)
+    );
+    if (!existing) continue;
+    const colorOk =
+      String(existing.color || "").toUpperCase() === String(spec.color || "").toUpperCase();
+    const descOk = (existing.description || "") === (spec.description || "");
+    if (!colorOk || !descOk) return true;
+  }
+  return false;
+}
 
 async function createProjectV2(ownerId, title, repositoryId = null) {
   const data = await graphql(
@@ -888,6 +937,7 @@ async function ensureProjectRepositoryLink(project, repositoryId, repositorySlug
 }
 
 async function addSingleSelectField(projectId, name, options, fieldKey = null) {
+  const specs = coerceFieldOptionSpecs(options, fieldKey);
   const data = await graphql(
     `mutation($projectId: ID!, $name: String!, $options: [ProjectV2SingleSelectFieldOptionInput!]!) {
       createProjectV2Field(input: {
@@ -900,11 +950,7 @@ async function addSingleSelectField(projectId, name, options, fieldKey = null) {
     {
       projectId,
       name,
-      options: options.map((o, i) => ({
-        name: o,
-        color: optionColorForField(fieldKey, o, i),
-        description: "",
-      })),
+      options: buildSingleSelectOptionInputs(specs),
     }
   );
   return data.createProjectV2Field.projectV2Field;
@@ -1023,33 +1069,30 @@ async function ensureSprintField(project, repoConfig) {
   }
 }
 
-async function updateSingleSelectFieldOptions(fieldId, options, fieldKey = null) {
+async function updateSingleSelectFieldOptions(fieldId, options, fieldKey = null, existingOptions = []) {
+  const specs = coerceFieldOptionSpecs(options, fieldKey);
   const data = await graphql(
     `mutation($fieldId: ID!, $options: [ProjectV2SingleSelectFieldOptionInput!]!) {
       updateProjectV2Field(input: { fieldId: $fieldId, singleSelectOptions: $options }) {
-        projectV2Field { ... on ProjectV2SingleSelectField { id name options { id name color } } }
+        projectV2Field { ... on ProjectV2SingleSelectField { id name options { id name color description } } }
       }
     }`,
     {
       fieldId,
-      options: options.map((o, i) => ({
-        name: o,
-        color: optionColorForField(fieldKey, o, i),
-        description: "",
-      })),
+      options: buildSingleSelectOptionInputs(specs, existingOptions),
     }
   );
   return data.updateProjectV2Field.projectV2Field;
 }
 
-async function applySelectFieldColors(field, colorByName, label) {
+async function applySelectFieldColors(field, colorByName, label, descriptionByName = {}) {
   if (!field || field.__typename !== "ProjectV2SingleSelectField") return;
 
   const options = (field.options || []).map((opt, i) => ({
     id: opt.id,
     name: opt.name,
     color: colorByName[opt.name] || singleSelectColor(i),
-    description: "",
+    description: descriptionByName[opt.name] ?? opt.description ?? "",
   }));
 
   try {
@@ -1183,30 +1226,48 @@ async function ensureKitProjectViews(project) {
 async function ensureStatusFieldOptions(project, repoConfig) {
   const fieldMap = repoConfig.fieldMap || {};
   const statusName = fieldMap.status || "Status";
+  const catalog = await loadStatusColumnsCatalog({
+    cardsRoot,
+    repoConfig,
+    projectLocale: await detectProjectLocale(),
+  });
+  const desiredSpecs = catalog.specs;
+
   let statusField = getFieldByName(project, statusName);
 
   if (!statusField) {
-    await addSingleSelectField(project.id, statusName, DEFAULT_STATUS_OPTIONS);
-    log(`  + Status field created with ${DEFAULT_STATUS_OPTIONS.length} workflow options`);
+    await addSingleSelectField(project.id, statusName, desiredSpecs);
+    log(`  + Status field created (${desiredSpecs.length} columns, colors + descriptions)`);
     return;
   }
 
   if (statusField.__typename !== "ProjectV2SingleSelectField") return;
 
-  const existing = new Set((statusField.options || []).map((o) => normalizeText(o.name)));
-  const allPresent = DEFAULT_STATUS_OPTIONS.every((opt) => existing.has(normalizeText(opt)));
+  const existing = statusField.options || [];
+  const existingNames = new Set(existing.map((o) => normalizeText(o.name)));
+  const missing = desiredSpecs.filter((spec) => !existingNames.has(normalizeText(spec.name)));
+  const metadataDrift = statusColumnMetadataDrift(desiredSpecs, existing);
 
-  if (allPresent && (statusField.options || []).length >= DEFAULT_STATUS_OPTIONS.length) {
-    log(`  = Status field already has Hyperion workflow options`);
+  if (!missing.length && !metadataDrift) {
+    log(`  = Status columns OK (${desiredSpecs.length} options, metadata synced)`);
     return;
   }
 
   try {
-    await updateSingleSelectFieldOptions(statusField.id, DEFAULT_STATUS_OPTIONS, "status");
-    log(`  ~ Status field updated with Hyperion workflow options (${DEFAULT_STATUS_OPTIONS.length})`);
+    await updateSingleSelectFieldOptions(
+      statusField.id,
+      desiredSpecs,
+      "status",
+      existing
+    );
+    if (missing.length) {
+      log(`  ~ Status field updated — added ${missing.length} missing column(s)`);
+    } else {
+      log(`  ~ Status columns updated (colors + descriptions)`);
+    }
   } catch (error) {
     log(`  WARN: Could not update Status options automatically: ${error.message}`);
-    log(`  Customize Status options manually in Project Settings.`);
+    log(`  Customize Status columns manually in Project Settings.`);
   }
 }
 
@@ -1315,7 +1376,7 @@ async function autoCreateProject(owner, repoConfig) {
   }
 
   log("");
-  log("NOTE: Status field configured with Hyperion workflow columns.");
+  log("NOTE: Status field configured with Hyperion workflow columns (semantic colors + descriptions).");
   log("Sprint iteration field configured (cards may keep sprint: null until sprints are defined).");
 
   return created;
