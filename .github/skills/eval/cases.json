@@ -102,5 +102,45 @@
   {
     "skill": "pr-review",
     "mustContain": ["review-verify", "tests_ran", "project.yml"]
+  },
+  {
+    "skill": "adr-generator",
+    "mustContain": [".github/docs/adr/ADR-{NNN}-{slug}.md", "Superseded by ADR-{NNN}"]
+  },
+  {
+    "skill": "readme-updater",
+    "mustContain": ["NEVER rewrite the README from scratch", "WAIT for approval", "## Output"]
+  },
+  {
+    "skill": "refactor-guide",
+    "mustContain": ["characterization tests", "Never batch multiple refactorings in one commit.", "## Output"]
+  },
+  {
+    "skill": "sprint-retro",
+    "mustContain": ["Start / Stop / Continue", ".github/docs/retros/", "## Output"]
+  },
+  {
+    "skill": "architecture-audit",
+    "mustContain": ["ARCH-<PHASE>-<NN>", "Read-only by default.", "## Output"]
+  },
+  {
+    "skill": "code-review",
+    "mustContain": ["DEV-<PHASE>-<NN>", "Read-only by default.", "## Output"]
+  },
+  {
+    "skill": "devops-audit",
+    "mustContain": ["OPS-<PHASE>-<NN>", "pipeline-architect", "## Output"]
+  },
+  {
+    "skill": "po-audit",
+    "mustContain": ["Read-only by default.", "Prioritized action plan", "## Output"]
+  },
+  {
+    "skill": "tech-debt-tracker",
+    "mustContain": ["Priority = Impact × Interest Rate ÷ Effort", "tech-debt-inventory.md", "## Output"]
+  },
+  {
+    "skill": "ux-audit",
+    "mustContain": ["UX-<PHASE>-<NN>", "canonical decision", "## Output"]
   }
 ]
