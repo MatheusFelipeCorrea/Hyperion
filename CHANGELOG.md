@@ -17,7 +17,8 @@ Format inspired by [Keep a Changelog](https://keepachangelog.com/). Versioning f
 - Real JSON-Schema validation: `project.yml` is now checked against `project.schema.json` with `ajv` (draft 2020-12) in `hyperion:project-verify`, in addition to the existing path-existence checks. First runtime dependency this repo has ever had (`ajv`, `js-yaml`) — added `package-lock.json` accordingly.
 - Structural eval (`hyperion:*-verify`) for 4 more agents that previously had none: `audit-runner`, `spec-review`, `release`, `implementation-plan`. `skills-eval` now covers all 30/30 skills (was 20/30).
 - Opt-in E2E test (`hyperion-e2e-cards.yml`, `workflow_dispatch` only) that runs a real forward-sync against a disposable GitHub repo — the existing unit tests only ever mocked `fetch`.
-- `CODEOWNERS`, `npm` ecosystem enabled in `dependabot.yml`, `windows-latest` added to the kit-validation CI matrix, Docker image now published to `ghcr.io` on version tags.
+- `CODEOWNERS`, `npm` ecosystem enabled in `dependabot.yml`, `windows-latest` added to the kit-validation CI matrix, Docker image now published to `ghcr.io` on version tags, CycloneDX SBOM generated and attached to each GitHub Release (`hyperion:sbom`).
+- `scripts/cards-sync/sync.mjs` (3,929 LOC) split: Jira/Azure/GitLab/Linear backends moved to `scripts/cards-sync/backends/`, shared helpers moved to `lib.mjs` — GitHub (default backend) stays inline. Pure extraction, same exports/behavior; sync.mjs is now 2,211 lines.
 
 ### Fixed
 - **`cards:dry-run` was writing to disk** — project auto-discovery persisted the real owner/project-number to `projects-map.json` even during a "preview".
