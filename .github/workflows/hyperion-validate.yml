@@ -15,7 +15,15 @@ permissions:
 
 jobs:
   hyperion-validate:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    # Windows coverage is new (this repo's own maintainer dogfoods on
+    # win32) — continue-on-error until it's proven stable across a few
+    # real runs, so a Windows-runner-specific flake doesn't block PRs.
+    continue-on-error: ${{ matrix.os == 'windows-latest' }}
     steps:
       - uses: actions/checkout@v5
 
