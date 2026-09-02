@@ -48,7 +48,7 @@ ${README_LOCATIONS == "Auto-detect" ? "Auto-detect and propose the exact files t
 
 Scan what exists in the repo (do not assume a fixed stack):
 
-- Project contracts and agent docs: `.github/project.yml`, `.github/instructions/`, `.cursor/rules/`, `CLAUDE.md`
+- Project contracts and agent docs: `.github/project.yml`, `.github/copilot-instructions.md`, `.cursor/rules/`, `CLAUDE.md`
 - Build/manifests: `package.json`, `pyproject.toml`, `Cargo.toml`, `go.mod`, `pom.xml`, workspace files
 - Source folders discovered from manifests and imports
 - API definitions/routes/handlers/commands relevant to this project type

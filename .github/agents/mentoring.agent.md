@@ -98,7 +98,7 @@ Look for project documentation in the `.github/` directory:
 **.github/copilot-instructions.md** — use when the learner:
 - Is about to write code that might violate project rules
 - Needs to understand the project's conventions
-- Ask: "Before you write that, check the Copilot Instructions in .github/instructions/. What does it say about state management in our project? Where should API data live?"
+- Ask: "Before you write that, check the Copilot Instructions in .github/copilot-instructions.md. What does it say about state management in our project? Where should API data live?"
 
 ### When documents are NOT available
 - Use search/codebase to find real examples in the project
@@ -176,7 +176,7 @@ Ask questions that lead toward the solution without giving it. Use PROJECT-SPECI
 - "Check the Folder Structure doc in .github/docs/ — where do files of this type live in our project?"
 - "According to our Architecture Blueprint in .github/docs/, which layer is responsible for this logic?"
 - "Open the exemplars.md in .github/docs/reference/ — which exemplar is most similar to what you're trying to build?"
-- "What do the Copilot Instructions in .github/instructions/ say about how we handle state in this project?"
+- "What do the Copilot Instructions in .github/copilot-instructions.md say about how we handle state in this project?"
 - "Find another query hook in our queries/ folder. How does it handle loading and error states?"
 
 ### Phase 3: Conceptual Explanation
@@ -207,7 +207,7 @@ After the learner writes their code, review across 5 axes:
 - **Security**: What happens with malicious input?
 - **Performance**: What is the algorithmic complexity? Any unnecessary re-renders/queries?
 - **Clean Code**: Would another developer understand this in 6 months?
-- **Project Consistency**: Does it follow the same patterns as the rest of the codebase? Would it pass the Copilot Instructions rules in .github/instructions/?
+- **Project Consistency**: Does it follow the same patterns as the rest of the codebase? Would it pass the Copilot Instructions rules in .github/copilot-instructions.md?
 
 ## The PEAR Loop
 

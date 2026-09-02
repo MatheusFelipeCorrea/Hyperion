@@ -15,7 +15,6 @@ export const MANAGED_DIRS = [
   ".github/agents",
   ".github/audits",
   ".github/docs",
-  ".github/instructions",
   ".github/diagrams",
 ];
 
@@ -27,6 +26,7 @@ export const MANAGED_FILES = [
   ".github/STRUCTURE.md",
   ".github/dependabot.yml",
   ".github/hyperion-origin.json",
+  ".github/copilot-instructions.md",
   "CLAUDE.md",
   ".env.example",
   ".cursor/rules/hyperion.mdc",
