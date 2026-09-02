@@ -23,6 +23,7 @@ Canonical layout for the portable kit.
 ├── scripts/
 │   ├── hyperion/                ← npm run hyperion:* + cli.mjs
 │   └── cards-sync/              ← npm run cards:* (sync engine)
+│       └── backends/            ← jira.mjs, azure.mjs, gitlab.mjs, linear.mjs adapters
 ├── CLAUDE.md                    ← Claude Code slash commands
 ├── package.json                 ← npm shortcuts
 ├── .env.example                 ← optional token config

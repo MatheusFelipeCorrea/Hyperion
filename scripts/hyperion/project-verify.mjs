@@ -7,8 +7,6 @@
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { join, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import Ajv2020 from "ajv/dist/2020.js";
-import { load as loadYaml } from "js-yaml";
 import { readProjectCommands } from "./repo-detect.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -18,11 +16,29 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
  * checks (unknown keys, wrong types, bad enums) that the hand-rolled
  * regex extraction below can't catch, since it only reads the handful of
  * fields it knows to look for.
+ *
+ * ajv/js-yaml are dynamically imported (not top-level) so a missing
+ * `npm install` produces one clear, actionable line here instead of a raw
+ * `ERR_MODULE_NOT_FOUND` stack trace crashing the whole process before any
+ * of our own error handling can run.
  */
-function validateAgainstSchema(root, text) {
+async function validateAgainstSchema(root, text) {
   const schemaPath = join(root, ".github", "project.schema.json");
   if (!existsSync(schemaPath)) {
     return { ok: true, skipped: true, errors: [] };
+  }
+  let Ajv2020, loadYaml;
+  try {
+    Ajv2020 = (await import("ajv/dist/2020.js")).default;
+    loadYaml = (await import("js-yaml")).load;
+  } catch {
+    return {
+      ok: false,
+      skipped: false,
+      errors: [
+        'dependencies not installed — run "npm install" in the kit folder first (ajv + js-yaml are required for schema validation)',
+      ],
+    };
   }
   let data;
   try {
@@ -155,7 +171,7 @@ function extractDocsPaths(text) {
   return out;
 }
 
-function main() {
+async function main() {
   if (process.argv.includes("--help") || process.argv.includes("-h")) {
     usage();
     process.exit(0);
@@ -172,7 +188,7 @@ function main() {
   let failed = 0;
   const warnings = [];
 
-  const schemaResult = validateAgainstSchema(root, text);
+  const schemaResult = await validateAgainstSchema(root, text);
   if (schemaResult.skipped) {
     warnings.push("no .github/project.schema.json found — skipping JSON-Schema validation");
   } else if (!schemaResult.ok) {
@@ -234,4 +250,7 @@ function main() {
   console.log("project-verify OK");
 }
 
-main();
+main().catch((err) => {
+  console.error(`FAIL: unexpected error — ${err.message}`);
+  process.exit(1);
+});

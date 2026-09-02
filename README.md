@@ -189,8 +189,9 @@ git clone https://github.com/MatheusFelipeCorrea/Hyperion.git
 |---|--------|------|
 | 1 | **Obter** | Clone ou ZIP → pasta **`Hyperion`** |
 | 2 | **Colar** | Coloque a pasta **inteira** em `seu-produto/Hyperion/` |
-| 3 | **Shims** | Na raiz do produto: `npm run hyperion:init --prefix Hyperion -- --adopt` |
-| 4 | **Usar** | Chat no **produto**: `/setup` ou `/migrate` |
+| 3 | **Instalar** | Dentro de `Hyperion/`: `npm install` (ajv + js-yaml — únicas dependências do kit) |
+| 4 | **Shims** | Na raiz do produto: `npm run hyperion:init --prefix Hyperion -- --adopt` |
+| 5 | **Usar** | Chat no **produto**: `/setup` ou `/migrate` |
 
 <details>
 <summary><strong>📦 Detalhes (pasta Hyperion + o que fica na raiz)</strong></summary>
