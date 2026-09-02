@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import readline from "node:readline";
 
 import { resolveHyperionPaths } from "../hyperion/paths.mjs";
+import { discoverGitHubProjectNumber } from "./lib.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -16,13 +17,15 @@ const cardsRoot = hyperionPaths.cardsRoot;
 const configPath = path.join(cardsRoot, "config", "projects-map.json");
 const projectYmlPath = hyperionPaths.projectYmlPath;
 
-const argInteractive = process.argv.includes("--interactive");
 const argYes = process.argv.includes("--yes");
 
 function isInteractive() {
   if (argYes) return false;
-  if (argInteractive) return true;
-  return process.stdin.isTTY;
+  // --interactive is accepted for backward compatibility but must never
+  // force prompting without a real TTY — that combination hangs forever
+  // waiting on stdin in CI/agent shells (npm run cards:doctor hardcodes
+  // this flag). Only a genuine TTY can make this true.
+  return Boolean(process.stdin.isTTY);
 }
 
 async function askYesNo(question) {
@@ -541,6 +544,28 @@ if (!projectNumber || projectNumber <= 0) {
     process.exit(0);
   }
 
+  // sync.mjs auto-discovers an existing GitHub Project by name/repo match
+  // before it ever considers creating one — check the same way here
+  // (persist: false, so this stays a read-only preview) instead of
+  // unconditionally reporting "missing".
+  const discovery = token
+    ? await discoverGitHubProjectNumber({
+        token,
+        owner: repoOwner,
+        repoName,
+        repoConfig,
+        configPath,
+        repositorySlug,
+        persist: false,
+      })
+    : { discovered: false, reason: "no_token" };
+
+  if (discovery.discovered) {
+    ok(`sync.mjs would auto-discover GitHub Project #${discovery.projectNumber}: "${discovery.projectTitle}"`);
+    warn("Not yet saved to projects-map.json — run `npm run cards:sync` (or `npm run cards:dry-run` to preview) to pick it up.");
+    process.exit(0);
+  }
+
   const wants = await askYesNo("Project number missing. Can I run sync.mjs to auto-create the GitHub Project?");
   if (wants) {
     log("info", "Running sync.mjs (real mode) to auto-create project/fields/labels...");
@@ -551,7 +576,12 @@ if (!projectNumber || projectNumber <= 0) {
     });
     process.exit(res.status ?? 1);
   }
-  warn("Auto-create skipped. Tip: set projectNumber=0 or remove it, then run sync.mjs.");
+  if (discovery.reason === "ambiguous") {
+    warn("Multiple GitHub Projects found — set projectNumber in projects-map.json to disambiguate.");
+    for (const c of discovery.candidates || []) warn(`  candidate: #${c.number} ${c.title}`);
+  } else {
+    warn("Auto-create skipped. Run `npm run cards:sync` when you're ready — it will create a new Project.");
+  }
   process.exit(0);
 }
 

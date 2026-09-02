@@ -41,7 +41,7 @@
     "cards:ci-sync": "node scripts/cards-sync/ci-sync.mjs",
     "cards:pr-guard": "node scripts/cards-sync/pr-board-guard.mjs",
     "cards:pr-recheck": "node scripts/cards-sync/report-pr-guard-check.mjs",
-    "cards:doctor": "node scripts/cards-sync/doctor.mjs --interactive",
+    "cards:doctor": "node scripts/cards-sync/doctor.mjs",
     "cards:watch": "node scripts/cards-sync/watch.mjs",
     "cards:hook": "node scripts/cards-sync/install-hook.mjs",
     "cards:labels-reset": "node scripts/cards-sync/labels-reset.mjs",
