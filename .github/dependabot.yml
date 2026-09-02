@@ -5,13 +5,16 @@ updates:
     schedule:
       interval: "weekly"
 
-  # Uncomment and adjust for your stack:
-  # - package-ecosystem: "npm"
-  #   directory: "/"
-  #   schedule:
-  #     interval: "weekly"
-  #   open-pull-requests-limit: 5
+  # The kit's own scripts/ depend on ajv + js-yaml (see package-lock.json).
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
 
+  # The kit itself ships no Python code (pip-audit in hyperion-security.yml
+  # only scans an *adopting* repo's own requirements.txt/pyproject.toml).
+  # Uncomment if you add Python tooling to the kit itself:
   # - package-ecosystem: "pip"
   #   directory: "/"
   #   schedule:

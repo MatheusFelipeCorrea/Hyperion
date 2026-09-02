@@ -1,0 +1,11 @@
+# Code owners — GitHub requests a review from these owners on matching PRs.
+# See: https://docs.github.com/articles/about-code-owners
+
+# Default: maintainer reviews everything unless a more specific rule below matches.
+*                           @MatheusFelipeCorrea
+
+# Security-sensitive surfaces
+/.github/workflows/        @MatheusFelipeCorrea
+/scripts/cards-sync/       @MatheusFelipeCorrea
+/.github/project.schema.json @MatheusFelipeCorrea
+/SECURITY.md                @MatheusFelipeCorrea
