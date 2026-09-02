@@ -7,6 +7,7 @@
  *
  * Env:
  *   CARDS_CI_REQUIRE_PROJECT=true  — fail if projectNumber missing (GitHub only)
+ *   Kit repo workflows set this false — template has no consumer projectNumber.
  *   GITHUB_BASE_SHA                — PR base commit (set by workflow)
  *   CARDS_GUARD_BASE_REF           — override base ref for directional compare
  *   DRY_RUN=true                   — skip reverse writes; guard always passes
