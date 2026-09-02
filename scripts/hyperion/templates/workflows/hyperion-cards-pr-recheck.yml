@@ -1,0 +1,63 @@
+name: Hyperion — Cards PR Recheck
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"
+  repository_dispatch:
+    types: [hyperion-board-changed]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: read
+  checks: write
+  issues: read
+  repository-projects: read
+
+jobs:
+  list-open-prs:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - uses: actions/github-script@v7
+        id: set-matrix
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const { data: pulls } = await github.rest.pulls.list({ owner, repo, state: "open", base: "main", per_page: 100 });
+            const matrix = pulls.filter((pr) => pr.head?.repo?.full_name === `${owner}/${repo}`).map((pr) => ({
+              number: pr.number, head_sha: pr.head.sha, base_sha: pr.base.sha, head_ref: pr.head.ref,
+            }));
+            core.setOutput("matrix", JSON.stringify(matrix.length ? matrix : [{ skip: true }]));
+
+  recheck:
+    needs: list-open-prs
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      max-parallel: 5
+      matrix:
+        include: ${{ fromJson(needs.list-open-prs.outputs.matrix) }}
+    steps:
+      - if: matrix.skip != true
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ matrix.head_sha }}
+          fetch-depth: 0
+      - if: matrix.skip != true
+        uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+      - if: matrix.skip != true
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PROJECT_SYNC_TOKEN: ${{ secrets.PROJECT_SYNC_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_BASE_SHA: ${{ matrix.base_sha }}
+          CARDS_PR_HEAD_SHA: ${{ matrix.head_sha }}
+          CARDS_CI_REQUIRE_PROJECT: "true"
+          CARDS_CI_STRICT_GIT: "true"
+          CARDS_PR_CHECK_NAME: board-guard
+        run: node scripts/cards-sync/report-pr-guard-check.mjs --head-sha "${{ matrix.head_sha }}" --base-sha "${{ matrix.base_sha }}"

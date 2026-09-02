@@ -75,7 +75,26 @@ Files under `_examples/` and `CARD.template.md` are **reference only** — never
 
 **Safe mode (GitHub Projects):** existing cards without `status` in frontmatter preserve manual board moves. When the user asks to move a card, the agent must set `status:` and run `/sync`.
 
-Forward sync does not auto-update Markdown from board-only moves — use `cards:reverse` if needed.
+Forward sync does **not** auto-update Markdown from board-only moves.
+
+**Reverse (`npm run cards:reverse`):** reads GitHub Project fields and **patches frontmatter only** — card body is preserved. Run after board moves, **before** merging to the default branch.
+
+**CI forward (main):** **pull → verify → push** via `ci-sync.mjs`:
+1. **Pull** — reverse in CI (board → workspace)
+2. **Verify** — `git diff` on card `.md` files; fails if board diverged from commit (run `cards:reverse` locally and commit)
+3. **Push** — forward sync (markdown → board)
+
+Git analogy: `git pull` → check → `git push`. `workflow_dispatch`: `pull-forward` (default), `forward-only` (escape hatch), `reverse` (pull only).
+
+**CI PR (before merge):** `hyperion-cards-pr-check.yml` runs directional `pr-board-guard.mjs`:
+- Allows forward-pending PR edits (e.g. `status: Done` while board is still `In Progress`)
+- Blocks only **external drift** (board moved, branch did not incorporate)
+
+Mark **Hyperion — Cards PR Board Guard** as a required status check in Branch protection. Fork PRs skip the job (no repo secrets).
+
+Outdated workflow? `npm run hyperion:pipeline-apply -- --refresh-sync --yes`
+
+Outdated workflow? `npm run hyperion:pipeline-apply -- --refresh-sync --yes`
 
 ---
 
@@ -127,7 +146,7 @@ Run `npm run hyperion:check-rules` if shortcuts look inconsistent — CI enforce
 
 ## 9. Non-GitHub backends
 
-GitHub Projects is fully mature. Jira/Azure/GitLab also support reverse; Linear is forward-only. Native column parity is not identical to GitHub Projects — see [choose-backend-en.md](../integration/choose-backend-en.md) and `/connect`.
+GitHub Projects is fully mature. Jira, Azure, GitLab, and Linear all support `--reverse` (frontmatter patch, body preserved). Native column parity is not identical to GitHub Projects — see [choose-backend-en.md](../integration/choose-backend-en.md) and `/connect`.
 
 ---
 
@@ -137,7 +156,6 @@ GitHub Projects is fully mature. Jira/Azure/GitLab also support reverse; Linear 
 |--------------|----------------|
 | Native Cursor slash plugin | Rules file — type `/setup` or the equivalent phrase |
 | Full Jira Kanban column sync | Workflow **transitions** when names match; native board depends on the project |
-| Linear reverse | Not yet — GitHub, Jira, Azure, and GitLab already support `--reverse` |
 | Video walkthrough | Markdown only |
 
 ---

@@ -5,7 +5,8 @@
 #       jobs:
 #         - template: hyperion-azure-pipelines.yml
 #
-# Or copy jobs below into an existing stage. Does not replace product CI.
+# Cards forward sync: prefer GitHub Actions or local `npm run cards:sync`.
+# HyperionCards runs on refs/heads/main only (validate + ci-sync pull→verify→push).
 
 parameters:
   - name: runValidate
@@ -17,6 +18,9 @@ parameters:
   - name: runSecurity
     type: boolean
     default: false
+  - name: defaultBranch
+    type: string
+    default: main
 
 jobs:
   - job: HyperionValidate
@@ -37,8 +41,8 @@ jobs:
         displayName: Validate Hyperion kit
 
   - job: HyperionCards
-    displayName: Hyperion cards dry-run
-    condition: eq(${{ parameters.runCards }}, true)
+    displayName: Hyperion cards CI sync
+    condition: and(eq(${{ parameters.runCards }}, true), eq(variables['Build.SourceBranch'], 'refs/heads/${{ parameters.defaultBranch }}'))
     pool:
       vmImage: ubuntu-latest
     steps:
@@ -46,9 +50,23 @@ jobs:
         inputs:
           versionSpec: "22.x"
       - script: |
-          node scripts/cards-sync/validate.mjs
-          node scripts/cards-sync/sync.mjs --dry-run
-        displayName: Validate + dry-run cards sync
+          node scripts/cards-sync/ci-sync.mjs
+        displayName: Cards CI sync pull→verify→push (main only)
+
+  - job: HyperionCardsPrGuard
+    displayName: Hyperion cards PR board guard
+    condition: and(eq(${{ parameters.runCards }}, true), eq(variables['Build.Reason'], 'PullRequest'))
+    pool:
+      vmImage: ubuntu-latest
+    steps:
+      - task: NodeTool@0
+        inputs:
+          versionSpec: "22.x"
+      - script: |
+          node scripts/cards-sync/pr-board-guard.mjs
+        displayName: Directional board drift guard (PR)
+        env:
+          CARDS_CI_REQUIRE_PROJECT: "true"
 
   - job: HyperionSecurity
     displayName: Hyperion security scan

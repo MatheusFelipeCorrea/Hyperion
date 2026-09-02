@@ -7,7 +7,7 @@ Syncs card files from `.github/cards/` to project management backends:
 | **GitHub** (default) | forward + reverse | Updates Issues + Project fields; **status safe mode** applies |
 | **Jira** | forward + reverse | Creates/updates issues; **applies workflow transitions** when status names match |
 | **Azure DevOps** | forward + reverse | Creates/updates work items; **System.State** via `status_map` |
-| **Linear** | forward only | Creates/updates issues; **workflow state** via `status_map` |
+| **Linear** | forward + reverse | Creates/updates issues; **workflow state** via `status_map` |
 | **GitLab** | forward + reverse | Creates/updates issues; open/close + `status:` label via `status_map` |
 
 ## How it works
@@ -16,11 +16,11 @@ Syncs card files from `.github/cards/` to project management backends:
 2. Forward sync reads them and creates/updates remote items (Issues, work items, etc.)
 3. **GitHub**: populates Project fields, labels, and sub-issue links from `parent` + `## Sub-issues`
 4. **Jira**: encodes card metadata in issue description; `--reverse` rebuilds Markdown from Jira
-5. **Azure / Linear / GitLab**: create/update with `CARD_ID` idempotency; Azure/GitLab support `--reverse` and status mapping; Linear applies status on forward
+5. **Azure / Linear / GitLab**: create/update with `CARD_ID` idempotency; all support `--reverse` with non-destructive frontmatter patch
 
 See [Backend support (current reality)](#backend-support-current-reality) for the full matrix.
 
-**Related docs:** [Quick commands](../../.github/docs/reference/comandos-rapidos.md) · [Documentation index](../../.github/docs/README.md) · [GitHub CLI setup](../../.github/docs/integration/github-cli-setup.md) · [Choose backend](../../.github/docs/integration/escolher-backend.md) · [setup-github](../../.github/docs/onboarding/setup-github.md) · [card-refiner](../../.github/skills/planning/card-refiner/SKILL.md)
+**Related docs:** [Quick commands](../../.github/docs/reference/comandos-rapidos.md) · [Documentation index](../../.github/docs/README.md) · [GitHub CLI setup](../../.github/docs/integration/github-cli-setup.md) · [Choose backend](../../.github/docs/integration/escolher-backend.md) · [Cards sync hardening](../../.github/docs/integration/cards-sync-hardening.md) · [setup-github](../../.github/docs/onboarding/setup-github.md) · [card-refiner](../../.github/skills/planning/card-refiner/SKILL.md)
 
 ## Hyperion shortcuts (preferred)
 
@@ -134,7 +134,7 @@ Status update behavior (**GitHub Projects only — safe mode**):
   - new issues/items: sync uses `defaults.status` (usually `Backlog`)
   - existing issues/items: sync preserves current Project status (no overwrite)
 
-> **Other backends:** On forward sync, Jira applies workflow **transitions** when status names match; Azure updates **`System.State`** via `status_map`; GitLab open/close + `status:` label; Linear applies workflow state via `status_map`. Reverse (`--reverse`) works for GitHub, Jira, Azure, and GitLab (not Linear). GitHub Projects still has the richest native-column + safe-mode behavior.
+> **Other backends:** On forward sync, Jira applies workflow **transitions** when status names match; Azure updates **`System.State`** via `status_map`; GitLab open/close + `status:` label; Linear applies workflow state via `status_map`. Reverse (`--reverse`) works for all backends (non-destructive frontmatter patch). GitHub Projects still has the richest native-column + safe-mode behavior.
 
 Worst-case behavior (Project auto-create):
 - If the Project does not exist and `projects-map.json.default.projectNumber` is `0/null` (and `autoCreateProject` is enabled),
@@ -243,7 +243,9 @@ For GitLab backend, provide:
 Labels come from `.github/cards/config/labels.{locale}.json` (for example
 `labels.en.json` or `labels.pt-BR.json`) based on the configured locale.
 
-Set `CREATE_MISSING_LABELS=true` (default) to auto-create missing labels used in card `categories`.
+**Catalog format (v2):** each entry is an object with `name`, `color` (6-char hex, no `#`), and `description`. Legacy v1 string arrays still work — colors fall back to a deterministic hash.
+
+Set `CREATE_MISSING_LABELS=true` (default) to auto-create missing labels used in card `categories`. Forward sync applies catalog **color + description** on create and updates existing labels when metadata drifts.
 
 **Reset labels (recommended on first setup):** GitHub repos ship default labels (`bug`, `enhancement`, …) and sync may accumulate orphans. Use the Hyperion catalog for your locale only:
 
@@ -252,11 +254,25 @@ npm run cards:labels-reset -- --dry-run   # preview
 npm run cards:labels-reset -- --yes       # apply
 ```
 
-This removes GitHub defaults + orphan labels, keeps Dependabot labels (`dependencies`, `github_actions`) by default, and ensures labels from `labels.{locale}.json`. Card `categories` should use names from that same file.
+This removes GitHub defaults + orphan labels, keeps Dependabot labels (`dependencies`, `github_actions`) by default, and ensures labels from `labels.{locale}.json` (including color and description). Card `categories` should use names from that same file.
 
 `cards:init -- --yes` runs label reset automatically before sync.
 
 **Project views:** on create/sync, Hyperion configures tabs in order: **Board** → **Tabela** → **Roadmap** (user can customize filters/grouping in the UI afterward).
+
+**Status columns (board):** workflow columns come from `status-columns.{locale}.json` (via `statusColumnsFile` in `projects-map.json`). Each entry has `key` (canonical English status), `color` (GitHub enum: GRAY, BLUE, GREEN, …), and `description` shown in Project field settings. Names on the board are localized through `optionMapByLocale.status`. Forward sync updates missing columns and refreshes color/description when metadata drifts.
+
+Default semantic palette:
+
+| Column | Color |
+|--------|-------|
+| Backlog | GRAY |
+| Functional Refinement | BLUE |
+| Technical Refinement | PURPLE |
+| In Progress | YELLOW |
+| In Tests | PINK |
+| In Revision | ORANGE |
+| Done | GREEN |
 
 **Sprint field:** auto-created as GitHub **Iteration** (`Sprint` / `Número da Sprint`). Cards may keep `sprint: null`; define sprint dates in Project Settings. Configure defaults in `projects-map.json` → `sprintField` (`durationDays`, optional `seedIterations`).
 
@@ -310,6 +326,12 @@ CARDS_SYNC_BACKEND=jira node scripts/cards-sync/sync.mjs --reverse
 # Reverse dry-run
 node scripts/cards-sync/sync.mjs --reverse --dry-run
 
+# PR board guard (CI / local — reverse + diff, blocks merge on drift)
+npm run cards:pr-guard
+
+# Main CI sync (pull → verify → push — runs on merge to main)
+npm run cards:ci-sync
+
 # Unit tests (mapping/parser/hierarchy)
 node --test scripts/cards-sync/*.test.mjs
 
@@ -332,6 +354,12 @@ node scripts/cards-sync/watch.mjs
 | Incremental sync | `--only CARD_ID,...` or `CARDS_SYNC_ONLY` env (watch uses this); loads all issues for link resolution |
 | Sync summary | Writes `.github/plans/cards/last-sync.md` after each forward sync |
 | Pre-commit hook | `npm run cards:hook` validates staged `.github/cards/*.md` |
+| **PR board guard** | `hyperion-cards-pr-check.yml` — directional reverse + diff; blocks **external** board drift only |
+| **Main CI sync** | `hyperion-sync-cards.yml` — pull → verify → push after merge to main |
+
+**Branch workflow:** create/edit cards on a feature branch (forward sync is skipped locally by `watch` and does not run until main). Open a PR → PR guard ensures board and branch agree → merge → main CI pushes to the Project.
+
+Mark **Hyperion — Cards PR Board Guard** as a required status check in GitHub Branch protection.
 
 Disable auto-discovery: set `"autoDiscoverProject": false` in `projects-map.json`.
 
@@ -387,10 +415,10 @@ Current implementation status:
 - **GitHub**: full (Issues + Projects + fields + labels + sub-issues)
 - **Jira**: forward + reverse + **workflow transitions** on forward sync when `status` is set
 - **Azure DevOps**: forward + reverse + **System.State** via `management.status_map`
-- **Linear**: forward + **workflow state** via `status_map` (no reverse yet)
+- **Linear**: forward + reverse + **workflow state** via `status_map`
 - **GitLab**: forward + reverse + open/close + `status:` label via `status_map`
 
-Reverse sync (`--reverse`) is implemented for **GitHub, Jira, Azure DevOps, and GitLab**.
+Reverse sync (`--reverse`) is implemented for **GitHub, Jira, Azure DevOps, GitLab, and Linear** (frontmatter patch only — card body preserved).
 
 Doctor remote checks cover **GitHub, Jira, Azure, GitLab, and Linear**.
 

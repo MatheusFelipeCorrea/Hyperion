@@ -1,10 +1,11 @@
 import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
-import { spawn } from "node:child_process";
+import { spawn, execSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { cardIdFromRelativePath, isNonSyncCardPath, isKitSampleCardId } from "./lib.mjs";
 import { resolveHyperionPaths } from "../hyperion/paths.mjs";
+import { detectDefaultBranch } from "../hyperion/pipeline-lib.mjs";
 
 const hyperionPaths = resolveHyperionPaths(process.cwd());
 const workspaceRoot = hyperionPaths.workspaceRoot;
@@ -21,12 +22,16 @@ function log(message) {
 }
 
 function runNodeScript(scriptName, extraEnv = {}) {
+  const scriptPath = path.join(scriptDir, scriptName);
+  const env = { ...process.env, ...extraEnv };
+  if (hyperionPaths.kitRootRel) {
+    env.HYPERION_ROOT = hyperionPaths.kitRootRel;
+  }
   return new Promise((resolve, reject) => {
-    const scriptPath = path.join(scriptDir, scriptName);
     const child = spawn(process.execPath, [scriptPath], {
       cwd: workspaceRoot,
       stdio: "inherit",
-      env: { ...process.env, ...extraEnv },
+      env,
     });
     child.on("error", reject);
     child.on("close", (code) => {
@@ -34,6 +39,22 @@ function runNodeScript(scriptName, extraEnv = {}) {
       else reject(new Error(`${scriptName} exited with code ${code}`));
     });
   });
+}
+
+function isDefaultBranch() {
+  if (String(process.env.CARDS_WATCH_ANY_BRANCH || "").toLowerCase() === "true") return true;
+  try {
+    const branch = execSync("git branch --show-current", {
+      encoding: "utf8",
+      cwd: workspaceRoot,
+      stdio: ["pipe", "pipe", "pipe"],
+    }).trim();
+    if (!branch) return true;
+    const defaultBranch = detectDefaultBranch(workspaceRoot);
+    return branch === defaultBranch || branch === "main" || branch === "master";
+  } catch {
+    return true;
+  }
 }
 
 async function runPipeline() {
@@ -50,6 +71,14 @@ async function runPipeline() {
   try {
     log("Validating cards...");
     await runNodeScript("validate.mjs");
+
+    if (!isDefaultBranch()) {
+      log(
+        "Skipping forward sync — not on default branch. After board moves run: npm run cards:reverse → commit → merge. Override: CARDS_WATCH_ANY_BRANCH=true"
+      );
+      log("Done (validate only).");
+      return;
+    }
 
     if (ids.length) {
       log(`Incremental sync: ${ids.join(", ")}`);

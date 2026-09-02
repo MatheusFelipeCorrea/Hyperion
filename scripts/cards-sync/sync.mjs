@@ -15,6 +15,16 @@ import {
   resolveRepoConfig,
   shouldIncludeKitSamples,
   writeSyncSummary,
+  parseCardIdFromIssueBody,
+  parseSourceFileFromIssueBody,
+  pickCanonicalIssueForCardId,
+  readLocalCardFromSourceFile,
+  colorFromString,
+  loadLabelsCatalog,
+  loadStatusColumnsCatalog,
+  DEFAULT_STATUS_COLUMN_KEYS,
+  DEFAULT_STATUS_OPTIONS,
+  normalizeProjectSelectColor,
 } from "./lib.mjs";
 import { resolveHyperionPaths } from "../hyperion/paths.mjs";
 
@@ -291,6 +301,7 @@ function parseCardFile(content, relativeFile) {
     reporter: meta.reporter || null,
     parent: meta.parent || null,
     dueDate: meta.due_date || null,
+    boardSyncAt: meta.board_sync_at || null,
     categories: Array.isArray(meta.categories) ? meta.categories : [],
     body,
     relativeFile,
@@ -530,6 +541,9 @@ function buildIssueBody(card, linkContext = null) {
   if (card.parent) {
     lines.push(`PARENT_CARD_ID: ${card.parent}`);
   }
+  if (card.boardSyncAt) {
+    lines.push(`BOARD_SYNC_AT: ${card.boardSyncAt}`);
+  }
   lines.push("<!-- /SYNC_METADATA -->");
   return lines.join("\n");
 }
@@ -551,6 +565,9 @@ function buildJiraDescription(card) {
   lines.push(`PARENT_CARD_ID: ${card.parent ?? ""}`);
   lines.push(`DUE_DATE: ${card.dueDate ?? ""}`);
   lines.push(`CATEGORIES: ${(card.categories || []).join(", ")}`);
+  if (card.boardSyncAt) {
+    lines.push(`BOARD_SYNC_AT: ${card.boardSyncAt}`);
+  }
   lines.push("<!-- /SYNC_METADATA -->");
   return lines.join("\n");
 }
@@ -586,50 +603,44 @@ async function getRepositoryNodeId(owner, name) {
   return data.repository.id;
 }
 
-async function searchIssueByCardId(owner, name, cardId) {
-  // Never attach/update kit sample issues unless maintainer opts in
-  if (isKitSampleCardId(cardId) && !shouldIncludeKitSamples()) return null;
-  // is:issue excludes pull requests that might contain CARD_ID in a template body
-  const q = `repo:${owner}/${name} in:body "CARD_ID: ${cardId}" is:issue`;
-  const data = await graphql(
-    `query($query: String!) { search(type: ISSUE, query: $query, first: 1) { nodes { ... on Issue { id number title url } } } }`,
-    { query: q }
-  );
-  return data.search.nodes[0] || null;
-}
-
 async function loadIssueMapByCardId(owner, name) {
   const map = new Map();
-  const q = `repo:${owner}/${name} in:body "CARD_ID:" is:issue`;
   let endCursor = null;
   let hasNextPage = true;
   let skippedSamples = 0;
 
   while (hasNextPage) {
     const data = await graphql(
-      `query($query: String!, $endCursor: String) {
-        search(type: ISSUE, query: $query, first: 50, after: $endCursor) {
-          pageInfo { hasNextPage endCursor }
-          nodes { ... on Issue { id number title url body } }
+      `query($owner: String!, $name: String!, $endCursor: String) {
+        repository(owner: $owner, name: $name) {
+          issues(first: 100, after: $endCursor, states: [OPEN, CLOSED]) {
+            pageInfo { hasNextPage endCursor }
+            nodes {
+              id number title url body updatedAt state
+              labels(first: 30) { nodes { name } }
+            }
+          }
         }
       }`,
-      { query: q, endCursor }
+      { owner, name, endCursor }
     );
 
-    for (const issue of data.search?.nodes || []) {
-      if (!issue?.id) continue; // skip PullRequest nodes if search ever returns them
-      const cardId = issue.body?.match(/CARD_ID:\s*(\S+)/)?.[1];
-      const sourceFile = issue.body?.match(/SOURCE_FILE:\s*(.+)/)?.[1]?.trim();
+    for (const issue of data.repository?.issues?.nodes || []) {
+      if (!issue?.id) continue;
+      const cardId = parseCardIdFromIssueBody(issue.body);
+      const sourceFile = parseSourceFileFromIssueBody(issue.body);
       if (!cardId) continue;
       if (isKitSampleRemoteArtifact({ cardId, sourceFile })) {
         skippedSamples += 1;
         continue;
       }
-      map.set(cardId, issue);
+      const labels = (issue.labels?.nodes || []).map((l) => l.name).filter(Boolean);
+      const enriched = { ...issue, labels };
+      map.set(cardId, pickCanonicalIssueForCardId(map.get(cardId), enriched));
     }
 
-    hasNextPage = Boolean(data.search?.pageInfo?.hasNextPage);
-    endCursor = data.search?.pageInfo?.endCursor || null;
+    hasNextPage = Boolean(data.repository?.issues?.pageInfo?.hasNextPage);
+    endCursor = data.repository?.issues?.pageInfo?.endCursor || null;
   }
 
   if (skippedSamples > 0) {
@@ -639,6 +650,12 @@ async function loadIssueMapByCardId(owner, name) {
   }
 
   return map;
+}
+
+async function searchIssueByCardId(owner, name, cardId, issueMapCache = null) {
+  if (isKitSampleCardId(cardId) && !shouldIncludeKitSamples()) return null;
+  const map = issueMapCache || (await loadIssueMapByCardId(owner, name));
+  return map.get(cardId) || null;
 }
 
 async function createIssue(repositoryId, title, body) {
@@ -668,30 +685,64 @@ async function linkAsSubIssue(parentIssueId, childIssueId) {
 // Labels
 // ---------------------------------------------------------------------------
 
+/** Catalog loaded during forward sync (name → { color, description }). */
+let labelsCatalogByName = new Map();
+
 async function getLabelId(owner, name, labelName, createIfMissing = false) {
+  const spec = labelsCatalogByName.get(labelName);
+  const desiredColor = spec?.color || colorFromString(labelName);
+  const desiredDescription = spec?.description ?? "";
+
   const data = await graphql(
-    `query($owner: String!, $name: String!, $labelName: String!) { repository(owner: $owner, name: $name) { id label(name: $labelName) { id } } }`,
+    `query($owner: String!, $name: String!, $labelName: String!) {
+      repository(owner: $owner, name: $name) {
+        id
+        label(name: $labelName) { id color description }
+      }
+    }`,
     { owner, name, labelName }
   );
 
-  if (data.repository.label?.id) return data.repository.label.id;
+  const existing = data.repository.label;
+  if (existing?.id) {
+    const currentColor = String(existing.color || "").replace(/^#/, "").toLowerCase();
+    const currentDescription = existing.description || "";
+    if (
+      currentColor !== desiredColor ||
+      (desiredDescription && currentDescription !== desiredDescription)
+    ) {
+      await graphql(
+        `mutation($id: ID!, $color: String!, $description: String) {
+          updateLabel(input: { id: $id, color: $color, description: $description }) {
+            label { id }
+          }
+        }`,
+        { id: existing.id, color: desiredColor, description: desiredDescription || null }
+      );
+    }
+    return existing.id;
+  }
+
   if (!createIfMissing) return "";
 
   const repositoryId = data.repository.id;
-  const color = colorFromString(labelName);
   const created = await graphql(
-    `mutation($repositoryId: ID!, $name: String!, $color: String!) { createLabel(input: { repositoryId: $repositoryId, name: $name, color: $color }) { label { id } } }`,
-    { repositoryId, name: labelName, color }
+    `mutation($repositoryId: ID!, $name: String!, $color: String!, $description: String) {
+      createLabel(input: {
+        repositoryId: $repositoryId
+        name: $name
+        color: $color
+        description: $description
+      }) { label { id } }
+    }`,
+    {
+      repositoryId,
+      name: labelName,
+      color: desiredColor,
+      description: desiredDescription || null,
+    }
   );
   return created.createLabel.label.id;
-}
-
-function colorFromString(text) {
-  let hash = 0;
-  for (let i = 0; i < text.length; i++) {
-    hash = (hash * 31 + text.charCodeAt(i)) >>> 0;
-  }
-  return (hash & 0xffffff).toString(16).padStart(6, "0");
 }
 
 async function setIssueLabels(issueId, owner, name, labels) {
@@ -727,7 +778,9 @@ async function getProject(owner, projectNumber) {
     nodes {
       __typename
       ... on ProjectV2Field { id name dataType }
-      ... on ProjectV2SingleSelectField { id name options { id name } }
+      ... on ProjectV2SingleSelectField {
+        id name options { id name color description }
+      }
       ... on ProjectV2IterationField { id name configuration { iterations { id title } } }
     }
   }`;
@@ -782,15 +835,58 @@ const PRIORITY_OPTION_COLORS = {
   Medium: "YELLOW",
   Low: "GRAY",
 };
-const DEFAULT_STATUS_OPTIONS = [
-  "Backlog",
-  "Functional Refinement",
-  "Technical Refinement",
-  "In Progress",
-  "In Tests",
-  "In Revision",
-  "Done",
-];
+
+function coerceFieldOptionSpecs(options, fieldKey = null) {
+  return options.map((entry, i) => {
+    if (typeof entry === "string") {
+      return {
+        name: entry,
+        color: optionColorForField(fieldKey, entry, i),
+        description: "",
+      };
+    }
+    const name = String(entry.name || entry.key || "").trim();
+    return {
+      name,
+      color: normalizeProjectSelectColor(
+        entry.color,
+        optionColorForField(fieldKey, name, i)
+      ),
+      description: typeof entry.description === "string" ? entry.description.trim() : "",
+    };
+  });
+}
+
+function buildSingleSelectOptionInputs(specs, existingOptions = []) {
+  const byName = new Map();
+  for (const opt of existingOptions) {
+    byName.set(normalizeText(opt.name), opt);
+  }
+  return specs.map((spec) => {
+    const existing = byName.get(normalizeText(spec.name));
+    const input = {
+      name: spec.name,
+      color: spec.color,
+      description: spec.description || "",
+    };
+    if (existing?.id) input.id = existing.id;
+    return input;
+  });
+}
+
+function statusColumnMetadataDrift(desiredSpecs, existingOptions) {
+  for (const spec of desiredSpecs) {
+    const existing = (existingOptions || []).find(
+      (opt) => normalizeText(opt.name) === normalizeText(spec.name)
+    );
+    if (!existing) continue;
+    const colorOk =
+      String(existing.color || "").toUpperCase() === String(spec.color || "").toUpperCase();
+    const descOk = (existing.description || "") === (spec.description || "");
+    if (!colorOk || !descOk) return true;
+  }
+  return false;
+}
 
 async function createProjectV2(ownerId, title, repositoryId = null) {
   const data = await graphql(
@@ -841,6 +937,7 @@ async function ensureProjectRepositoryLink(project, repositoryId, repositorySlug
 }
 
 async function addSingleSelectField(projectId, name, options, fieldKey = null) {
+  const specs = coerceFieldOptionSpecs(options, fieldKey);
   const data = await graphql(
     `mutation($projectId: ID!, $name: String!, $options: [ProjectV2SingleSelectFieldOptionInput!]!) {
       createProjectV2Field(input: {
@@ -853,11 +950,7 @@ async function addSingleSelectField(projectId, name, options, fieldKey = null) {
     {
       projectId,
       name,
-      options: options.map((o, i) => ({
-        name: o,
-        color: optionColorForField(fieldKey, o, i),
-        description: "",
-      })),
+      options: buildSingleSelectOptionInputs(specs),
     }
   );
   return data.createProjectV2Field.projectV2Field;
@@ -976,33 +1069,30 @@ async function ensureSprintField(project, repoConfig) {
   }
 }
 
-async function updateSingleSelectFieldOptions(fieldId, options, fieldKey = null) {
+async function updateSingleSelectFieldOptions(fieldId, options, fieldKey = null, existingOptions = []) {
+  const specs = coerceFieldOptionSpecs(options, fieldKey);
   const data = await graphql(
     `mutation($fieldId: ID!, $options: [ProjectV2SingleSelectFieldOptionInput!]!) {
       updateProjectV2Field(input: { fieldId: $fieldId, singleSelectOptions: $options }) {
-        projectV2Field { ... on ProjectV2SingleSelectField { id name options { id name color } } }
+        projectV2Field { ... on ProjectV2SingleSelectField { id name options { id name color description } } }
       }
     }`,
     {
       fieldId,
-      options: options.map((o, i) => ({
-        name: o,
-        color: optionColorForField(fieldKey, o, i),
-        description: "",
-      })),
+      options: buildSingleSelectOptionInputs(specs, existingOptions),
     }
   );
   return data.updateProjectV2Field.projectV2Field;
 }
 
-async function applySelectFieldColors(field, colorByName, label) {
+async function applySelectFieldColors(field, colorByName, label, descriptionByName = {}) {
   if (!field || field.__typename !== "ProjectV2SingleSelectField") return;
 
   const options = (field.options || []).map((opt, i) => ({
     id: opt.id,
     name: opt.name,
     color: colorByName[opt.name] || singleSelectColor(i),
-    description: "",
+    description: descriptionByName[opt.name] ?? opt.description ?? "",
   }));
 
   try {
@@ -1136,30 +1226,48 @@ async function ensureKitProjectViews(project) {
 async function ensureStatusFieldOptions(project, repoConfig) {
   const fieldMap = repoConfig.fieldMap || {};
   const statusName = fieldMap.status || "Status";
+  const catalog = await loadStatusColumnsCatalog({
+    cardsRoot,
+    repoConfig,
+    projectLocale: await detectProjectLocale(),
+  });
+  const desiredSpecs = catalog.specs;
+
   let statusField = getFieldByName(project, statusName);
 
   if (!statusField) {
-    await addSingleSelectField(project.id, statusName, DEFAULT_STATUS_OPTIONS);
-    log(`  + Status field created with ${DEFAULT_STATUS_OPTIONS.length} workflow options`);
+    await addSingleSelectField(project.id, statusName, desiredSpecs);
+    log(`  + Status field created (${desiredSpecs.length} columns, colors + descriptions)`);
     return;
   }
 
   if (statusField.__typename !== "ProjectV2SingleSelectField") return;
 
-  const existing = new Set((statusField.options || []).map((o) => normalizeText(o.name)));
-  const allPresent = DEFAULT_STATUS_OPTIONS.every((opt) => existing.has(normalizeText(opt)));
+  const existing = statusField.options || [];
+  const existingNames = new Set(existing.map((o) => normalizeText(o.name)));
+  const missing = desiredSpecs.filter((spec) => !existingNames.has(normalizeText(spec.name)));
+  const metadataDrift = statusColumnMetadataDrift(desiredSpecs, existing);
 
-  if (allPresent && (statusField.options || []).length >= DEFAULT_STATUS_OPTIONS.length) {
-    log(`  = Status field already has Hyperion workflow options`);
+  if (!missing.length && !metadataDrift) {
+    log(`  = Status columns OK (${desiredSpecs.length} options, metadata synced)`);
     return;
   }
 
   try {
-    await updateSingleSelectFieldOptions(statusField.id, DEFAULT_STATUS_OPTIONS, "status");
-    log(`  ~ Status field updated with Hyperion workflow options (${DEFAULT_STATUS_OPTIONS.length})`);
+    await updateSingleSelectFieldOptions(
+      statusField.id,
+      desiredSpecs,
+      "status",
+      existing
+    );
+    if (missing.length) {
+      log(`  ~ Status field updated — added ${missing.length} missing column(s)`);
+    } else {
+      log(`  ~ Status columns updated (colors + descriptions)`);
+    }
   } catch (error) {
     log(`  WARN: Could not update Status options automatically: ${error.message}`);
-    log(`  Customize Status options manually in Project Settings.`);
+    log(`  Customize Status columns manually in Project Settings.`);
   }
 }
 
@@ -1268,7 +1376,7 @@ async function autoCreateProject(owner, repoConfig) {
   }
 
   log("");
-  log("NOTE: Status field configured with Hyperion workflow columns.");
+  log("NOTE: Status field configured with Hyperion workflow columns (semantic colors + descriptions).");
   log("Sprint iteration field configured (cards may keep sprint: null until sprints are defined).");
 
   return created;
@@ -1363,6 +1471,35 @@ function resolveMappedOptionValue(fieldKey, value, repoConfig) {
   return localeMap[raw] ?? directMap[raw] ?? value;
 }
 
+/** Inverse of resolveMappedOptionValue — localized Project option → canonical YAML value. */
+function canonicalizeRemoteOption(fieldKey, remoteValue, repoConfig) {
+  if (remoteValue === null || remoteValue === undefined) return null;
+  const raw = String(remoteValue).trim();
+  if (!raw) return null;
+
+  const locale = repoConfig?.locale || "en";
+  const directMap = repoConfig?.optionMap?.[fieldKey] || {};
+  const localeMap = repoConfig?.optionMapByLocale?.[locale]?.[fieldKey] || {};
+
+  for (const [canonical, localized] of Object.entries(localeMap)) {
+    if (normalizeText(localized) === normalizeText(raw)) return canonical;
+    if (normalizeText(canonical) === normalizeText(raw)) return canonical;
+  }
+  for (const [canonical, mapped] of Object.entries(directMap)) {
+    if (normalizeText(mapped) === normalizeText(raw)) return canonical;
+    if (normalizeText(canonical) === normalizeText(raw)) return canonical;
+  }
+
+  const aliasesByField = OPTION_ALIASES[fieldKey] || {};
+  const normRaw = normalizeText(raw);
+  for (const [canonical, aliases] of Object.entries(aliasesByField)) {
+    if (normalizeText(canonical) === normRaw) return canonical;
+    if (aliases.some((alias) => normalizeText(alias) === normRaw)) return canonical;
+  }
+
+  return raw;
+}
+
 function buildOptionCandidates(fieldKey, value, repoConfig) {
   const mapped = resolveMappedOptionValue(fieldKey, value, repoConfig);
   const candidates = [String(mapped), String(value)];
@@ -1452,13 +1589,32 @@ async function updateProjectField(projectId, itemId, field, value, context = {})
 }
 
 async function findProjectItem(projectId, issueId) {
-  const data = await graphql(
-    `query($projectId: ID!) { node(id: $projectId) { ... on ProjectV2 { items(first: 100) { nodes { id content { ... on Issue { id } } } } } } }`,
-    { projectId }
-  );
-  const nodes = data.node?.items?.nodes || [];
-  const found = nodes.find((item) => item.content?.id === issueId);
-  return found?.id || null;
+  let endCursor = null;
+  let hasNextPage = true;
+
+  while (hasNextPage) {
+    const data = await graphql(
+      `query($projectId: ID!, $endCursor: String) {
+        node(id: $projectId) {
+          ... on ProjectV2 {
+            items(first: 100, after: $endCursor) {
+              pageInfo { hasNextPage endCursor }
+              nodes { id content { ... on Issue { id } } }
+            }
+          }
+        }
+      }`,
+      { projectId, endCursor }
+    );
+    const nodes = data.node?.items?.nodes || [];
+    const found = nodes.find((item) => item.content?.id === issueId);
+    if (found?.id) return found.id;
+
+    hasNextPage = Boolean(data.node?.items?.pageInfo?.hasNextPage);
+    endCursor = data.node?.items?.pageInfo?.endCursor || null;
+  }
+
+  return null;
 }
 
 async function addProjectItem(projectId, issueId) {
@@ -1483,30 +1639,22 @@ async function readConfig() {
 }
 
 async function resolveLabelsFromRepoConfig(repoConfig) {
-  // Backward compatible:
-  // - legacy: `projects-map.json.default.labels` (array of label names)
-  // - new: `projects-map.json.default.labelsFile` + `locale` (loads labels from JSON file)
-  if (Array.isArray(repoConfig.labels)) return repoConfig.labels;
+  const catalog = await loadLabelsCatalog({
+    cardsRoot,
+    repoConfig,
+    projectLocale: await detectProjectLocale(),
+  });
+  labelsCatalogByName = new Map(catalog.specs.map((spec) => [spec.name, spec]));
+  return catalog.names;
+}
 
-  const labelsFile = repoConfig.labelsFile;
-  if (!labelsFile) return [];
-
-  const locale = repoConfig.locale || "en";
-  const resolvedFileName = labelsFile.includes("{locale}")
-    ? labelsFile.replaceAll("{locale}", locale)
-    : labelsFile;
-
-  const fullPath = path.isAbsolute(resolvedFileName)
-    ? resolvedFileName
-    : path.join(cardsRoot, "config", resolvedFileName);
-
+async function detectProjectLocale() {
   try {
-    const raw = await fs.readFile(fullPath, "utf8");
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
+    const raw = await fs.readFile(projectYmlPath, "utf8");
+    const match = raw.match(/^\s*locale\s*:\s*([^\s#]+)\s*$/m);
+    if (match?.[1]) return match[1];
+  } catch {}
+  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -1695,17 +1843,17 @@ async function runForwardSync() {
     return;
   }
 
-  // --- Real sync ---
-  const repositoryId = await getRepositoryNodeId(repoOwner, repoName);
   const issueByCardId = new Map();
   const issueExistedByCardId = new Map();
   const actions = [];
+  const preloadedIssueMap = token ? await loadIssueMapByCardId(repoOwner, repoName) : new Map();
+  const repositoryId = dryRun ? null : await getRepositoryNodeId(repoOwner, repoName);
 
   for (const card of cardsToSync) {
     const issueTitle = buildIssueTitle(card);
     const issueBody = buildIssueBody(card);
 
-    const existing = await searchIssueByCardId(repoOwner, repoName, card.cardId);
+    const existing = preloadedIssueMap.get(card.cardId) || null;
 
     if (dryRun) {
       actions.push({ action: existing ? "UPDATE" : "CREATE", cardId: card.cardId, title: issueTitle });
@@ -1928,13 +2076,17 @@ async function jiraRequest(management, endpoint, method = "GET", body = null) {
 }
 
 async function jiraSearchIssueByCardId(management, projectKey, cardId) {
-  const jql = `project = "${projectKey}" AND description ~ "\\"CARD_ID: ${cardId}\\"" ORDER BY updated DESC`;
+  const jql = `project = "${projectKey}" AND description ~ "\\"CARD_ID:\\"" ORDER BY updated DESC`;
   const data = await jiraRequest(
     management,
-    `/rest/api/2/search?jql=${encodeURIComponent(jql)}&maxResults=1&fields=summary,labels`,
+    `/rest/api/2/search?jql=${encodeURIComponent(jql)}&maxResults=50&fields=summary,labels,description`,
     "GET"
   );
-  return data.issues?.[0] || null;
+  for (const issue of data.issues || []) {
+    const foundId = parseCardIdFromIssueBody(issue.fields?.description || "");
+    if (foundId === cardId) return issue;
+  }
+  return null;
 }
 
 async function jiraCreateIssue(management, projectKey, card) {
@@ -2268,8 +2420,14 @@ async function runForwardSyncAzure(repoConfig, management) {
   async function azureFindWorkItemIdByCardId(cardId) {
     const wiql = buildAzureWiqlForCardId(cardId);
     const data = await azureRequest(`/_apis/wit/wiql?api-version=7.0`, "POST", { query: wiql });
-    const id = data?.workItems?.[0]?.id;
-    return id || null;
+    const candidates = data?.workItems || [];
+    for (const item of candidates) {
+      if (!item?.id) continue;
+      const wi = await azureRequest(`/_apis/wit/workitems/${item.id}?api-version=7.0&fields=System.Description`);
+      const foundId = parseCardIdFromIssueBody(wi?.fields?.["System.Description"] || "");
+      if (foundId === cardId) return item.id;
+    }
+    return null;
   }
 
   async function azureCreateWorkItem(card) {
@@ -2423,8 +2581,8 @@ async function runForwardSyncGitLab(repoConfig, management) {
       "GET"
     );
     const list = Array.isArray(data) ? data : [];
-    const exact = list.find((issue) => String(issue?.description || "").includes(`CARD_ID: ${card.cardId}`));
-    return exact || list[0] || null;
+    const exact = list.find((issue) => parseCardIdFromIssueBody(issue?.description || "") === card.cardId);
+    return exact || null;
   }
 
   async function gitlabCreateIssue(card) {
@@ -2561,17 +2719,31 @@ async function runForwardSyncLinear(repoConfig, management) {
   const searchMarker = (cardId) => `CARD_ID: ${cardId}`;
 
   async function linearFindIssueIdByCardId(cardId) {
-    // Best-effort: filter issues by description containing our metadata marker.
-    const query = `query($teamId: String!, $marker: String!) {
-      team(id: $teamId) {
-        issues(first: 1, filter: { description: { containsIgnoreCase: $marker } }) {
-          nodes { id title description updatedAt }
-        }
-      }
-    }`;
+    const marker = searchMarker(cardId);
+    let cursor = null;
 
-    const data = await linearGraphql(query, { teamId, marker: searchMarker(cardId) });
-    return data?.team?.issues?.nodes?.[0]?.id || null;
+    while (true) {
+      const query = `query($teamId: String!, $marker: String!, $after: String) {
+        team(id: $teamId) {
+          issues(first: 50, after: $after, filter: { description: { containsIgnoreCase: $marker } }) {
+            pageInfo { hasNextPage endCursor }
+            nodes { id description }
+          }
+        }
+      }`;
+
+      const data = await linearGraphql(query, { teamId, marker, after: cursor });
+      const conn = data?.team?.issues;
+      for (const node of conn?.nodes || []) {
+        const parsedId = parseCardIdFromIssueBody(node.description || "");
+        if (parsedId === cardId) return node.id;
+      }
+
+      if (!conn?.pageInfo?.hasNextPage) break;
+      cursor = conn.pageInfo.endCursor;
+    }
+
+    return null;
   }
 
   async function linearCreateIssue(card) {
@@ -2764,6 +2936,461 @@ function yamlNullIfEmptyNumber(value) {
   return Number.isFinite(n) ? String(n) : "null";
 }
 
+function parseParentCardIdFromProjectField(text) {
+  const m = String(text || "").match(/\(([A-Z0-9][A-Z0-9_-]*)\)\s*$/i);
+  return m ? m[1] : null;
+}
+
+function readProjectFieldValueNode(fieldValueNode) {
+  if (!fieldValueNode) return null;
+  if (fieldValueNode.name != null && fieldValueNode.name !== "") return fieldValueNode.name;
+  if (fieldValueNode.title != null && fieldValueNode.title !== "") return fieldValueNode.title;
+  if (fieldValueNode.number != null && fieldValueNode.number !== "") return fieldValueNode.number;
+  if (fieldValueNode.text != null && fieldValueNode.text !== "") return fieldValueNode.text;
+  if (fieldValueNode.date != null && fieldValueNode.date !== "") return fieldValueNode.date;
+  return null;
+}
+
+function readProjectFieldsFromItem(item, project, fieldMap) {
+  const out = {};
+  const idToKey = {};
+  for (const key of ["status", "type", "priority", "sprint", "storyPoints", "reporter", "parent", "dueDate"]) {
+    const field = resolveProjectField(project, key, fieldMap);
+    if (field?.id) idToKey[field.id] = key;
+  }
+
+  for (const fv of item.fieldValues?.nodes || []) {
+    const fieldId = fv.field?.id;
+    const key = idToKey[fieldId];
+    if (!key) continue;
+    out[key] = readProjectFieldValueNode(fv);
+  }
+  return out;
+}
+
+async function loadProjectFieldValuesByIssueNumber(projectOwner, projectNumber, repoConfig) {
+  const project = await getProject(projectOwner, projectNumber);
+  if (!project?.id) {
+    return { project: null, byIssueNumber: new Map() };
+  }
+
+  const fieldMap = repoConfig.fieldMap || {};
+  const byIssueNumber = new Map();
+  let endCursor = null;
+  let hasNextPage = true;
+
+  while (hasNextPage) {
+    const data = await graphql(
+      `query($projectId: ID!, $endCursor: String) {
+        node(id: $projectId) {
+          ... on ProjectV2 {
+            items(first: 100, after: $endCursor) {
+              pageInfo { hasNextPage endCursor }
+              nodes {
+                content { ... on Issue { number } }
+                fieldValues(first: 20) {
+                  nodes {
+                    ... on ProjectV2ItemFieldSingleSelectValue {
+                      field { ... on ProjectV2SingleSelectField { id name } ... on ProjectV2Field { id name } }
+                      name
+                    }
+                    ... on ProjectV2ItemFieldIterationValue {
+                      field { ... on ProjectV2IterationField { id name } }
+                      title
+                    }
+                    ... on ProjectV2ItemFieldNumberValue {
+                      field { ... on ProjectV2Field { id name } }
+                      number
+                    }
+                    ... on ProjectV2ItemFieldTextValue {
+                      field { ... on ProjectV2Field { id name } }
+                      text
+                    }
+                    ... on ProjectV2ItemFieldDateValue {
+                      field { ... on ProjectV2Field { id name } }
+                      date
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }`,
+      { projectId: project.id, endCursor }
+    );
+
+    for (const item of data.node?.items?.nodes || []) {
+      const issueNumber = item.content?.number;
+      if (!issueNumber) continue;
+      byIssueNumber.set(issueNumber, readProjectFieldsFromItem(item, project, fieldMap));
+    }
+
+    hasNextPage = Boolean(data.node?.items?.pageInfo?.hasNextPage);
+    endCursor = data.node?.items?.pageInfo?.endCursor || null;
+  }
+
+  return { project, byIssueNumber };
+}
+
+function buildCardMarkdownFromMeta(meta, body) {
+  const yaml = [];
+  yaml.push("---");
+  yaml.push(`card_id: ${yamlQuote(meta.card_id)}`);
+  yaml.push(`title: ${yamlQuote(meta.title)}`);
+  yaml.push(`status: ${yamlNullIfEmpty(meta.status)}`);
+  yaml.push(`type: ${yamlQuote(meta.type || "Story")}`);
+  yaml.push(`priority: ${yamlNullIfEmpty(meta.priority)}`);
+  yaml.push(`sprint: ${yamlNullIfEmpty(meta.sprint)}`);
+  yaml.push(`story_points: ${yamlNullIfEmptyNumber(meta.story_points)}`);
+  yaml.push(`reporter: ${yamlNullIfEmpty(meta.reporter)}`);
+  yaml.push(`parent: ${yamlNullIfEmpty(meta.parent)}`);
+  yaml.push(`due_date: ${yamlNullIfEmpty(meta.due_date)}`);
+  yaml.push(`board_sync_at: ${yamlNullIfEmpty(meta.board_sync_at)}`);
+
+  const categories = Array.isArray(meta.categories) ? meta.categories : [];
+  if (categories.length) {
+    yaml.push("categories:");
+    for (const c of categories) yaml.push(`  - ${yamlQuote(c)}`);
+  } else {
+    yaml.push("categories: []");
+  }
+
+  yaml.push("---");
+  yaml.push("");
+  yaml.push(String(body || "").trimEnd());
+  yaml.push("");
+  return yaml.join("\n");
+}
+
+function patchCardFrontmatter(existingContent, updates) {
+  const parsed = parseFrontmatter(existingContent);
+  if (!parsed) return null;
+
+  const { meta, body } = parsed;
+  const next = {
+    card_id: meta.card_id,
+    title: meta.title ?? extractTitleFromBody(body),
+    status: updates.status !== undefined ? updates.status : meta.status,
+    type: updates.type !== undefined ? updates.type : meta.type || "Story",
+    priority: updates.priority !== undefined ? updates.priority : meta.priority,
+    sprint: updates.sprint !== undefined ? updates.sprint : meta.sprint,
+    story_points: updates.story_points !== undefined ? updates.story_points : meta.story_points,
+    reporter: updates.reporter !== undefined ? updates.reporter : meta.reporter,
+    parent: updates.parent !== undefined ? updates.parent : meta.parent,
+    due_date: updates.due_date !== undefined ? updates.due_date : meta.due_date,
+    categories: updates.categories !== undefined ? updates.categories : meta.categories || [],
+    board_sync_at: updates.board_sync_at !== undefined ? updates.board_sync_at : meta.board_sync_at,
+  };
+
+  return buildCardMarkdownFromMeta(next, body);
+}
+
+function buildRemoteFrontmatterUpdates(projectFields, issue, repoConfig) {
+  const updates = {};
+
+  if (projectFields.status != null) {
+    updates.status = canonicalizeRemoteOption("status", projectFields.status, repoConfig);
+  }
+  if (projectFields.type != null) {
+    updates.type = canonicalizeRemoteOption("type", projectFields.type, repoConfig);
+  }
+  if (projectFields.priority != null) {
+    updates.priority = canonicalizeRemoteOption("priority", projectFields.priority, repoConfig);
+  }
+  if (projectFields.sprint != null) {
+    updates.sprint = String(projectFields.sprint).trim() || null;
+  }
+  if (projectFields.storyPoints != null && projectFields.storyPoints !== "") {
+    updates.story_points = Number(projectFields.storyPoints);
+  }
+  if (projectFields.reporter != null) {
+    updates.reporter = String(projectFields.reporter).trim() || null;
+  }
+  if (projectFields.parent != null) {
+    updates.parent = parseParentCardIdFromProjectField(projectFields.parent);
+  }
+  if (projectFields.dueDate != null) {
+    updates.due_date = String(projectFields.dueDate).trim() || null;
+  }
+  if (Array.isArray(issue.labels) && issue.labels.length) {
+    updates.categories = issue.labels;
+  }
+
+  return updates;
+}
+
+function frontmatterDiffers(existingContent, updates) {
+  const parsed = parseFrontmatter(existingContent);
+  if (!parsed) return true;
+  const { meta } = parsed;
+
+  const compare = (key, yamlKey = key) => {
+    if (updates[key] === undefined) return false;
+    const left = meta[yamlKey] ?? null;
+    const right = updates[key] ?? null;
+    if (Array.isArray(left) || Array.isArray(right)) {
+      return JSON.stringify(left || []) !== JSON.stringify(right || []);
+    }
+    return String(left ?? "") !== String(right ?? "");
+  };
+
+  return (
+    compare("status") ||
+    compare("type") ||
+    compare("priority") ||
+    compare("sprint") ||
+    compare("story_points") ||
+    compare("reporter") ||
+    compare("parent") ||
+    compare("due_date") ||
+    compare("categories") ||
+    compare("board_sync_at")
+  );
+}
+
+/** ISO timestamp from remote issue/work item for optimistic sync locking. */
+function remoteBoardSyncAt(issueOrItem) {
+  const fields = issueOrItem?.fields || {};
+  const raw =
+    issueOrItem?.updatedAt ||
+    issueOrItem?.updated_at ||
+    fields.updated ||
+    fields["System.ChangedDate"] ||
+    null;
+  if (!raw) return null;
+  const d = new Date(raw);
+  return Number.isNaN(d.getTime()) ? String(raw).trim() || null : d.toISOString();
+}
+
+function inverseStatusMap(statusMap) {
+  const inv = {};
+  for (const [hyperionStatus, remoteStatus] of Object.entries(statusMap || {})) {
+    if (remoteStatus) inv[String(remoteStatus)] = hyperionStatus;
+  }
+  return inv;
+}
+
+function resolveHyperionStatusFromRemote(remoteStatus, statusMap, repoConfig) {
+  if (!remoteStatus) return null;
+  const inv = inverseStatusMap(statusMap);
+  if (inv[remoteStatus]) return inv[remoteStatus];
+
+  const norm = normalizeText(remoteStatus);
+  for (const [remote, hyperion] of Object.entries(inv)) {
+    if (normalizeText(remote) === norm) return hyperion;
+  }
+
+  return canonicalizeRemoteOption("status", remoteStatus, repoConfig) || remoteStatus;
+}
+
+function canonicalizeLinearState(stateName, statusMap, repoConfig) {
+  return resolveHyperionStatusFromRemote(stateName, statusMap, repoConfig);
+}
+
+function frontmatterUpdatesFromConvertedMarkdown(converted) {
+  if (!converted?.markdown) return {};
+  const parsed = parseFrontmatter(converted.markdown);
+  if (!parsed?.meta) return {};
+
+  const m = parsed.meta;
+  return {
+    status: m.status ?? undefined,
+    type: m.type ?? undefined,
+    priority: m.priority ?? undefined,
+    sprint: m.sprint ?? undefined,
+    story_points: m.story_points ?? undefined,
+    reporter: m.reporter ?? undefined,
+    parent: m.parent ?? undefined,
+    due_date: m.due_date ?? undefined,
+    categories: m.categories ?? undefined,
+    board_sync_at: m.board_sync_at ?? undefined,
+  };
+}
+
+async function applyReverseCardFileUpdate({
+  sourceFile,
+  cardId,
+  remoteUpdates = {},
+  converted = null,
+  logLabel = "",
+}) {
+  if (!sourceFile) return { kind: "skipped", reason: "no_source_file" };
+
+  if (isKitSampleRemoteArtifact({ cardId, sourceFile })) {
+    return { kind: "skipped_sample" };
+  }
+
+  const updates = { ...remoteUpdates };
+  if (converted) {
+    const fromMd = frontmatterUpdatesFromConvertedMarkdown(converted);
+    for (const [key, value] of Object.entries(fromMd)) {
+      if (updates[key] === undefined && value !== undefined) updates[key] = value;
+    }
+  }
+
+  const local = await readLocalCardFromSourceFile(sourceFile, {
+    workspaceRoot,
+    kitRootRel: hyperionPaths.kitRootRel,
+  });
+
+  if (local) {
+    if (!frontmatterDiffers(local.content, updates)) {
+      return { kind: "unchanged", path: local.relativeFile };
+    }
+
+    const patched = patchCardFrontmatter(local.content, updates);
+    if (!patched) {
+      log(`SKIP (invalid frontmatter): ${local.relativeFile}${logLabel}`);
+      return { kind: "skipped", reason: "invalid_frontmatter" };
+    }
+
+    if (dryRun) {
+      log(`Would patch frontmatter: ${local.relativeFile}${logLabel}`);
+      return { kind: "dry_run_patch", path: local.relativeFile };
+    }
+
+    await fs.mkdir(path.dirname(local.absolutePath), { recursive: true });
+    await fs.writeFile(local.absolutePath, patched, "utf8");
+    log(`Patched: ${local.relativeFile}${logLabel}`);
+    return { kind: "patched", path: local.relativeFile };
+  }
+
+  if (!converted) {
+    log(`SKIP (no local card, invalid metadata): ${sourceFile}${logLabel}`);
+    return { kind: "skipped", reason: "no_local_no_convert" };
+  }
+
+  const parsed = parseFrontmatter(converted.markdown);
+  if (!parsed) return { kind: "skipped", reason: "invalid_convert" };
+
+  const mergedMeta = {
+    ...parsed.meta,
+    ...updates,
+    card_id: parsed.meta.card_id || cardId,
+  };
+  const markdown = buildCardMarkdownFromMeta(mergedMeta, parsed.body);
+  const targetPath = path.join(workspaceRoot, converted.sourceFile);
+
+  if (dryRun) {
+    log(`Would create: ${converted.sourceFile}${logLabel}`);
+    return { kind: "dry_run_create" };
+  }
+
+  await fs.mkdir(path.dirname(targetPath), { recursive: true });
+  await fs.writeFile(targetPath, markdown, "utf8");
+  log(`Created: ${converted.sourceFile}${logLabel}`);
+  return { kind: "created", path: converted.sourceFile };
+}
+
+function countReverseWrite(result) {
+  return result.kind === "patched" || result.kind === "created" ? 1 : 0;
+}
+
+async function runReverseSyncGitHub(repoConfig) {
+  if (!repoOwner || repoOwner === "unknown") {
+    throw new Error("GITHUB_REPOSITORY not set.");
+  }
+  if (!token) {
+    throw new Error("Token missing.");
+  }
+
+  log(`Repository: ${repoOwner}/${repoName}`);
+  log(`Dry-run: ${dryRun ? "yes" : "no"}`);
+  log("Direction: reverse (GitHub -> Markdown)");
+
+  const issueMap = await loadIssueMapByCardId(repoOwner, repoName);
+  const issues = [...issueMap.values()];
+
+  if (!issues.length) {
+    log("No issues with CARD_ID found.");
+    return;
+  }
+
+  log(`Issues mapped: ${issues.length}`);
+
+  let projectOwner = process.env.PROJECT_OWNER || repoConfig.projectOwner || repoOwner;
+  let projectNumber =
+    Number(process.env.PROJECT_NUMBER || "0") || Number(repoConfig.projectNumber || "0");
+
+  let projectFieldsByIssueNumber = new Map();
+  if (projectNumber > 0) {
+    const loaded = await loadProjectFieldValuesByIssueNumber(projectOwner, projectNumber, repoConfig);
+    projectFieldsByIssueNumber = loaded.byIssueNumber;
+    if (loaded.project) {
+      log(`Project fields loaded: owner=${projectOwner} number=${projectNumber} (${projectFieldsByIssueNumber.size} item(s))`);
+    } else {
+      log(`Project #${projectNumber} not found — reverse will use issue metadata only.`);
+    }
+  } else {
+    log("No projectNumber configured — reverse will use issue metadata only (no board fields).");
+    if (String(process.env.CARDS_CI_REQUIRE_PROJECT || "").toLowerCase() === "true") {
+      throw new Error(
+        "projectNumber required for CI reverse (board pull). Set it in projects-map.json — run: npm run cards:doctor"
+      );
+    }
+  }
+
+  let written = 0;
+  let skipped = 0;
+  let skippedSamples = 0;
+  let unchanged = 0;
+
+  for (const issue of issues) {
+    if (!issue?.number) continue;
+
+    const syncMeta = parseSyncMetadataFromDescription(issue.body || "");
+    const sourceFile = syncMeta?.meta?.SOURCE_FILE || parseSourceFileFromIssueBody(issue.body);
+    const cardId = syncMeta?.meta?.CARD_ID || parseCardIdFromIssueBody(issue.body);
+
+    if (!sourceFile) continue;
+
+    if (isKitSampleRemoteArtifact({ cardId, sourceFile })) {
+      skippedSamples += 1;
+      log(`Skipping kit sample issue #${issue.number} (${cardId || sourceFile})`);
+      continue;
+    }
+
+    const projectFields = projectFieldsByIssueNumber.get(issue.number) || {};
+    const remoteUpdates = buildRemoteFrontmatterUpdates(projectFields, issue, repoConfig);
+    const syncAt = remoteBoardSyncAt(issue);
+    if (syncAt) remoteUpdates.board_sync_at = syncAt;
+
+    const converted = remoteIssueToCardMarkdown({
+      title: issue.title,
+      description: issue.body || "",
+      labels: issue.labels,
+      statusOverride: remoteUpdates.status,
+    });
+
+    const result = await applyReverseCardFileUpdate({
+      sourceFile,
+      cardId,
+      remoteUpdates,
+      converted,
+      logLabel: ` (issue #${issue.number})`,
+    });
+
+    if (result.kind === "skipped_sample") {
+      skippedSamples += 1;
+      log(`Skipping kit sample issue #${issue.number} (${cardId || sourceFile})`);
+      continue;
+    }
+    if (result.kind === "unchanged") unchanged += 1;
+    else if (result.kind === "skipped") skipped += 1;
+    else written += countReverseWrite(result);
+  }
+
+  if (skippedSamples > 0) {
+    log(`Skipped ${skippedSamples} kit sample issue(s) on reverse sync.`);
+  }
+  if (unchanged > 0) {
+    log(`Unchanged: ${unchanged} card(s) (frontmatter already matches board).`);
+  }
+  if (!dryRun) log(`GitHub reverse sync wrote: ${written} file(s)`);
+  if (skipped > 0) log(`Skipped: ${skipped} issue(s).`);
+}
+
 function jiraIssueToCardMarkdown(issue) {
   return remoteIssueToCardMarkdown({
     title: issue?.fields?.summary,
@@ -2772,12 +3399,14 @@ function jiraIssueToCardMarkdown(issue) {
   });
 }
 
-async function runReverseSyncJira(management) {
+async function runReverseSyncJira(repoConfig, management) {
   if (!management.jiraUrl || !management.jiraProjectKey || !management.jiraEmail || !management.jiraApiToken) {
     throw new Error(
       "Jira backend requires JIRA_URL, JIRA_PROJECT_KEY, JIRA_EMAIL, and JIRA_API_TOKEN (env or config)."
     );
   }
+
+  const statusMap = management.statusMap || {};
 
   log(`Backend: jira`);
   log(`Dry-run: ${dryRun ? "yes" : "no"}`);
@@ -2791,7 +3420,7 @@ async function runReverseSyncJira(management) {
   while (true) {
     const data = await jiraRequest(
       management,
-      `/rest/api/2/search?jql=${encodeURIComponent(jql)}&startAt=${startAt}&maxResults=${maxResults}&fields=summary,description,labels`,
+      `/rest/api/2/search?jql=${encodeURIComponent(jql)}&startAt=${startAt}&maxResults=${maxResults}&fields=summary,description,labels,status`,
       "GET"
     );
 
@@ -2811,30 +3440,59 @@ async function runReverseSyncJira(management) {
   log(`Jira issues found: ${issues.length}`);
 
   let written = 0;
+  let skipped = 0;
+  let skippedSamples = 0;
+  let unchanged = 0;
+
   for (const issue of issues) {
-    const converted = jiraIssueToCardMarkdown(issue);
-    if (!converted) continue;
+    const description = issue?.fields?.description || "";
+    const syncMeta = parseSyncMetadataFromDescription(description);
+    const sourceFile = syncMeta?.meta?.SOURCE_FILE || parseSourceFileFromIssueBody(description);
+    const cardId = syncMeta?.meta?.CARD_ID || parseCardIdFromIssueBody(description);
+    if (!sourceFile) continue;
 
-    const { sourceFile, markdown } = converted;
-    const targetPath = path.join(workspaceRoot, sourceFile);
+    const remoteStatus = issue?.fields?.status?.name || null;
+    const hyperionStatus = resolveHyperionStatusFromRemote(remoteStatus, statusMap, repoConfig);
 
-    if (dryRun) {
-      log(`Would write: ${sourceFile} (Jira issue)`);
+    const converted = remoteIssueToCardMarkdown({
+      title: issue.fields.summary,
+      description,
+      labels: issue.fields.labels || [],
+      statusOverride: hyperionStatus,
+    });
+
+    const result = await applyReverseCardFileUpdate({
+      sourceFile,
+      cardId,
+      remoteUpdates: {
+        ...(hyperionStatus ? { status: hyperionStatus } : {}),
+        ...(remoteBoardSyncAt(issue) ? { board_sync_at: remoteBoardSyncAt(issue) } : {}),
+      },
+      converted,
+      logLabel: ` (Jira ${issue.key})`,
+    });
+
+    if (result.kind === "skipped_sample") {
+      skippedSamples += 1;
       continue;
     }
-
-    await fs.mkdir(path.dirname(targetPath), { recursive: true });
-    await fs.writeFile(targetPath, markdown, "utf8");
-    written++;
+    if (result.kind === "unchanged") unchanged += 1;
+    else if (result.kind === "skipped") skipped += 1;
+    else written += countReverseWrite(result);
   }
 
+  if (skippedSamples > 0) log(`Skipped ${skippedSamples} kit sample issue(s).`);
+  if (unchanged > 0) log(`Unchanged: ${unchanged} card(s).`);
   if (!dryRun) log(`Jira reverse sync wrote: ${written} file(s)`);
+  if (skipped > 0) log(`Skipped: ${skipped} issue(s).`);
 }
 
-async function runReverseSyncAzure(management) {
+async function runReverseSyncAzure(repoConfig, management) {
   if (!management.azureOrgUrl || !management.azureProject || !management.azurePat) {
     throw new Error("Azure DevOps backend requires AZDO_ORG_URL, AZDO_PROJECT, and AZDO_PAT (env or config).");
   }
+
+  const statusMap = management.statusMap || {};
 
   log(`Backend: azure-devops`);
   log(`Dry-run: ${dryRun ? "yes" : "no"}`);
@@ -2879,43 +3537,70 @@ async function runReverseSyncAzure(management) {
 
   const batch = await azureRequest(`/_apis/wit/workitemsbatch?api-version=7.0`, "POST", {
     ids,
-    fields: ["System.Id", "System.Title", "System.Description", "System.State", "System.Tags"],
+    fields: ["System.Id", "System.Title", "System.Description", "System.State", "System.Tags", "System.ChangedDate"],
   });
   const items = batch?.value || [];
   log(`Azure work items found: ${items.length}`);
 
   let written = 0;
+  let skipped = 0;
+  let skippedSamples = 0;
+  let unchanged = 0;
+
   for (const item of items) {
     const fields = item?.fields || {};
+    const description = fields["System.Description"] || "";
+    const syncMeta = parseSyncMetadataFromDescription(description);
+    const sourceFile = syncMeta?.meta?.SOURCE_FILE || parseSourceFileFromIssueBody(description);
+    const cardId = syncMeta?.meta?.CARD_ID || parseCardIdFromIssueBody(description);
+    if (!sourceFile) continue;
+
+    const remoteStatus = fields["System.State"] || null;
+    const hyperionStatus = resolveHyperionStatusFromRemote(remoteStatus, statusMap, repoConfig);
     const tags = String(fields["System.Tags"] || "")
       .split(";")
       .map((t) => t.trim())
       .filter(Boolean);
+
     const converted = remoteIssueToCardMarkdown({
       title: fields["System.Title"],
-      description: fields["System.Description"] || "",
+      description,
       labels: tags,
-      statusOverride: fields["System.State"] || null,
+      statusOverride: hyperionStatus,
     });
-    if (!converted) continue;
-    const { sourceFile, markdown } = converted;
-    const targetPath = path.join(workspaceRoot, sourceFile);
-    if (dryRun) {
-      log(`Would write: ${sourceFile} (Azure work item ${item.id})`);
+
+    const result = await applyReverseCardFileUpdate({
+      sourceFile,
+      cardId,
+      remoteUpdates: {
+        ...(hyperionStatus ? { status: hyperionStatus } : {}),
+        ...(remoteBoardSyncAt(item) ? { board_sync_at: remoteBoardSyncAt(item) } : {}),
+      },
+      converted,
+      logLabel: ` (Azure #${item.id})`,
+    });
+
+    if (result.kind === "skipped_sample") {
+      skippedSamples += 1;
       continue;
     }
-    await fs.mkdir(path.dirname(targetPath), { recursive: true });
-    await fs.writeFile(targetPath, markdown, "utf8");
-    written++;
+    if (result.kind === "unchanged") unchanged += 1;
+    else if (result.kind === "skipped") skipped += 1;
+    else written += countReverseWrite(result);
   }
 
+  if (skippedSamples > 0) log(`Skipped ${skippedSamples} kit sample work item(s).`);
+  if (unchanged > 0) log(`Unchanged: ${unchanged} card(s).`);
   if (!dryRun) log(`Azure reverse sync wrote: ${written} file(s)`);
+  if (skipped > 0) log(`Skipped: ${skipped} work item(s).`);
 }
 
-async function runReverseSyncGitLab(management) {
+async function runReverseSyncGitLab(repoConfig, management) {
   if (!management.gitlabProjectId || !management.gitlabToken) {
     throw new Error("GitLab backend requires GITLAB_PROJECT_ID and GITLAB_TOKEN (env or config).");
   }
+
+  const statusMap = management.statusMap || {};
 
   log(`Backend: gitlab`);
   log(`Dry-run: ${dryRun ? "yes" : "no"}`);
@@ -2950,7 +3635,9 @@ async function runReverseSyncGitLab(management) {
       `/api/v4/projects/${encodeURIComponent(projectId)}/issues?search=${encodeURIComponent("CARD_ID:")}&state=all&per_page=50&page=${page}`
     );
     if (!Array.isArray(batch) || !batch.length) break;
-    issues.push(...batch.filter((i) => String(i?.description || "").includes("CARD_ID:")));
+    issues.push(
+      ...batch.filter((i) => Boolean(parseCardIdFromIssueBody(String(i?.description || ""))))
+    );
     if (batch.length < 50) break;
     page += 1;
   }
@@ -2961,34 +3648,168 @@ async function runReverseSyncGitLab(management) {
   }
 
   log(`GitLab issues found: ${issues.length}`);
+
   let written = 0;
+  let skipped = 0;
+  let skippedSamples = 0;
+  let unchanged = 0;
+
   for (const issue of issues) {
+    const description = issue.description || "";
+    const syncMeta = parseSyncMetadataFromDescription(description);
+    const sourceFile = syncMeta?.meta?.SOURCE_FILE || parseSourceFileFromIssueBody(description);
+    const cardId = syncMeta?.meta?.CARD_ID || parseCardIdFromIssueBody(description);
+    if (!sourceFile) continue;
+
     const labels = Array.isArray(issue.labels) ? issue.labels : [];
     const statusLabel = labels.find((l) => String(l).toLowerCase().startsWith("status:"));
-    const statusOverride = statusLabel
+    const remoteStatus = statusLabel
       ? String(statusLabel).slice("status:".length)
       : issue.state === "closed"
         ? "Done"
-        : null;
+        : issue.state === "opened"
+          ? "In Progress"
+          : null;
+    const hyperionStatus = resolveHyperionStatusFromRemote(remoteStatus, statusMap, repoConfig);
+
     const converted = remoteIssueToCardMarkdown({
       title: issue.title,
-      description: issue.description || "",
+      description,
       labels: labels.filter((l) => !String(l).toLowerCase().startsWith("status:")),
-      statusOverride,
+      statusOverride: hyperionStatus,
     });
-    if (!converted) continue;
-    const { sourceFile, markdown } = converted;
-    const targetPath = path.join(workspaceRoot, sourceFile);
-    if (dryRun) {
-      log(`Would write: ${sourceFile} (GitLab issue !${issue.iid})`);
+
+    const result = await applyReverseCardFileUpdate({
+      sourceFile,
+      cardId,
+      remoteUpdates: {
+        ...(hyperionStatus ? { status: hyperionStatus } : {}),
+        ...(remoteBoardSyncAt(issue) ? { board_sync_at: remoteBoardSyncAt(issue) } : {}),
+      },
+      converted,
+      logLabel: ` (GitLab !${issue.iid})`,
+    });
+
+    if (result.kind === "skipped_sample") {
+      skippedSamples += 1;
       continue;
     }
-    await fs.mkdir(path.dirname(targetPath), { recursive: true });
-    await fs.writeFile(targetPath, markdown, "utf8");
-    written++;
+    if (result.kind === "unchanged") unchanged += 1;
+    else if (result.kind === "skipped") skipped += 1;
+    else written += countReverseWrite(result);
   }
 
+  if (skippedSamples > 0) log(`Skipped ${skippedSamples} kit sample issue(s).`);
+  if (unchanged > 0) log(`Unchanged: ${unchanged} card(s).`);
   if (!dryRun) log(`GitLab reverse sync wrote: ${written} file(s)`);
+  if (skipped > 0) log(`Skipped: ${skipped} issue(s).`);
+}
+
+async function runReverseSyncLinear(repoConfig, management) {
+  if (!management.linearTeamId || !management.linearApiToken) {
+    throw new Error("Linear backend requires LINEAR_TEAM_ID and LINEAR_API_TOKEN (env or config).");
+  }
+
+  const endpoint = "https://api.linear.app/graphql";
+  const teamId = management.linearTeamId;
+  const apiToken = management.linearApiToken;
+  const statusMap = management.statusMap || {};
+
+  log(`Backend: linear`);
+  log(`Dry-run: ${dryRun ? "yes" : "no"}`);
+  log("Direction: reverse (Linear -> Markdown)");
+
+  async function linearGraphql(query, variables = {}) {
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiToken}`,
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: JSON.stringify({ query, variables }),
+    });
+    const payload = await response.json();
+    if (!response.ok || payload.errors) {
+      const details = JSON.stringify(payload.errors || payload, null, 2);
+      throw new Error(`Linear GraphQL failed: ${details}`);
+    }
+    return payload.data;
+  }
+
+  const issues = [];
+  let cursor = null;
+  while (true) {
+    const query = `query($teamId: String!, $after: String) {
+      team(id: $teamId) {
+        issues(first: 50, after: $after, filter: { description: { containsIgnoreCase: "CARD_ID:" } }) {
+          pageInfo { hasNextPage endCursor }
+          nodes { id title description state { name } updatedAt }
+        }
+      }
+    }`;
+    const data = await linearGraphql(query, { teamId, after: cursor });
+    const conn = data?.team?.issues;
+    for (const node of conn?.nodes || []) {
+      if (parseCardIdFromIssueBody(node.description || "")) issues.push(node);
+    }
+    if (!conn?.pageInfo?.hasNextPage) break;
+    cursor = conn.pageInfo.endCursor;
+  }
+
+  if (!issues.length) {
+    log("No Linear issues with CARD_ID found.");
+    return;
+  }
+
+  log(`Linear issues found: ${issues.length}`);
+
+  let written = 0;
+  let skipped = 0;
+  let skippedSamples = 0;
+  let unchanged = 0;
+
+  for (const issue of issues) {
+    const description = issue.description || "";
+    const syncMeta = parseSyncMetadataFromDescription(description);
+    const sourceFile = syncMeta?.meta?.SOURCE_FILE || parseSourceFileFromIssueBody(description);
+    const cardId = syncMeta?.meta?.CARD_ID || parseCardIdFromIssueBody(description);
+    if (!sourceFile) continue;
+
+    const remoteStatus = issue.state?.name || null;
+    const hyperionStatus = resolveHyperionStatusFromRemote(remoteStatus, statusMap, repoConfig);
+
+    const converted = remoteIssueToCardMarkdown({
+      title: issue.title,
+      description,
+      labels: [],
+      statusOverride: hyperionStatus,
+    });
+
+    const result = await applyReverseCardFileUpdate({
+      sourceFile,
+      cardId,
+      remoteUpdates: {
+        ...(hyperionStatus ? { status: hyperionStatus } : {}),
+        ...(remoteBoardSyncAt(issue) ? { board_sync_at: remoteBoardSyncAt(issue) } : {}),
+      },
+      converted,
+      logLabel: ` (Linear ${issue.id})`,
+    });
+
+    if (result.kind === "skipped_sample") {
+      skippedSamples += 1;
+      continue;
+    }
+    if (result.kind === "unchanged") unchanged += 1;
+    else if (result.kind === "skipped") skipped += 1;
+    else written += countReverseWrite(result);
+  }
+
+  if (skippedSamples > 0) log(`Skipped ${skippedSamples} kit sample issue(s).`);
+  if (unchanged > 0) log(`Unchanged: ${unchanged} card(s).`);
+  if (!dryRun) log(`Linear reverse sync wrote: ${written} file(s)`);
+  if (skipped > 0) log(`Skipped: ${skipped} issue(s).`);
 }
 
 async function runReverseSync() {
@@ -2998,94 +3819,27 @@ async function runReverseSync() {
   const backend = String(management.backend || "github").toLowerCase();
 
   if (backend === "jira") {
-    await runReverseSyncJira(management);
+    await runReverseSyncJira(repoConfig, management);
     return;
   }
 
   if (backend === "azure-devops" || backend === "azure") {
-    await runReverseSyncAzure(management);
+    await runReverseSyncAzure(repoConfig, management);
     return;
   }
 
   if (backend === "gitlab") {
-    await runReverseSyncGitLab(management);
+    await runReverseSyncGitLab(repoConfig, management);
+    return;
+  }
+
+  if (backend === "linear") {
+    await runReverseSyncLinear(repoConfig, management);
     return;
   }
 
   // Default: GitHub reverse sync
-  if (!repoOwner || repoOwner === "unknown") {
-    throw new Error("GITHUB_REPOSITORY not set.");
-  }
-  if (!token) {
-    throw new Error("Token missing.");
-  }
-
-  log(`Repository: ${repoOwner}/${repoName}`);
-  log(`Dry-run: ${dryRun ? "yes" : "no"}`);
-  log("Direction: reverse (GitHub -> Markdown)");
-
-  const query = `repo:${repoOwner}/${repoName} in:body "CARD_ID:" is:issue`;
-  let issues = [];
-  let hasNextPage = true;
-  let endCursor = null;
-
-  while (hasNextPage) {
-    const data = await graphql(
-      `query($query: String!, $endCursor: String) {
-        search(type: ISSUE, query: $query, first: 50, after: $endCursor) {
-          pageInfo { hasNextPage endCursor }
-          nodes { ... on Issue { id number title body url updatedAt } }
-        }
-      }`,
-      { query, endCursor }
-    );
-    issues.push(...(data.search?.nodes || []));
-    hasNextPage = Boolean(data.search?.pageInfo?.hasNextPage);
-    endCursor = data.search?.pageInfo?.endCursor || null;
-  }
-
-  if (!issues.length) {
-    log("No issues with CARD_ID found.");
-    return;
-  }
-
-  log(`Issues found: ${issues.length}`);
-
-  let skippedSamples = 0;
-  for (const issue of issues) {
-    if (!issue?.number) continue; // defensive: ignore non-Issue nodes
-
-    const metaMatch = issue.body?.match(/<!-- SYNC_METADATA.*?-->\r?\n([\s\S]*?)\r?\n<!-- \/SYNC_METADATA -->/);
-    if (!metaMatch) continue;
-
-    const metaLines = metaMatch[1];
-    const sourceFile = metaLines.match(/SOURCE_FILE:\s*(.+)/)?.[1]?.trim();
-    const cardId = metaLines.match(/CARD_ID:\s*(\S+)/)?.[1]?.trim();
-
-    if (!sourceFile) continue;
-
-    if (isKitSampleRemoteArtifact({ cardId, sourceFile })) {
-      skippedSamples += 1;
-      log(`Skipping kit sample issue #${issue.number} (${cardId || sourceFile})`);
-      continue;
-    }
-
-    const bodyContent = issue.body.replace(/\n---\n<!-- SYNC_METADATA[\s\S]*<!-- \/SYNC_METADATA -->/, "").trim();
-    const targetPath = path.join(workspaceRoot, sourceFile);
-
-    if (dryRun) {
-      log(`Would write: ${sourceFile} (issue #${issue.number})`);
-      continue;
-    }
-
-    await fs.mkdir(path.dirname(targetPath), { recursive: true });
-    await fs.writeFile(targetPath, `${bodyContent}\n`, "utf8");
-    log(`Written: ${sourceFile} (issue #${issue.number})`);
-  }
-
-  if (skippedSamples > 0) {
-    log(`Skipped ${skippedSamples} kit sample issue(s) on reverse sync.`);
-  }
+  await runReverseSyncGitHub(repoConfig);
 }
 
 // ---------------------------------------------------------------------------
@@ -3124,6 +3878,7 @@ export {
   buildEdges,
   normalizeText,
   resolveMappedOptionValue,
+  canonicalizeRemoteOption,
   buildOptionCandidates,
   pickSingleSelectOption,
   pickIterationOption,
@@ -3141,4 +3896,9 @@ export {
   jiraRequest,
   graphql,
   DEFAULT_STATUS_OPTIONS,
+  patchCardFrontmatter,
+  buildRemoteFrontmatterUpdates,
+  resolveHyperionStatusFromRemote,
+  canonicalizeLinearState,
+  inverseStatusMap,
 };

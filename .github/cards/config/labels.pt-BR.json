@@ -1,25 +1,197 @@
 [
-  "Backend",
-  "Banco de Dados",
-  "Bug",
-  "CI / CD",
-  "Cibersegurança",
-  "Documentação",
-  "Frontend",
-  "Web",
-  "Infra / DevOps",
-  "Integração Externa",
-  "Inteligência Artificial",
-  "Protótipo",
-  "QA / Testes",
-  "Refatoração",
-  "Regra de Negócio",
-  "UX / UI",
-  "Arquitetura",
-  "Débito Técnico",
-  "Performance",
-  "Acessibilidade",
-  "Mobile",
-  "Analytics",
-  "Blocked"
+  {
+    "name": "Backend",
+    "color": "5319e7",
+    "description": "Lógica server-side, serviços e código de domínio sem label mais específica."
+  },
+  {
+    "name": "Banco de Dados",
+    "color": "006b75",
+    "description": "Schema, migrações, queries e persistência de dados."
+  },
+  {
+    "name": "Bug",
+    "color": "d73a4a",
+    "description": "Defeito ou comportamento incorreto a corrigir."
+  },
+  {
+    "name": "CI / CD",
+    "color": "1d76db",
+    "description": "Pipelines de build, deploy automatizado e ferramentas de release."
+  },
+  {
+    "name": "Cibersegurança",
+    "color": "b60205",
+    "description": "Hardening, vulnerabilidades, autorização e mitigação de ameaças."
+  },
+  {
+    "name": "Documentação",
+    "color": "0075ca",
+    "description": "Docs de usuário, API, runbooks e guias no repositório."
+  },
+  {
+    "name": "Frontend",
+    "color": "7057ff",
+    "description": "Componentes de UI, estado no client e comportamento no browser."
+  },
+  {
+    "name": "Web",
+    "color": "2ea043",
+    "description": "Entrega web: routing, SSR, PWA e compatibilidade de browser."
+  },
+  {
+    "name": "Infra / DevOps",
+    "color": "fbca04",
+    "description": "Cloud, containers, IaC e infraestrutura operacional."
+  },
+  {
+    "name": "Integração Externa",
+    "color": "0366d6",
+    "description": "APIs de terceiros, webhooks e conectores com parceiros."
+  },
+  {
+    "name": "Inteligência Artificial",
+    "color": "8b5cf6",
+    "description": "ML, features com LLM, embeddings e fluxos assistidos por IA."
+  },
+  {
+    "name": "Protótipo",
+    "color": "d4c5f9",
+    "description": "Implementação exploratória ou descartável rumo a uma direção de produto."
+  },
+  {
+    "name": "QA / Testes",
+    "color": "fef2c0",
+    "description": "Automação de testes, planos de teste e garantia de qualidade."
+  },
+  {
+    "name": "Refatoração",
+    "color": "c2e0c6",
+    "description": "Melhoria estrutural sem mudança intencional de comportamento."
+  },
+  {
+    "name": "Regra de Negócio",
+    "color": "bfdadc",
+    "description": "Regras de domínio, validações e comportamento orientado a política."
+  },
+  {
+    "name": "UX / UI",
+    "color": "e99695",
+    "description": "Design de interação, polish visual e melhorias de usabilidade."
+  },
+  {
+    "name": "Arquitetura",
+    "color": "0e8a16",
+    "description": "Design de sistema, fronteiras, padrões e direção técnica."
+  },
+  {
+    "name": "Débito Técnico",
+    "color": "6f42c1",
+    "description": "Atalhos conhecidos e limpeza adiada de entregas anteriores."
+  },
+  {
+    "name": "Performance",
+    "color": "fb8500",
+    "description": "Latência, throughput, memória e melhorias de escalabilidade."
+  },
+  {
+    "name": "Acessibilidade",
+    "color": "1f883d",
+    "description": "WCAG, leitores de tela, teclado e UX inclusiva."
+  },
+  {
+    "name": "Mobile",
+    "color": "0969da",
+    "description": "Apps nativos/híbridos e comportamento mobile responsivo."
+  },
+  {
+    "name": "Analytics",
+    "color": "6554c0",
+    "description": "Métricas, dashboards, event tracking e analytics de produto."
+  },
+  {
+    "name": "Blocked",
+    "color": "cf222e",
+    "description": "Trabalho bloqueado até resolver dependência externa."
+  },
+  {
+    "name": "Observabilidade",
+    "color": "6366f1",
+    "description": "Logs, métricas, tracing, alertas e sinais de on-call."
+  },
+  {
+    "name": "API",
+    "color": "1d4ed8",
+    "description": "REST, GraphQL, gRPC, contratos e versionamento de API."
+  },
+  {
+    "name": "Auth / Identidade",
+    "color": "7c3aed",
+    "description": "Autenticação, autorização, sessões, OAuth e RBAC."
+  },
+  {
+    "name": "i18n / L10n",
+    "color": "0891b2",
+    "description": "Internacionalização, localização e comportamento por locale."
+  },
+  {
+    "name": "Conformidade",
+    "color": "64748b",
+    "description": "Regulatório, auditoria, retenção e privacidade (ex.: LGPD/GDPR)."
+  },
+  {
+    "name": "Spike",
+    "color": "ca8a04",
+    "description": "Pesquisa com timebox para reduzir incerteza antes da entrega."
+  },
+  {
+    "name": "Breaking change",
+    "color": "dc2626",
+    "description": "Mudança incompatível que exige migração ou release notes."
+  },
+  {
+    "name": "Regressão",
+    "color": "be123c",
+    "description": "Comportamento que funcionava e voltou a falhar."
+  },
+  {
+    "name": "Hotfix",
+    "color": "ea580c",
+    "description": "Correção urgente em produção fora do ciclo normal de release."
+  },
+  {
+    "name": "Design system",
+    "color": "db2777",
+    "description": "Tokens compartilhados, primitivos e padrões da biblioteca de componentes."
+  },
+  {
+    "name": "POC",
+    "color": "a855f7",
+    "description": "Prova de conceito para validar viabilidade ou demonstrar valor a stakeholders."
+  },
+  {
+    "name": "Dados / ETL",
+    "color": "0d9488",
+    "description": "Pipelines de dados, warehousing, jobs batch e fluxos ETL/ELT."
+  },
+  {
+    "name": "Notificações",
+    "color": "0284c7",
+    "description": "Email, push, SMS, alertas in-app e canais de entrega."
+  },
+  {
+    "name": "Migração",
+    "color": "78716c",
+    "description": "Migração de schema, dados ou aplicação com risco de cutover."
+  },
+  {
+    "name": "DevEx",
+    "color": "4ade80",
+    "description": "Experiência do desenvolvedor: setup local, tooling, templates e inner-loop."
+  },
+  {
+    "name": "Solicitação do cliente",
+    "color": "f472b6",
+    "description": "Trabalho rastreável a um cliente específico ou compromisso comercial."
+  }
 ]

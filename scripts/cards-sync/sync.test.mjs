@@ -11,6 +11,7 @@ import {
   buildIssueBody,
   buildEdges,
   resolveMappedOptionValue,
+  canonicalizeRemoteOption,
   buildOptionCandidates,
   pickSingleSelectOption,
   pickIterationOption,
@@ -25,7 +26,12 @@ import {
   resolveGitLabStatusAction,
   jiraRequest,
   graphql,
+  patchCardFrontmatter,
+  buildRemoteFrontmatterUpdates,
+  resolveHyperionStatusFromRemote,
+  canonicalizeLinearState,
 } from "./sync.mjs";
+import { pickCanonicalIssueForCardId } from "./lib.mjs";
 
 test("parseFrontmatter reads scalar and array values", () => {
   const content = `---
@@ -448,4 +454,94 @@ test("resolveSprintFieldConfig applies defaults and seed iterations", () => {
   assert.equal(custom.durationDays, 21);
   assert.equal(custom.startDate, "2026-01-01");
   assert.equal(custom.seedIterations.length, 1);
+});
+
+test("canonicalizeRemoteOption maps localized Project values back to YAML English", () => {
+  const repoConfig = {
+    locale: "pt-BR",
+    optionMapByLocale: {
+      "pt-BR": {
+        status: { "In Progress": "Em Progresso", Done: "Concluído" },
+        priority: { Highest: "Crítica" },
+      },
+    },
+  };
+  assert.equal(canonicalizeRemoteOption("status", "Em Progresso", repoConfig), "In Progress");
+  assert.equal(canonicalizeRemoteOption("status", "Concluído", repoConfig), "Done");
+  assert.equal(canonicalizeRemoteOption("priority", "Crítica", repoConfig), "Highest");
+});
+
+test("pickCanonicalIssueForCardId avoids EPIC-014 vs FEAT-014 collision at map level", () => {
+  const epicIssue = { number: 14, state: "OPEN", body: "CARD_ID: PULSO-EPIC-014\n<!-- /SYNC_METADATA -->" };
+  const featIssue = { number: 99, state: "OPEN", body: "CARD_ID: PULSO-FEAT-014\n<!-- /SYNC_METADATA -->" };
+  assert.notEqual("PULSO-EPIC-014", "PULSO-FEAT-014");
+  assert.equal(pickCanonicalIssueForCardId(epicIssue, featIssue).number, 14);
+});
+
+test("patchCardFrontmatter preserves body and updates status from board", () => {
+  const local = `---
+card_id: "PROJ-1"
+title: "Story"
+status: "Backlog"
+type: "Story"
+priority: null
+sprint: null
+story_points: null
+reporter: null
+parent: null
+due_date: null
+categories: []
+---
+
+# Story body stays
+`;
+  const patched = patchCardFrontmatter(local, { status: "In Progress" });
+  assert.ok(patched);
+  assert.match(patched, /status: "In Progress"/);
+  assert.match(patched, /# Story body stays/);
+  assert.match(patched, /card_id: "PROJ-1"/);
+});
+
+test("buildRemoteFrontmatterUpdates reads Project field map", () => {
+  const updates = buildRemoteFrontmatterUpdates(
+    {
+      status: "Em Progresso",
+      type: "Feature",
+      priority: "Crítica",
+      sprint: "Sprint 2",
+      storyPoints: 5,
+      reporter: "alice",
+      parent: "https://github.com/o/r/issues/1 (EPIC-1)",
+      dueDate: "2026-03-01",
+    },
+    { labels: ["Backend"] },
+    {
+      locale: "pt-BR",
+      optionMapByLocale: {
+        "pt-BR": {
+          status: { "In Progress": "Em Progresso" },
+          type: { Feature: "Funcionalidade" },
+          priority: { Highest: "Crítica" },
+        },
+      },
+    }
+  );
+  assert.equal(updates.status, "In Progress");
+  assert.equal(updates.type, "Feature");
+  assert.equal(updates.priority, "Highest");
+  assert.equal(updates.sprint, "Sprint 2");
+  assert.equal(updates.story_points, 5);
+  assert.equal(updates.parent, "EPIC-1");
+  assert.deepEqual(updates.categories, ["Backend"]);
+});
+
+test("resolveHyperionStatusFromRemote maps via status_map inverse", () => {
+  const statusMap = { Backlog: "Todo", "In Progress": "Doing" };
+  assert.equal(resolveHyperionStatusFromRemote("Doing", statusMap, {}), "In Progress");
+  assert.equal(resolveHyperionStatusFromRemote("Todo", statusMap, {}), "Backlog");
+});
+
+test("canonicalizeLinearState aliases resolveHyperionStatusFromRemote", () => {
+  const statusMap = { Done: "Completed" };
+  assert.equal(canonicalizeLinearState("Completed", statusMap, {}), "Done");
 });

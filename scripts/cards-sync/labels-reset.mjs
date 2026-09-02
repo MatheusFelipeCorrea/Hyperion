@@ -7,12 +7,16 @@ import {
   detectTokenFromGhCli,
   readJsonIfExists,
   resolveRepoConfig,
+  detectProjectLocaleFromYml,
+  loadLabelsCatalog,
 } from "./lib.mjs";
+import { resolveHyperionPaths } from "../hyperion/paths.mjs";
 
-const workspaceRoot = process.cwd();
-const cardsRoot = path.join(workspaceRoot, ".github", "cards");
+const hyperionPaths = resolveHyperionPaths(process.cwd());
+const workspaceRoot = hyperionPaths.workspaceRoot;
+const cardsRoot = hyperionPaths.cardsRoot;
 const configPath = path.join(cardsRoot, "config", "projects-map.json");
-const projectYmlPath = path.join(workspaceRoot, ".github", "project.yml");
+const projectYmlPath = hyperionPaths.projectYmlPath;
 
 const argYes = process.argv.includes("--yes");
 const argDryRun = process.argv.includes("--dry-run");
@@ -54,50 +58,6 @@ function log(msg) {
   console.log(`[labels-reset] ${msg}`);
 }
 
-function colorFromString(text) {
-  let hash = 0;
-  for (let i = 0; i < text.length; i++) {
-    hash = (hash * 31 + text.charCodeAt(i)) >>> 0;
-  }
-  return (hash & 0xffffff).toString(16).padStart(6, "0");
-}
-
-async function detectProjectLocale() {
-  try {
-    const raw = await fs.readFile(projectYmlPath, "utf8");
-    const match = raw.match(/^\s*locale\s*:\s*([^\s#]+)\s*$/m);
-    if (match?.[1]) return match[1];
-  } catch {}
-  return null;
-}
-
-async function loadLabelsCatalog(repoConfig) {
-  const locale = repoConfig.locale || (await detectProjectLocale()) || "en";
-
-  if (Array.isArray(repoConfig.labels)) {
-    return { locale, labels: repoConfig.labels, file: "(inline config)" };
-  }
-
-  const labelsFile = repoConfig.labelsFile;
-  if (!labelsFile) return { locale, labels: [], file: null };
-
-  const resolvedFileName = labelsFile.includes("{locale}")
-    ? labelsFile.replaceAll("{locale}", locale)
-    : labelsFile;
-
-  const fullPath = path.isAbsolute(resolvedFileName)
-    ? resolvedFileName
-    : path.join(cardsRoot, "config", resolvedFileName);
-
-  try {
-    const raw = await fs.readFile(fullPath, "utf8");
-    const parsed = JSON.parse(raw);
-    return { locale, labels: Array.isArray(parsed) ? parsed : [], file: fullPath };
-  } catch {
-    return { locale, labels: [], file: fullPath };
-  }
-}
-
 function listRepoLabels(owner, repo) {
   try {
     const out = execSync(`gh label list --repo ${owner}/${repo} --limit 200 --json name`, {
@@ -127,20 +87,28 @@ function deleteLabel(owner, repo, name, dryRun) {
   }
 }
 
-function createLabel(owner, repo, name, dryRun) {
-  const color = colorFromString(name);
+function ensureLabel(owner, repo, { name, color, description }, exists, dryRun) {
   if (dryRun) {
-    log(`  (dry-run) create: ${name} (#${color})`);
+    const action = exists ? "edit" : "create";
+    log(`  (dry-run) ${action}: ${name} (#${color})`);
     return;
   }
   try {
-    execSync(
-      `gh label create ${JSON.stringify(name)} --repo ${owner}/${repo} --color ${color} --force`,
-      { encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] }
-    );
-    log(`  ensured: ${name}`);
+    if (exists) {
+      execSync(
+        `gh label edit ${JSON.stringify(name)} --repo ${owner}/${repo} --color ${color} --description ${JSON.stringify(description || "")}`,
+        { encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] }
+      );
+      log(`  updated: ${name}`);
+    } else {
+      execSync(
+        `gh label create ${JSON.stringify(name)} --repo ${owner}/${repo} --color ${color} --description ${JSON.stringify(description || "")} --force`,
+        { encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] }
+      );
+      log(`  ensured: ${name}`);
+    }
   } catch (error) {
-    log(`  WARN: could not create "${name}": ${error.stderr?.toString?.() || error.message}`);
+    log(`  WARN: could not ensure "${name}": ${error.stderr?.toString?.() || error.message}`);
   }
 }
 
@@ -167,11 +135,15 @@ async function main() {
 
   const config = (await readJsonIfExists(configPath)) || { default: {} };
   const repoConfig = resolveRepoConfig(config, repositorySlug);
-  const projectLocale = await detectProjectLocale();
+  const projectLocale = await detectProjectLocaleFromYml(projectYmlPath);
   if (projectLocale && !repoConfig.locale) repoConfig.locale = projectLocale;
 
-  const catalog = await loadLabelsCatalog(repoConfig);
-  const canonical = new Set(catalog.labels || []);
+  const catalog = await loadLabelsCatalog({
+    cardsRoot,
+    repoConfig,
+    projectLocale,
+  });
+  const canonical = new Set(catalog.names);
   const locale = catalog.locale || repoConfig.locale || "en";
 
   if (!canonical.size) {
@@ -180,13 +152,13 @@ async function main() {
   }
 
   log(`Repository: ${repositorySlug}`);
-  log(`Locale: ${locale} (${canonical.size} Hyperion labels)`);
+  log(`Locale: ${locale} (${canonical.size} Hyperion labels, v2 catalog)`);
   log(`Keep Dependabot labels: ${keepDependabot ? "yes" : "no"}`);
   log("");
 
   const existing = listRepoLabels(owner, repo);
+  const existingSet = new Set(existing);
   const toDelete = [];
-  const toCreate = [...canonical].filter((name) => !existing.includes(name));
 
   for (const name of existing) {
     const lower = name.toLowerCase();
@@ -200,11 +172,11 @@ async function main() {
       toDelete.push(name);
       continue;
     }
-    // Wrong locale / orphan labels from mixed provisioning
     toDelete.push(name);
   }
 
-  log(`Existing: ${existing.length} | Delete: ${toDelete.length} | Ensure: ${toCreate.length}`);
+  const toEnsure = catalog.specs.filter((spec) => !existingSet.has(spec.name));
+  log(`Existing: ${existing.length} | Delete: ${toDelete.length} | Create: ${toEnsure.length} | Update metadata: ${catalog.specs.length - toEnsure.length}`);
   log("");
 
   if (toDelete.length) {
@@ -213,8 +185,10 @@ async function main() {
   }
 
   log("");
-  log("Ensuring Hyperion catalog labels...");
-  for (const name of [...canonical].sort()) createLabel(owner, repo, name, dryRun);
+  log("Ensuring Hyperion catalog labels (color + description)...");
+  for (const spec of [...catalog.specs].sort((a, b) => a.name.localeCompare(b.name))) {
+    ensureLabel(owner, repo, spec, existingSet.has(spec.name), dryRun);
+  }
 
   log("");
   if (dryRun) {
