@@ -19,7 +19,7 @@ Two speeds. Do not read the whole kit — pick your level and follow in order.
 | 🟢 **New to agents** | Levels 1–2 + filtered catalog | cards-sync technical README |
 | 🟡 **Already uses agents/CI** | Levels 1 + 3–4 | Long glossary |
 | 🔵 **Lead / maintainer** | Levels 1 + 5–6 | — |
-| 📋 **PM / PO** | [trilha-pm.md](./trilha-pm.md) — refine + sync, no CI | Pipeline, schema, backends |
+| 📋 **PM / PO** | [pm-track-en.md](./pm-track-en.md) — refine + sync, no CI | Pipeline, schema, backends |
 
 **Minimum kit:** `/setup` or `/migrate` → `/doctor` → `/refine` → `/implement` → `/execute` → `/help`
 
