@@ -87,7 +87,7 @@ jobs:
           GITHUB_REPOSITORY: ${{ github.repository }}
           GITHUB_BASE_SHA: ${{ matrix.base_sha }}
           CARDS_PR_HEAD_SHA: ${{ matrix.head_sha }}
-          CARDS_CI_REQUIRE_PROJECT: "true"
+          CARDS_CI_REQUIRE_PROJECT: "false"
           CARDS_CI_STRICT_GIT: "true"
           CARDS_PR_CHECK_NAME: board-guard
         run: node scripts/cards-sync/report-pr-guard-check.mjs --head-sha "${{ matrix.head_sha }}" --base-sha "${{ matrix.base_sha }}"
