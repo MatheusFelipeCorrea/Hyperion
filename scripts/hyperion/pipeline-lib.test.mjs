@@ -108,6 +108,35 @@ describe("buildPipelinePlan", () => {
     assert.ok(!plan.actions.some((a) => a.template === "hyperion-sync-cards.yml"));
   });
 
+  it("skips hyperion-owned workflows that already exist on disk", () => {
+    const detection = {
+      config: {
+        ...DEFAULT_CI_CONFIG,
+        policy: "detect",
+        hyperion: { ...DEFAULT_CI_CONFIG.hyperion, kit_validation: true },
+      },
+      hasProductCi: true,
+      classified: {
+        legacy: [],
+        product: [],
+        hyperion: [
+          "hyperion-sync-cards.yml",
+          "hyperion-cards-pr-check.yml",
+          "hyperion-cards-pr-recheck.yml",
+          "hyperion-security.yml",
+          "hyperion-validate.yml",
+        ],
+      },
+      stack: "node-npm",
+      external: [],
+    };
+    const plan = buildPipelinePlan(detection);
+    assert.equal(plan.actions.length, 0, "should not re-plan any already-existing hyperion workflow");
+    for (const name of detection.classified.hyperion) {
+      assert.ok(plan.skips.some((s) => s.includes(name)), `expected a skip entry for ${name}`);
+    }
+  });
+
   it("plans Azure Pipelines template when azure-pipelines detected", () => {
     const detection = {
       config: {
