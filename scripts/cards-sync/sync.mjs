@@ -278,6 +278,22 @@ async function listMarkdownFiles(dir) {
   return listCardsMarkdownFiles(dir, { forSync: true });
 }
 
+/**
+ * listMarkdownFiles() excludes the whole _examples/ directory at the walk
+ * level (unlike validate.mjs, which includes it) — so an all-kit-samples
+ * repo silently prints "No card files found" with no clue why `cards:validate`
+ * just reported real cards. Check whether that's the actual cause and say so.
+ */
+async function logNoCardFilesFound(dir) {
+  log(`No card files found in ${cardsPrefix}/`);
+  const withSamples = await listCardsMarkdownFiles(dir, { forSync: false });
+  if (withSamples.length > 0) {
+    log(
+      `  (${withSamples.length} kit sample card(s) under _examples/ excluded from sync — expected. Add real cards under epics/features/stories/tasks/.)`
+    );
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Card parsing — one card per file
 // ---------------------------------------------------------------------------
@@ -1807,7 +1823,7 @@ async function runForwardSync() {
 
   const allMd = await listMarkdownFiles(cardsRoot);
   if (!allMd.length) {
-    log(`No card files found in ${cardsPrefix}/`);
+    await logNoCardFilesFound(cardsRoot);
     return;
   }
 
@@ -2185,7 +2201,7 @@ async function runForwardSyncJira(repoConfig, management) {
 
   const allMd = await listMarkdownFiles(cardsRoot);
   if (!allMd.length) {
-    log(`No card files found in ${cardsPrefix}/`);
+    await logNoCardFilesFound(cardsRoot);
     return;
   }
 
