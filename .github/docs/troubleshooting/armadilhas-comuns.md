@@ -81,7 +81,24 @@ Cards em `.github/cards/_examples/` e `CARD.template.md` são **referência** �
 | Usuário pede “mova para Done” | Agente **deve** setar `status: Done` no arquivo e rodar `/sync` |
 | Card novo sem status | Vai para `Backlog` |
 
-Confusão comum: mover só no board e esperar que o Markdown atualize sozinho — forward sync não faz reverse de status automaticamente (use `cards:reverse` se precisar).
+Confusão comum: mover só no board e esperar que o Markdown atualize sozinho — forward sync **não** faz reverse de status automaticamente.
+
+**Reverse (`npm run cards:reverse`):** lê campos do GitHub Project (Status, Sprint, Prioridade, etc.) e **atualiza só o frontmatter** do `.md` local — o corpo do card **não** é sobrescrito. Rode reverse depois de mover cards no board, **antes** de merge no branch padrão.
+
+**CI forward (main):** fluxo **pull → verify → push** (`ci-sync.mjs`):
+1. **Pull** — reverse na CI (board → workspace)
+2. **Verify** — `git diff` nos `.md`; se o board divergiu do commit → **falha** (rode `cards:reverse` local e commite)
+3. **Push** — forward sync (markdown → board)
+
+Analogia git: `git pull` (reverse) → conferir → `git push` (forward). `workflow_dispatch`: `pull-forward` (padrão), `forward-only` (emergência), `reverse` (só puxar).
+
+**CI PR (antes do merge):** workflow `hyperion-cards-pr-check.yml` roda `pr-board-guard.mjs` com **guard direcional**:
+- Permite edits forward-pending no PR (ex.: `status: Done` enquanto board ainda está `In Progress`)
+- Bloqueia só **drift externo** (board mudou, branch não incorporou)
+
+Marque **Hyperion — Cards PR Board Guard** como required check em Branch protection. Fork PRs não têm secrets — o job é ignorado (`if: head.repo == github.repository`).
+
+Workflow desatualizado? `npm run hyperion:pipeline-apply -- --refresh-sync --yes`
 
 ---
 
@@ -143,7 +160,7 @@ Se algo parecer inconsistente, rode `npm run hyperion:check-rules` — o CI bloq
 
 ## 🔄 9. Backend não-GitHub (Jira, Azure, Linear, GitLab)
 
-GitHub Projects = caminho maduro. Jira/Azure/GitLab também têm reverse; Linear ainda é só forward. Paridade de colunas nativas ≠ GitHub Projects.
+GitHub Projects = caminho maduro. Jira, Azure, GitLab e Linear suportam `--reverse` (patch de frontmatter, corpo preservado). Paridade de colunas nativas ≠ GitHub Projects.
 
 → [escolher-backend.md](../integration/escolher-backend.md) + skill `integration-bridge` (`/connect`)
 
@@ -155,7 +172,6 @@ GitHub Projects = caminho maduro. Jira/Azure/GitLab também têm reverse; Linear
 |----------------|--------------|
 | Slash commands nativos no Cursor (plugin) | Via rules — escreva `/setup` ou a frase equivalente |
 | Sync bidirecional de status em Jira | Transições de **workflow** quando o nome bate; Kanban nativo depende do projeto |
-| Reverse Linear | Ainda não — GitHub, Jira, Azure e GitLab já suportam `--reverse` |
 | Vídeo / tutorial interativo | Só markdown |
 
 ---

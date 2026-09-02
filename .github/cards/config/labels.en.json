@@ -1,25 +1,167 @@
 [
-  "Backend",
-  "Database",
-  "Bug",
-  "CI / CD",
-  "Cybersecurity",
-  "Documentation",
-  "Frontend",
-  "Web",
-  "Infra / DevOps",
-  "External Integration",
-  "Artificial Intelligence",
-  "Prototype",
-  "QA / Testing",
-  "Refactoring",
-  "Business Rule",
-  "UX / UI",
-  "Architecture",
-  "Tech Debt",
-  "Performance",
-  "Accessibility",
-  "Mobile",
-  "Analytics",
-  "Blocked"
+  {
+    "name": "Backend",
+    "color": "5319e7",
+    "description": "Server-side logic, services, and domain code not covered by a narrower label."
+  },
+  {
+    "name": "Database",
+    "color": "006b75",
+    "description": "Schema, migrations, queries, and data persistence."
+  },
+  {
+    "name": "Bug",
+    "color": "d73a4a",
+    "description": "Defect or incorrect behavior to fix."
+  },
+  {
+    "name": "CI / CD",
+    "color": "1d76db",
+    "description": "Build pipelines, deployment automation, and release tooling."
+  },
+  {
+    "name": "Cybersecurity",
+    "color": "b60205",
+    "description": "Security hardening, vulnerabilities, authz, and threat mitigation."
+  },
+  {
+    "name": "Documentation",
+    "color": "0075ca",
+    "description": "User docs, API docs, runbooks, and in-repo guides."
+  },
+  {
+    "name": "Frontend",
+    "color": "7057ff",
+    "description": "UI components, client state, and browser-side behavior."
+  },
+  {
+    "name": "Web",
+    "color": "2ea043",
+    "description": "Web-specific delivery: routing, SSR, PWA, and browser compatibility."
+  },
+  {
+    "name": "Infra / DevOps",
+    "color": "fbca04",
+    "description": "Cloud resources, containers, IaC, and operational infrastructure."
+  },
+  {
+    "name": "External Integration",
+    "color": "0366d6",
+    "description": "Third-party APIs, webhooks, and partner system connectors."
+  },
+  {
+    "name": "Artificial Intelligence",
+    "color": "8b5cf6",
+    "description": "ML, LLM features, embeddings, and AI-assisted workflows."
+  },
+  {
+    "name": "Prototype",
+    "color": "d4c5f9",
+    "description": "Exploratory implementation or throwaway spike toward a product direction."
+  },
+  {
+    "name": "QA / Testing",
+    "color": "fef2c0",
+    "description": "Test automation, test plans, and quality assurance work."
+  },
+  {
+    "name": "Refactoring",
+    "color": "c2e0c6",
+    "description": "Structural improvement without intended behavior change."
+  },
+  {
+    "name": "Business Rule",
+    "color": "bfdadc",
+    "description": "Domain rules, validations, and policy-driven behavior."
+  },
+  {
+    "name": "UX / UI",
+    "color": "e99695",
+    "description": "Interaction design, visual polish, and usability improvements."
+  },
+  {
+    "name": "Architecture",
+    "color": "0e8a16",
+    "description": "System design, boundaries, patterns, and technical direction."
+  },
+  {
+    "name": "Tech Debt",
+    "color": "6f42c1",
+    "description": "Known shortcuts and cleanup deferred from earlier delivery."
+  },
+  {
+    "name": "Performance",
+    "color": "fb8500",
+    "description": "Latency, throughput, memory, and scalability improvements."
+  },
+  {
+    "name": "Accessibility",
+    "color": "1f883d",
+    "description": "WCAG, screen readers, keyboard navigation, and inclusive UX."
+  },
+  {
+    "name": "Mobile",
+    "color": "0969da",
+    "description": "Native or hybrid mobile apps and responsive mobile behavior."
+  },
+  {
+    "name": "Analytics",
+    "color": "6554c0",
+    "description": "Metrics, dashboards, event tracking, and product analytics."
+  },
+  {
+    "name": "Blocked",
+    "color": "cf222e",
+    "description": "Work cannot proceed until an external dependency is resolved."
+  },
+  {
+    "name": "Observability",
+    "color": "6366f1",
+    "description": "Logging, metrics, tracing, alerting, and on-call signals."
+  },
+  {
+    "name": "API",
+    "color": "1d4ed8",
+    "description": "REST, GraphQL, gRPC endpoints, contracts, and API versioning."
+  },
+  {
+    "name": "Auth / Identity",
+    "color": "7c3aed",
+    "description": "Authentication, authorization, sessions, OAuth, and RBAC."
+  },
+  {
+    "name": "i18n / L10n",
+    "color": "0891b2",
+    "description": "Internationalization, localization, and locale-aware behavior."
+  },
+  {
+    "name": "Compliance",
+    "color": "64748b",
+    "description": "Regulatory, audit, retention, and privacy requirements (e.g. LGPD/GDPR)."
+  },
+  {
+    "name": "Spike",
+    "color": "ca8a04",
+    "description": "Time-boxed research to reduce uncertainty before committing to delivery."
+  },
+  {
+    "name": "Breaking change",
+    "color": "dc2626",
+    "description": "Backward-incompatible change requiring migration or release notes."
+  },
+  {
+    "name": "Regression",
+    "color": "be123c",
+    "description": "Previously working behavior that broke again."
+  },
+  {
+    "name": "Hotfix",
+    "color": "ea580c",
+    "description": "Urgent production fix outside the normal release cadence."
+  },
+  {
+    "name": "Design system",
+    "color": "db2777",
+    "description": "Shared tokens, primitives, and component library standards."
+  }
 ]

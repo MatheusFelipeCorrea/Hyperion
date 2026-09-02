@@ -3,8 +3,9 @@
 #   include:
 #     - local: .gitlab/hyperion-ci.yml
 #
-# Requires Node 20+ and Hyperion scripts at repo root.
-# Does not replace your product pipeline stages.
+# Requires Node 20+ and Hyperion scripts (at repo root).
+# Cards sync on default branch: pull → verify → push (configure board tokens in CI variables).
+# Set CARDS_CI_REQUIRE_PROJECT=true for GitHub Projects V2 when backend is github.
 
 stages:
   - hyperion
@@ -31,12 +32,30 @@ hyperion-validate:
 hyperion-cards:
   extends: .hyperion_node
   stage: hyperion
+  resource_group: hyperion-cards-sync
   rules:
-    - changes:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      changes:
         - .github/cards/**/*
+        - .github/cards/config/projects-map.json
+        - scripts/cards-sync/**
+    - when: never
   script:
-    - node scripts/cards-sync/validate.mjs
-    - node scripts/cards-sync/sync.mjs --dry-run
+    - node scripts/cards-sync/ci-sync.mjs
+
+hyperion-cards-pr-guard:
+  extends: .hyperion_node
+  stage: hyperion
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      changes:
+        - .github/cards/**/*
+        - .github/cards/config/projects-map.json
+        - scripts/cards-sync/**
+    - when: never
+  script:
+    - node scripts/cards-sync/pr-board-guard.mjs
+  allow_failure: false
 
 hyperion-security:
   extends: .hyperion_node

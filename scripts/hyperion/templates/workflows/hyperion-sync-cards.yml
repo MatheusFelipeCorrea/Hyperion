@@ -8,14 +8,19 @@ on:
         required: false
         default: "false"
       sync_direction:
-        description: "Sync direction: forward or reverse"
+        description: "pull-forward | forward-only | reverse"
         required: false
-        default: "forward"
+        default: "pull-forward"
   push:
+    branches: [main]
     paths:
       - ".github/cards/**/*.md"
       - ".github/cards/config/projects-map.json"
       - "scripts/cards-sync/**"
+
+concurrency:
+  group: hyperion-sync-cards-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -25,6 +30,7 @@ permissions:
 jobs:
   sync:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -34,12 +40,35 @@ jobs:
         with:
           node-version: "24"
 
-      - name: Sync cards
+      - name: Pull → verify → push (main CI)
+        if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && github.event.inputs.sync_direction != 'reverse' && github.event.inputs.sync_direction != 'forward-only')
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PROJECT_SYNC_TOKEN: ${{ secrets.PROJECT_SYNC_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_EVENT_BEFORE: ${{ github.event.before }}
+          CREATE_MISSING_LABELS: "true"
+          DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
+          CARDS_CI_REQUIRE_PROJECT: "true"
+        run: node scripts/cards-sync/ci-sync.mjs
+
+      - name: Forward sync only
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.sync_direction == 'forward-only'
         env:
           GITHUB_TOKEN: ${{ github.token }}
           PROJECT_SYNC_TOKEN: ${{ secrets.PROJECT_SYNC_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           CREATE_MISSING_LABELS: "true"
           DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
-          SYNC_DIRECTION: ${{ github.event.inputs.sync_direction || 'forward' }}
-        run: node scripts/cards-sync/sync.mjs
+          CARDS_CI_SKIP_REVERSE: "true"
+          CARDS_CI_SKIP_BOARD_GUARD: "true"
+        run: node scripts/cards-sync/ci-sync.mjs
+
+      - name: Reverse sync only
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.sync_direction == 'reverse'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PROJECT_SYNC_TOKEN: ${{ secrets.PROJECT_SYNC_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
+        run: node scripts/cards-sync/sync.mjs --reverse

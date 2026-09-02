@@ -1,6 +1,6 @@
 ﻿import fs from "node:fs/promises";
 import path from "node:path";
-import { execSync } from "node:child_process";
+import { execSync, spawnSync } from "node:child_process";
 
 export function detectRepoFromGit() {
   try {
@@ -377,6 +377,180 @@ export async function discoverGitHubProjectNumber({
   };
 }
 
+/** Parse SYNC_METADATA block from a GitHub issue body (not full description). */
+export function parseSyncMetadataFromIssueBody(body) {
+  const text = String(body || "");
+  const metaMatch = text.match(/<!-- SYNC_METADATA[\s\S]*?-->\s*([\s\S]*?)\s*<!-- \/SYNC_METADATA -->/);
+  if (!metaMatch) return null;
+
+  const meta = {};
+  for (const line of metaMatch[1].split("\n")) {
+    const trimmed = String(line || "").trim();
+    if (!trimmed) continue;
+    const kv = trimmed.match(/^([A-Z_]+)\s*:\s*(.*)$/);
+    if (kv) meta[kv[1]] = kv[2].trim();
+  }
+  return meta;
+}
+
+/** CARD_ID from SYNC_METADATA only — avoids matching PARENT_CARD_ID substring. */
+export function parseCardIdFromIssueBody(body) {
+  const meta = parseSyncMetadataFromIssueBody(body);
+  const cardId = meta?.CARD_ID?.trim();
+  return cardId || null;
+}
+
+export function parseSourceFileFromIssueBody(body) {
+  const meta = parseSyncMetadataFromIssueBody(body);
+  return meta?.SOURCE_FILE?.trim() || null;
+}
+
+/** When multiple issues share a CARD_ID, prefer OPEN then lowest issue number. */
+export function pickCanonicalIssueForCardId(existing, candidate) {
+  if (!existing) return candidate;
+  if (!candidate) return existing;
+
+  const existingOpen = String(existing.state || "").toUpperCase() === "OPEN";
+  const candidateOpen = String(candidate.state || "").toUpperCase() === "OPEN";
+  if (existingOpen && !candidateOpen) return existing;
+  if (!existingOpen && candidateOpen) return candidate;
+
+  const existingNum = Number(existing.number) || Infinity;
+  const candidateNum = Number(candidate.number) || Infinity;
+  return candidateNum < existingNum ? candidate : existing;
+}
+
+/** Resolve SOURCE_FILE paths for legacy flat vs nested kit.root layouts. */
+export function resolveSourceFileCandidates(sourceFile, { kitRootRel } = {}) {
+  const norm = String(sourceFile || "")
+    .replace(/\\/g, "/")
+    .replace(/^\.\//, "")
+    .trim();
+  if (!norm) return [];
+
+  const candidates = [norm];
+  const kit = String(kitRootRel || "")
+    .replace(/\\/g, "/")
+    .replace(/\/+$/, "");
+
+  if (kit && !norm.startsWith(`${kit}/`)) {
+    candidates.push(`${kit}/${norm}`);
+  }
+  if (kit && norm.startsWith(`${kit}/`)) {
+    const stripped = norm.slice(kit.length + 1);
+    if (stripped) candidates.push(stripped);
+  }
+
+  return [...new Set(candidates)];
+}
+
+export async function readLocalCardFromSourceFile(sourceFile, { workspaceRoot, kitRootRel } = {}) {
+  const candidates = resolveSourceFileCandidates(sourceFile, { kitRootRel });
+  for (const rel of candidates) {
+    const abs = path.join(workspaceRoot, rel);
+    try {
+      const content = await fs.readFile(abs, "utf8");
+      return { relativeFile: rel.replace(/\\/g, "/"), absolutePath: abs, content };
+    } catch {
+      /* try next candidate */
+    }
+  }
+  return null;
+}
+
+/** CARD_ID from remote description (Jira/Azure/GitLab) — SYNC_METADATA block only. */
+export function parseCardIdFromRemoteDescription(description) {
+  return parseCardIdFromIssueBody(description);
+}
+
+/**
+ * After reverse sync in CI: detect if board state differs from committed card markdown.
+ * @returns {{ aligned: boolean, files: string[], gitAvailable: boolean, warning?: string }}
+ */
+export function checkBoardRepoAlignment(workspaceRoot, cardsPrefix) {
+  const cardsPath = String(cardsPrefix || ".github/cards").replace(/\\/g, "/").replace(/\/+$/, "");
+  const diff = spawnSync("git", ["diff", "--name-only", "--", `${cardsPath}/`], {
+    cwd: workspaceRoot,
+    encoding: "utf8",
+  });
+
+  if (diff.error) {
+    return {
+      aligned: true,
+      files: [],
+      gitAvailable: false,
+      warning: diff.error.message,
+    };
+  }
+
+  const files = (diff.stdout || "")
+    .trim()
+    .split("\n")
+    .filter(Boolean)
+    .filter((f) => f.toLowerCase().endsWith(".md"));
+
+  return {
+    aligned: files.length === 0,
+    files,
+    gitAvailable: true,
+  };
+}
+
+/** Fail CI pull-before-push when projectNumber is missing (board fields won't reverse). */
+export async function assertCiProjectConfigured(configPath, repositorySlug, { backend = "github" } = {}) {
+  const normalizedBackend = String(backend || "github").toLowerCase();
+  if (normalizedBackend !== "github") {
+    return { ok: true, skipped: true, reason: "not_github_backend" };
+  }
+
+  if (String(process.env.CARDS_CI_REQUIRE_PROJECT || "").toLowerCase() !== "true") {
+    return { ok: true, skipped: true };
+  }
+
+  const config = (await readJsonIfExists(configPath)) || {};
+  const repoConfig = resolveRepoConfig(config, repositorySlug);
+  const projectNumber = Number(repoConfig.projectNumber || 0);
+
+  if (projectNumber <= 0) {
+    return {
+      ok: false,
+      reason: "missing_project_number",
+      message:
+        "CI pull-before-push requires projectNumber in projects-map.json. Run: npm run cards:doctor",
+    };
+  }
+
+  return { ok: true, projectNumber, projectOwner: repoConfig.projectOwner || null };
+}
+
+/** Resolve cards-sync backend from env, project.yml, or projects-map.json. */
+export async function readSyncBackendHint({ projectYmlPath, projectsMapPath, repositorySlug } = {}) {
+  if (process.env.CARDS_SYNC_BACKEND) {
+    return String(process.env.CARDS_SYNC_BACKEND).toLowerCase();
+  }
+
+  if (projectYmlPath) {
+    try {
+      const raw = await fs.readFile(projectYmlPath, "utf8");
+      const m = raw.match(/^\s*backend\s*:\s*(\S+)/m);
+      if (m?.[1]) return m[1].trim().replace(/^["']|["']$/g, "").toLowerCase();
+      const mgmt = raw.match(/^\s*management\s*:\s*\n[\s\S]*?^\s{2}backend\s*:\s*(\S+)/m);
+      if (mgmt?.[1]) return mgmt[1].trim().replace(/^["']|["']$/g, "").toLowerCase();
+    } catch {
+      /* ignore */
+    }
+  }
+
+  if (projectsMapPath && repositorySlug) {
+    const config = await readJsonIfExists(projectsMapPath);
+    const repoConfig = resolveRepoConfig(config || {}, repositorySlug);
+    if (repoConfig?.backend) return String(repoConfig.backend).toLowerCase();
+    if (repoConfig?.management?.backend) return String(repoConfig.management.backend).toLowerCase();
+  }
+
+  return "github";
+}
+
 export async function writeSyncSummary({
   workspaceRoot,
   plansCardsDir,
@@ -424,4 +598,106 @@ export async function writeSyncSummary({
   lines.push("");
   await fs.writeFile(outPath, `${lines.join("\n")}\n`, "utf8");
   return outPath;
+}
+
+// ---------------------------------------------------------------------------
+// Labels catalog (v2: name + color + description; v1: string[])
+// ---------------------------------------------------------------------------
+
+/** Deterministic fallback color when catalog omits `color`. */
+export function colorFromString(text) {
+  let hash = 0;
+  for (let i = 0; i < text.length; i++) {
+    hash = (hash * 31 + text.charCodeAt(i)) >>> 0;
+  }
+  return (hash & 0xffffff).toString(16).padStart(6, "0");
+}
+
+export function normalizeLabelColor(color) {
+  if (!color) return null;
+  const hex = String(color).replace(/^#/, "").trim();
+  if (!/^[0-9a-fA-F]{6}$/.test(hex)) return null;
+  return hex.toLowerCase();
+}
+
+/** @returns {{ name: string, color: string, description: string } | null} */
+export function normalizeLabelEntry(entry) {
+  if (typeof entry === "string") {
+    const name = entry.trim();
+    return name ? { name, color: colorFromString(name), description: "" } : null;
+  }
+  if (entry && typeof entry === "object" && typeof entry.name === "string") {
+    const name = entry.name.trim();
+    if (!name) return null;
+    const color = normalizeLabelColor(entry.color) || colorFromString(name);
+    const description = typeof entry.description === "string" ? entry.description.trim() : "";
+    return { name, color, description };
+  }
+  return null;
+}
+
+/** Parse labels catalog JSON (array of strings or objects). */
+export function parseLabelsCatalogJson(parsed) {
+  if (!Array.isArray(parsed)) return [];
+  const specs = [];
+  const seen = new Set();
+  for (const entry of parsed) {
+    const spec = normalizeLabelEntry(entry);
+    if (!spec || seen.has(spec.name)) continue;
+    seen.add(spec.name);
+    specs.push(spec);
+  }
+  return specs;
+}
+
+export function labelNamesFromCatalog(specs) {
+  return specs.map((s) => s.name);
+}
+
+export async function detectProjectLocaleFromYml(projectYmlPath) {
+  try {
+    const raw = await fs.readFile(projectYmlPath, "utf8");
+    const match = raw.match(/^\s*locale\s*:\s*([^\s#]+)\s*$/m);
+    if (match?.[1]) return match[1];
+  } catch {}
+  return null;
+}
+
+export function resolveLabelsCatalogFilePath(cardsRoot, repoConfig, locale) {
+  if (Array.isArray(repoConfig.labels)) return null;
+  const labelsFile = repoConfig.labelsFile;
+  if (!labelsFile) return null;
+  const resolvedFileName = labelsFile.includes("{locale}")
+    ? labelsFile.replaceAll("{locale}", locale)
+    : labelsFile;
+  return path.isAbsolute(resolvedFileName)
+    ? resolvedFileName
+    : path.join(cardsRoot, "config", resolvedFileName);
+}
+
+export async function loadLabelsCatalog({ cardsRoot, repoConfig, projectLocale = null }) {
+  const locale = repoConfig.locale || projectLocale || "en";
+
+  if (Array.isArray(repoConfig.labels)) {
+    const specs = parseLabelsCatalogJson(repoConfig.labels);
+    return {
+      locale,
+      specs,
+      names: labelNamesFromCatalog(specs),
+      file: "(inline config)",
+    };
+  }
+
+  const file = resolveLabelsCatalogFilePath(cardsRoot, repoConfig, locale);
+  if (!file) {
+    return { locale, specs: [], names: [], file: null };
+  }
+
+  try {
+    const raw = await fs.readFile(file, "utf8");
+    const specs = parseLabelsCatalogJson(JSON.parse(raw));
+    return { locale, specs, names: labelNamesFromCatalog(specs), file };
+  } catch {
+    return { locale, specs: [], names: [], file };
+  }
 }

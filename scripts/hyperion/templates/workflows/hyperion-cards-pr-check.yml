@@ -1,0 +1,58 @@
+name: Hyperion — Cards PR Board Guard
+
+# Directional board guard — blocks external drift, allows forward-pending PR edits.
+# Enable Merge Queue + mark board-guard as required check in branch rulesets.
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/cards/**/*.md"
+      - ".github/cards/config/projects-map.json"
+      - "scripts/cards-sync/**"
+  merge_group:
+    branches: [main]
+
+permissions:
+  contents: read
+  issues: read
+  repository-projects: read
+
+jobs:
+  board-guard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    if: github.event_name == 'merge_group' || github.event.pull_request.head.repo.full_name == github.repository
+    steps:
+      - name: Checkout PR / merge-group head
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event_name == 'merge_group' && github.event.merge_group.head_sha || github.event.pull_request.head.sha }}
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+
+      - name: Directional board drift guard
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PROJECT_SYNC_TOKEN: ${{ secrets.PROJECT_SYNC_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_BASE_SHA: ${{ github.event_name == 'merge_group' && github.event.merge_group.base_sha || github.event.pull_request.base.sha }}
+          CARDS_CI_REQUIRE_PROJECT: "true"
+          CARDS_CI_STRICT_GIT: "true"
+        run: node scripts/cards-sync/pr-board-guard.mjs
+
+  board-guard-fork:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+      - name: Validate cards only (fork — no board token)
+        run: node scripts/cards-sync/validate.mjs

@@ -6,8 +6,9 @@ import {
   runNodeScriptAsync,
   warn,
   log,
+  workspaceRoot,
 } from "./lib.mjs";
-import { detectPipeline, buildPipelinePlan } from "./pipeline-lib.mjs";
+import { detectPipeline, buildPipelinePlan, auditHyperionPipelineFiles } from "./pipeline-lib.mjs";
 
 const argYes = process.argv.includes("--yes");
 const argSkipCards = process.argv.includes("--skip-cards");
@@ -31,8 +32,19 @@ async function main() {
   for (const msg of health.warnings) warn(msg);
   for (const w of plan.warnings) warn(w);
 
+  const pipelineAudit = await auditHyperionPipelineFiles(workspaceRoot, {
+    expectSyncWorkflow:
+      detection.config.hyperion.cards_sync &&
+      (detection.config.provider === "github-actions" || detection.config.provider === "none"),
+  });
+  for (const finding of pipelineAudit.findings) {
+    warn(`${finding.file} outdated (${finding.issues.join(", ")}) — ${finding.fix}`);
+  }
+
   if (!detection.classified.hyperion.includes("hyperion-sync-cards.yml") && detection.config.hyperion.cards_sync) {
-    warn("hyperion-sync-cards.yml missing — run: npm run hyperion:pipeline-apply -- --yes");
+    if (!pipelineAudit.findings.some((f) => f.file.endsWith("hyperion-sync-cards.yml"))) {
+      warn("hyperion-sync-cards.yml missing — run: npm run hyperion:pipeline-apply -- --yes");
+    }
   }
 
   if (health.issues.length === 0 && health.warnings.length === 0) {
