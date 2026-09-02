@@ -7,9 +7,39 @@
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { join, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import Ajv2020 from "ajv/dist/2020.js";
+import { load as loadYaml } from "js-yaml";
 import { readProjectCommands } from "./repo-detect.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+
+/**
+ * Real JSON-Schema validation against project.schema.json — structural/type
+ * checks (unknown keys, wrong types, bad enums) that the hand-rolled
+ * regex extraction below can't catch, since it only reads the handful of
+ * fields it knows to look for.
+ */
+function validateAgainstSchema(root, text) {
+  const schemaPath = join(root, ".github", "project.schema.json");
+  if (!existsSync(schemaPath)) {
+    return { ok: true, skipped: true, errors: [] };
+  }
+  let data;
+  try {
+    data = loadYaml(text);
+  } catch (err) {
+    return { ok: false, skipped: false, errors: [`YAML parse error: ${err.message}`] };
+  }
+  const schema = JSON.parse(readFileSync(schemaPath, "utf8"));
+  const ajv = new Ajv2020({ allErrors: true, strict: false });
+  const validate = ajv.compile(schema);
+  const valid = validate(data);
+  if (valid) return { ok: true, skipped: false, errors: [] };
+  const errors = (validate.errors || []).map(
+    (e) => `${e.instancePath || "/"} ${e.message}${e.params?.additionalProperty ? ` (${e.params.additionalProperty})` : ""}`
+  );
+  return { ok: false, skipped: false, errors };
+}
 
 function argValue(flag) {
   const i = process.argv.indexOf(flag);
@@ -141,6 +171,18 @@ function main() {
   const text = readFileSync(ymlPath, "utf8");
   let failed = 0;
   const warnings = [];
+
+  const schemaResult = validateAgainstSchema(root, text);
+  if (schemaResult.skipped) {
+    warnings.push("no .github/project.schema.json found — skipping JSON-Schema validation");
+  } else if (!schemaResult.ok) {
+    for (const e of schemaResult.errors) {
+      console.error(`FAIL schema: ${e}`);
+      failed++;
+    }
+  } else {
+    console.log("OK schema: project.yml matches project.schema.json");
+  }
 
   const version = extractTopKey(text, "version");
   if (!version || !/^\d+$/.test(version)) {

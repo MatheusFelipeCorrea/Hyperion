@@ -23,6 +23,13 @@ jobs:
         uses: actions/setup-node@v5
         with:
           node-version: "22"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate project.yml against schema
+        run: npm run hyperion:project-verify
 
       - name: Docs link check
         run: npm run docs:check
