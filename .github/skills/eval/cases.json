@@ -92,8 +92,32 @@
     "mustContain": ["project-verify", "project.yml"]
   },
   {
+    "file": ".github/agents/implementation-plan.agent.md",
+    "mustContain": ["plan-verify"]
+  },
+  {
+    "file": ".github/agents/spec-review.agent.md",
+    "mustContain": ["spec-review-verify", "verdict"]
+  },
+  {
+    "file": ".github/agents/release.agent.md",
+    "mustContain": ["release-verify"]
+  },
+  {
+    "file": ".github/agents/audit-runner.agent.md",
+    "mustContain": ["audit-verify", "Executive Summary", "Cross-cutting Themes"]
+  },
+  {
     "file": ".github/docs/meta/definition-of-done.md",
-    "mustContain": ["phase-verify", "project-verify", "review-verify"]
+    "mustContain": [
+      "phase-verify",
+      "project-verify",
+      "review-verify",
+      "plan-verify",
+      "spec-review-verify",
+      "release-verify",
+      "audit-verify"
+    ]
   },
   {
     "skill": "project-discovery",

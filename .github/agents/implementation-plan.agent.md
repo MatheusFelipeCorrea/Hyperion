@@ -118,6 +118,10 @@ When docs are missing: search the codebase for similar modules/components; ask b
 - Directory: config `outputs.implementations` or `.github/plans/implementations/`
 - Valid Markdown + front matter; same language as the card
 - Status: `Completed` | `In progress` | `Planned` | `Deprecated` | `On Hold`
+- **Before saying the plan is ready**, run:
+  `npm run hyperion:plan-verify -- --plan <path>`
+  If exit ≠ 0 → fix frontmatter (`goal`, `card_id`, `status`), add a `### Phase N` section,
+  or add the `## 7. Verification` section before asking for approval.
 
 ## Template
 

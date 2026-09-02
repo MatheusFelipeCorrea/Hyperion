@@ -67,6 +67,11 @@ One paragraph.
 
 Create `.github/plans/reviews/` if missing.
 
+**Before declaring the review done**, run:
+`npm run hyperion:spec-review-verify -- --review <path>`
+If exit ≠ 0 → fix the artifact (missing `card_id`/`verdict`, a missing section, or a
+`BLOCKED` verdict with no listed blocking issue) before handing back to the user.
+
 ## Rules
 
 - **Never write production code** in this agent
