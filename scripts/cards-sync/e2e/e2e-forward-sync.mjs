@@ -100,13 +100,24 @@ if (!token) {
   );
 }
 
-const [targetOwner, targetName] = String(targetRepo).split("/");
+// Normalize before ANY use (split, same-repo guard, or passing downstream) —
+// "owner/repo.git" and "owner/repo" must compare as identical, or a target
+// repo pasted straight from a git remote URL slips past the same-repo guard.
+function normalizeRepoSlug(slug) {
+  return String(slug || "")
+    .trim()
+    .replace(/\.git$/i, "")
+    .replace(/\/+$/, "");
+}
+
+const normalizedTargetRepo = normalizeRepoSlug(targetRepo);
+const [targetOwner, targetName] = normalizedTargetRepo.split("/");
 if (!targetOwner || !targetName) {
   fail(`E2E_TARGET_REPO must be "owner/repo" — got "${targetRepo}".`);
 }
 
-const currentRepoSlug = process.env.GITHUB_REPOSITORY || detectRepoFromGit();
-if (currentRepoSlug && currentRepoSlug.toLowerCase() === String(targetRepo).toLowerCase()) {
+const currentRepoSlug = normalizeRepoSlug(process.env.GITHUB_REPOSITORY || detectRepoFromGit());
+if (currentRepoSlug && currentRepoSlug.toLowerCase() === normalizedTargetRepo.toLowerCase()) {
   fail(
     `E2E_TARGET_REPO ("${targetRepo}") is the same repo this script is running from ` +
       "(" +
@@ -274,7 +285,7 @@ function runRealForwardSync(workspaceRoot) {
     stdio: "inherit",
     env: {
       ...process.env,
-      GITHUB_REPOSITORY: targetRepo,
+      GITHUB_REPOSITORY: normalizedTargetRepo,
       PROJECT_SYNC_TOKEN: token,
       GITHUB_TOKEN: "",
       CREATE_MISSING_LABELS: "true",

@@ -28,7 +28,7 @@ Cards remain in `.github/cards/` — sync engine reads from there regardless of 
 | Backend | Connection method | Card sync | Bidirectional |
 |---------|------------------|-----------|---------------|
 | **GitHub** (default) | GitHub API / gh CLI | Full (Issues + Projects + fields) | Yes (`--reverse`) |
-| **Jira** | MCP (`mcp-jira`) or REST API | Forward + reverse in `sync.mjs` | Yes (`--reverse` rebuilds Markdown) |
+| **Jira** | MCP (`mcp-jira`) or REST API | Forward + reverse (`backends/jira.mjs`) | Yes (`--reverse` rebuilds Markdown) |
 | **Azure DevOps** | MCP (`mcp-azure-devops`) or REST API | Forward + reverse; `System.State` via `status_map` | Yes (`--reverse`) |
 | **Linear** | MCP (`mcp-linear`) or GraphQL | Forward + reverse; workflow state via `status_map` | Yes (`--reverse`) |
 | **GitLab** | MCP (`mcp-gitlab`) or REST API | Forward + reverse; open/close + `status:` label | Yes (`--reverse`) |

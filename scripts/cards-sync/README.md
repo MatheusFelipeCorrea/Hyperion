@@ -451,7 +451,7 @@ Doctor remote checks cover **GitHub, Jira, Azure, GitLab, and Linear**.
 
 If you want to integrate another backend, the intended path is:
 - configure connection + field mapping via the `integration-bridge` skill
-- then implement a new adapter in `sync.mjs` (roadmap)
+- then implement a new adapter in `scripts/cards-sync/backends/` (roadmap)
 
 ### Labels i18n
 
