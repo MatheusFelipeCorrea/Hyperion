@@ -70,7 +70,7 @@ ${MODE="Generate|Update"} <!-- Generate from scratch or update existing diagrams
 - Migrations, Prisma schema, TypeORM entities, SQL files, Database README
 - Use for: ER diagram, Class diagram attributes, State enums
 
-### .github/instructions/copilot-instructions.md
+### .github/copilot-instructions.md
 - Extract: architectural rules, layer boundaries
 - Use for: Component diagrams (dependency arrows), notes on diagrams
 

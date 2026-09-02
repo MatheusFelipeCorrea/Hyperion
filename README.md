@@ -231,7 +231,7 @@ Mais tarde: [setup GitHub](./.github/docs/onboarding/setup-github.md) · [adapta
 |---------|----------------|
 | Cursor | `.cursor/rules/hyperion.mdc` |
 | Claude Code | `CLAUDE.md` |
-| GitHub Copilot | `.github/instructions/copilot-instructions.md` |
+| GitHub Copilot | `.github/copilot-instructions.md` |
 
 ---
 

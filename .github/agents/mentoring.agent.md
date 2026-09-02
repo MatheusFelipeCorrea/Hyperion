@@ -95,7 +95,7 @@ Look for project documentation in the `.github/` directory:
 - Guide them to the Folder Structure doc
 - Ask: "Check the Folder Structure Blueprint in .github/docs/. Where do query hooks live? What's the naming convention?"
 
-**.github/instructions/copilot-instructions.md** — use when the learner:
+**.github/copilot-instructions.md** — use when the learner:
 - Is about to write code that might violate project rules
 - Needs to understand the project's conventions
 - Ask: "Before you write that, check the Copilot Instructions in .github/instructions/. What does it say about state management in our project? Where should API data live?"

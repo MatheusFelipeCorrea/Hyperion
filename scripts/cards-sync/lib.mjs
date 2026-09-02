@@ -338,6 +338,7 @@ export async function discoverGitHubProjectNumber({
   repoConfig,
   configPath,
   repositorySlug,
+  persist = true,
 }) {
   const existing = Number(repoConfig.projectNumber || 0);
   if (existing > 0) {
@@ -364,10 +365,12 @@ export async function discoverGitHubProjectNumber({
   }
 
   const projectOwner = repoConfig.projectOwner || owner;
-  await saveProjectToConfig(configPath, repositorySlug, {
-    projectNumber: picked.number,
-    projectOwner,
-  });
+  if (persist) {
+    await saveProjectToConfig(configPath, repositorySlug, {
+      projectNumber: picked.number,
+      projectOwner,
+    });
+  }
 
   return {
     discovered: true,

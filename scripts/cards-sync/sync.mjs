@@ -1760,14 +1760,23 @@ async function runForwardSync() {
         repoConfig,
         configPath,
         repositorySlug,
+        persist: !dryRun,
       });
       if (discovery.discovered) {
-        log(`Auto-discovered GitHub Project #${discovery.projectNumber}: "${discovery.projectTitle}"`);
-        const freshConfig = await readConfig();
-        repoConfig = resolveRepoConfig(freshConfig, repositorySlug);
-        projectOwner = process.env.PROJECT_OWNER || repoConfig.projectOwner || repoOwner;
-        projectNumber =
-          Number(process.env.PROJECT_NUMBER || "0") || Number(repoConfig.projectNumber || "0");
+        if (dryRun) {
+          log(
+            `Auto-discovered GitHub Project #${discovery.projectNumber}: "${discovery.projectTitle}" (dry-run — not saved to projects-map.json)`
+          );
+          projectOwner = process.env.PROJECT_OWNER || discovery.projectOwner || repoOwner;
+          projectNumber = discovery.projectNumber;
+        } else {
+          log(`Auto-discovered GitHub Project #${discovery.projectNumber}: "${discovery.projectTitle}"`);
+          const freshConfig = await readConfig();
+          repoConfig = resolveRepoConfig(freshConfig, repositorySlug);
+          projectOwner = process.env.PROJECT_OWNER || repoConfig.projectOwner || repoOwner;
+          projectNumber =
+            Number(process.env.PROJECT_NUMBER || "0") || Number(repoConfig.projectNumber || "0");
+        }
       } else if (discovery.reason === "ambiguous") {
         log("Multiple GitHub Projects found — set projectNumber in projects-map.json");
         for (const c of discovery.candidates || []) {

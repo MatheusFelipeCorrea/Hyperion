@@ -1,0 +1,10 @@
+# Normalize line endings so generated files (CLAUDE.md, hyperion.mdc,
+# copilot-instructions.md, help.mjs) don't show as spuriously "modified"
+# on Windows checkouts after `npm run hyperion:generate-rules`.
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary

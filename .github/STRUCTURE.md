@@ -91,7 +91,7 @@ CI drift check: `npm run hyperion:check-rules`
 |---------|------|
 | Cursor | `.cursor/rules/hyperion.mdc` |
 | Claude Code | `CLAUDE.md` |
-| Copilot | `.github/instructions/copilot-instructions.md` |
+| Copilot | `.github/copilot-instructions.md` |
 
 Policy (Hyperion maintainers only): [docs/meta/doc-maintenance-policy.md](./docs/meta/doc-maintenance-policy.md) · [CONTRIBUTING.md](../CONTRIBUTING.md)
 

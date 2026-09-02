@@ -355,7 +355,7 @@ export const RUNTIME_TARGETS = [
     syncCatalog: true,
   },
   {
-    path: join(repoRoot, ".github/instructions/copilot-instructions.md"),
+    path: join(repoRoot, ".github/copilot-instructions.md"),
     buildRows: (commands) => buildCopilotRows(commands),
     syncCatalog: true,
   },
