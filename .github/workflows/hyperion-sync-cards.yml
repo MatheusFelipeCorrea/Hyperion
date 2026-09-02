@@ -1,5 +1,9 @@
 name: Hyperion — Sync Cards
 
+# Pull → verify → push cards on push to main (production sync), or a
+# manual forward/reverse-only run via workflow_dispatch. See
+# scripts/cards-sync/ci-sync.mjs for the actual pull-verify-push logic.
+
 on:
   workflow_dispatch:
     inputs:
@@ -45,7 +49,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v5
         with:
-          node-version: "24"
+          node-version: "22"
 
       - name: Pull → verify → push (main CI)
         if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && github.event.inputs.sync_direction != 'reverse' && github.event.inputs.sync_direction != 'forward-only')

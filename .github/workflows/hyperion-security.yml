@@ -1,5 +1,10 @@
 name: Hyperion — Security Scan
 
+# npm/pip dependency audit + secret scan (trufflehog, verified-only).
+# Weekly by default (a full-history trufflehog scan is heavier than a
+# per-PR one) plus a lighter pull_request pass; workflow_dispatch for
+# an on-demand run.
+
 on:
   schedule:
     - cron: "0 9 * * 1"

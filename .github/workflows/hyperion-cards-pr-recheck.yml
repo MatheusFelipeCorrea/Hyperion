@@ -77,7 +77,7 @@ jobs:
         if: matrix.skip != true
         uses: actions/setup-node@v5
         with:
-          node-version: "24"
+          node-version: "22"
 
       - name: Recheck board guard + post check run
         if: matrix.skip != true
