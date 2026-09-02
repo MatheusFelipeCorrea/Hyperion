@@ -37,6 +37,7 @@
     "hyperion:upgrade": "node scripts/hyperion/upgrade.mjs",
     "hyperion:cli": "node scripts/hyperion/cli.mjs",
     "hyperion:docker-build": "docker build -t hyperion-cli -f Dockerfile .",
+    "hyperion:sbom": "npm sbom --sbom-format cyclonedx",
     "cards:init": "node scripts/cards-sync/init.mjs",
     "cards:validate": "node scripts/cards-sync/validate.mjs",
     "cards:sync": "node scripts/cards-sync/sync.mjs",
