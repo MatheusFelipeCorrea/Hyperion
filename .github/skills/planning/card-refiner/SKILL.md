@@ -147,7 +147,7 @@ Read from `.github/cards/config/projects-map.json`:
 - Each catalog entry is `{ name, color, description }` (v2) or a plain string (v1 legacy).
 - Use only `name` values from the loaded catalog in card `categories`.
 
-Default PT-BR catalog includes: Backend, Banco de Dados, Bug, CI / CD, Cibersegurança, Documentação, Frontend, Web, Infra / DevOps, Integração Externa, Inteligência Artificial, Protótipo, QA / Testes, Refatoração, Regra de Negócio, UX / UI, Arquitetura, Débito Técnico, Performance, Acessibilidade, Mobile, Analytics, Blocked, Observabilidade, API, Auth / Identidade, i18n / L10n, Conformidade, Spike, Breaking change, Regressão, Hotfix, Design system.
+Default PT-BR catalog includes: Backend, Banco de Dados, Bug, CI / CD, Cibersegurança, Documentação, Frontend, Web, Infra / DevOps, Integração Externa, Inteligência Artificial, Protótipo, QA / Testes, Refatoração, Regra de Negócio, UX / UI, Arquitetura, Débito Técnico, Performance, Acessibilidade, Mobile, Analytics, Blocked, Observabilidade, API, Auth / Identidade, i18n / L10n, Conformidade, Spike, Breaking change, Regressão, Hotfix, Design system, POC, Dados / ETL, Notificações, Migração, DevEx, Solicitação do cliente.
 
 The sync auto-creates any label from `categories` that does not exist in the repository and keeps color/description in sync with the catalog.
 

@@ -163,5 +163,35 @@
     "name": "Design system",
     "color": "db2777",
     "description": "Tokens compartilhados, primitivos e padrões da biblioteca de componentes."
+  },
+  {
+    "name": "POC",
+    "color": "a855f7",
+    "description": "Prova de conceito para validar viabilidade ou demonstrar valor a stakeholders."
+  },
+  {
+    "name": "Dados / ETL",
+    "color": "0d9488",
+    "description": "Pipelines de dados, warehousing, jobs batch e fluxos ETL/ELT."
+  },
+  {
+    "name": "Notificações",
+    "color": "0284c7",
+    "description": "Email, push, SMS, alertas in-app e canais de entrega."
+  },
+  {
+    "name": "Migração",
+    "color": "78716c",
+    "description": "Migração de schema, dados ou aplicação com risco de cutover."
+  },
+  {
+    "name": "DevEx",
+    "color": "4ade80",
+    "description": "Experiência do desenvolvedor: setup local, tooling, templates e inner-loop."
+  },
+  {
+    "name": "Solicitação do cliente",
+    "color": "f472b6",
+    "description": "Trabalho rastreável a um cliente específico ou compromisso comercial."
   }
 ]

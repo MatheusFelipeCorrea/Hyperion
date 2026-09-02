@@ -163,5 +163,35 @@
     "name": "Design system",
     "color": "db2777",
     "description": "Shared tokens, primitives, and component library standards."
+  },
+  {
+    "name": "POC",
+    "color": "a855f7",
+    "description": "Proof of concept to validate feasibility or demo value to stakeholders."
+  },
+  {
+    "name": "Data / ETL",
+    "color": "0d9488",
+    "description": "Data pipelines, warehousing, batch jobs, and ETL/ELT workflows."
+  },
+  {
+    "name": "Notifications",
+    "color": "0284c7",
+    "description": "Email, push, SMS, in-app alerts, and delivery channels."
+  },
+  {
+    "name": "Migration",
+    "color": "78716c",
+    "description": "Schema, data, or application migration with cutover risk."
+  },
+  {
+    "name": "DevEx",
+    "color": "4ade80",
+    "description": "Developer experience: local setup, tooling, templates, and inner-loop speed."
+  },
+  {
+    "name": "Customer request",
+    "color": "f472b6",
+    "description": "Work traceable to a specific customer or sales commitment."
   }
 ]
