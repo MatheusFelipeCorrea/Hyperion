@@ -34,6 +34,9 @@ jobs:
       - name: Docs link check
         run: npm run docs:check
 
+      - name: Docs prose drift check
+        run: npm run docs:prose-check
+
       - name: Validate skills
         run: npm run skills:validate
 
@@ -45,6 +48,9 @@ jobs:
 
       - name: Skills structural eval
         run: npm run hyperion:skills-eval
+
+      - name: LLM eval fixtures
+        run: npm run hyperion:llm-eval
 
       - name: Skills catalog in sync
         run: npm run hyperion:skills-catalog -- --check

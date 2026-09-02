@@ -243,6 +243,22 @@ If a card has `categories` containing `Protótipo` or `UX / UI`, the agent MUST:
 4. Never mark prototype as done unless the user confirms it exists.
 5. If user asks to evolve the card, update the SAME card file (`MODIFICAR`) instead of creating duplicates.
 
+### POC vs Prototype vs Spike — decision tree
+
+Use **one** exploratory label per card — never stack all three. Ask before assigning:
+
+| Question | If yes → label | Card shape |
+|----------|----------------|------------|
+| Need to **validate a business hypothesis** with minimal build (days, demo to stakeholders)? | **POC** | Short scope, success metric, throwaway code OK |
+| Need a **clickable UX** to align design + eng before full implementation? | **Protótipo** | Screens/flows, Figma link, accessibility notes — see Prototype-first above |
+| Need to **reduce technical uncertainty** (spike in time-boxed research)? | **Spike** | Time-box (e.g. 2–3 days), explicit question, deliverable = findings doc or ADR snippet |
+
+**Rules:**
+- Epic/Feature cards: use POC or Prototype at most **one** per epic unless user explicitly splits work.
+- Spike cards: always `type: Task` or `type: Story` with time-box in body; outcome is knowledge, not shipped feature.
+- If user says "experiment" without clarity, ask: *"Is this proving value (POC), UX (Protótipo), or tech risk (Spike)?"*
+- Default catalog descriptions: POC = business validation · Protótipo = UX/UI · Spike = technical exploration.
+
 ### After understanding
 - Present summary
 - 'Can I proceed?'

@@ -20,6 +20,7 @@ import {
   detectRepoFromGit,
   assertCiProjectConfigured,
   readSyncBackendHint,
+  appendSyncEvent,
 } from "./lib.mjs";
 import {
   evaluateBoardAlignment,
@@ -111,11 +112,28 @@ async function main() {
 
   const result = evaluateBoardAlignment(alignment, { backend, context: "pr", logFn: log });
 
+  const logGuard = async (ok, extra = {}) => {
+    try {
+      await appendSyncEvent({
+        workspaceRoot: paths.workspaceRoot,
+        plansCardsDir: paths.plansCardsDir,
+        type: ok ? "pr-guard" : "pr-guard-fail",
+        repositorySlug,
+        ok,
+        details: { backend, baseRef: baseRef?.slice(0, 12), ...extra },
+      });
+    } catch {
+      /* best-effort */
+    }
+  };
+
   if (!result.ok) {
+    await logGuard(false, { reason: "external-drift" });
     console.error("[pr-guard] FATAL: merge blocked — external board drift on PR branch");
     process.exit(1);
   }
 
+  await logGuard(true);
   log("PR branch guard passed — forward-pending edits allowed, no external board drift.");
 }
 

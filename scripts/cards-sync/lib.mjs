@@ -554,6 +554,32 @@ export async function readSyncBackendHint({ projectYmlPath, projectsMapPath, rep
   return "github";
 }
 
+/**
+ * Append-only operational log for sync and board-guard runs.
+ * Keeps last-sync.md as the latest snapshot; history survives across runs.
+ */
+export async function appendSyncEvent({
+  workspaceRoot,
+  plansCardsDir,
+  type,
+  repositorySlug,
+  ok = true,
+  details = {},
+}) {
+  const outDir = plansCardsDir || path.join(workspaceRoot, ".github", "plans", "cards");
+  await fs.mkdir(outDir, { recursive: true });
+  const historyPath = path.join(outDir, "sync-history.jsonl");
+  const entry = {
+    ts: new Date().toISOString(),
+    type,
+    repository: repositorySlug || null,
+    ok: Boolean(ok),
+    ...details,
+  };
+  await fs.appendFile(historyPath, `${JSON.stringify(entry)}\n`, "utf8");
+  return historyPath;
+}
+
 export async function writeSyncSummary({
   workspaceRoot,
   plansCardsDir,
@@ -600,6 +626,25 @@ export async function writeSyncSummary({
 
   lines.push("");
   await fs.writeFile(outPath, `${lines.join("\n")}\n`, "utf8");
+
+  try {
+    await appendSyncEvent({
+      workspaceRoot,
+      plansCardsDir: outDir,
+      type: "forward-sync",
+      repositorySlug,
+      ok: true,
+      details: {
+        project: projectNumber ? `${projectOwner}#${projectNumber}` : null,
+        cardCount,
+        actionCount: actions.length,
+        incrementalIds: incrementalIds?.length ? incrementalIds : undefined,
+      },
+    });
+  } catch {
+    /* history is best-effort */
+  }
+
   return outPath;
 }
 

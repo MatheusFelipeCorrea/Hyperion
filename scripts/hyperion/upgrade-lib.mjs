@@ -27,6 +27,9 @@ export const MANAGED_FILES = [
   ".github/dependabot.yml",
   ".github/hyperion-origin.json",
   ".github/copilot-instructions.md",
+  ".github/FUNDING.yml",
+  ".github/mcp/servers.example.json",
+  ".github/mcp/README.md",
   "CLAUDE.md",
   ".env.example",
   ".cursor/rules/hyperion.mdc",
@@ -283,7 +286,43 @@ export async function applyUpgradePlan(
   await fs.writeFile(metaPath, `${JSON.stringify(meta, null, 2)}\n`, "utf8");
   applied.push(".github/hyperion-kit.json");
 
+  await recordUpgradeChangelog(targetRoot, meta, applied.length);
+
   return applied;
+}
+
+/**
+ * Append a short note to the adopter's CHANGELOG (client-owned, never overwritten).
+ */
+export async function recordUpgradeChangelog(targetRoot, meta, pathCount) {
+  const changelogPath = path.join(targetRoot, "CHANGELOG.md");
+  let existing = "";
+  try {
+    existing = await fs.readFile(changelogPath, "utf8");
+  } catch {
+    existing = "# Changelog\n\nAll notable changes to this project are documented here.\n\n";
+  }
+
+  const stamp = meta.upgraded_at?.slice(0, 10) || new Date().toISOString().slice(0, 10);
+  const commit = meta.commit ? ` (${String(meta.commit).slice(0, 12)})` : "";
+  const line = `- Hyperion kit upgrade ${stamp}${commit} — ${pathCount} paths updated`;
+
+  if (existing.includes(line)) return;
+
+  const unreleased = "## [Unreleased]";
+  if (existing.includes(unreleased)) {
+    const idx = existing.indexOf(unreleased) + unreleased.length;
+    const injected = `${existing.slice(0, idx)}\n\n### Changed\n${line}${existing.slice(idx)}`;
+    await fs.writeFile(changelogPath, injected, "utf8");
+    return;
+  }
+
+  const header = existing.trimEnd();
+  await fs.writeFile(
+    changelogPath,
+    `${header}\n\n## [Unreleased]\n\n### Changed\n${line}\n`,
+    "utf8"
+  );
 }
 
 export function summarizePlan(items) {

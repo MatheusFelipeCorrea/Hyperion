@@ -27,6 +27,7 @@ Antes de aprofundar, leia no hub: [o que é](../../../README.md#o-que-é-o-hyper
 | 🟢 **Nunca usou agents** | Níveis 1–2 + catálogo filtrado | README técnico do cards-sync |
 | 🟡 **Já usa agents/CI** | Níveis 1 + 3–4 | Glossário longo |
 | 🔵 **Lead / mantenedor** | Níveis 1 + 5–6 | — |
+| 📋 **PM / PO** | [trilha-pm.md](./trilha-pm.md) — refine + sync, sem CI | Pipeline, schema, backends |
 
 **Kit mínimo:** `/setup` ou `/migrate` → `/doctor` → `/refine` → `/implement` → `/execute` → `/help`
 

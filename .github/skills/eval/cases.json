@@ -21,7 +21,7 @@
   },
   {
     "skill": "card-refiner",
-    "mustContain": ["## Output", ".github/cards/"]
+    "mustContain": ["## Output", ".github/cards/", "POC vs Prototype vs Spike"]
   },
   {
     "skill": "release-manager",
