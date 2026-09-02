@@ -1,17 +1,26 @@
 ﻿import fs from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
+import { resolveHyperionPaths } from "../hyperion/paths.mjs";
 
 const workspaceRoot = process.cwd();
 const hookPath = path.join(workspaceRoot, ".git", "hooks", "pre-commit");
 const marker = "# hyperion-cards-validate";
 
+const { cardsPrefix, kitRootRel } = resolveHyperionPaths(workspaceRoot);
+// cardsPrefix/validateScript account for a nested kit.root layout (e.g.
+// "Hyperion/.github/cards", "Hyperion/scripts/cards-sync/validate.mjs") —
+// hardcoding the legacy root-layout paths here made the hook a silent
+// no-op for nested adopters (grep never matched, script path never found).
+const cardsGrepPattern = `^${cardsPrefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}/.*\\.md$`;
+const validateScript = kitRootRel ? `${kitRootRel}/scripts/cards-sync/validate.mjs` : "scripts/cards-sync/validate.mjs";
+
 const hookBody = `#!/bin/sh
 ${marker}
-changed=$(git diff --cached --name-only --diff-filter=ACM | grep '^\\.github/cards/.*\\.md$' || true)
+changed=$(git diff --cached --name-only --diff-filter=ACM | grep '${cardsGrepPattern}' || true)
 if [ -n "$changed" ]; then
   echo "[Hyperion] Validating staged card files..."
-  node scripts/cards-sync/validate.mjs || exit 1
+  node ${validateScript} || exit 1
 fi
 `;
 
