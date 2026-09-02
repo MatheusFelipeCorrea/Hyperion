@@ -21,7 +21,7 @@ Works in any coding agent runtime (Cursor, Copilot, Claude Code, etc.). Prefer t
    - Conventions: lint/test configs, existing naming and layer patterns in code
 3. **Locale**: use `locale` / `OUTPUT_LANGUAGE` from config; else match the card/user language.
 4. **Output plans** to config `outputs.implementations`, else `.github/plans/implementations/`.
-5. **Blueprints** (Architecture, Exemplars, Folder Structure, agent instructions) under `.github/docs/` or `.github/instructions/` are **optional**. If missing, use discovered docs and existing code patterns — do not block.
+5. **Blueprints** (Architecture, Exemplars, Folder Structure, agent instructions) under `.github/docs/` or `.github/copilot-instructions.md` are **optional**. If missing, use discovered docs and existing code patterns — do not block.
 
 ## Critical Rules
 
@@ -118,6 +118,10 @@ When docs are missing: search the codebase for similar modules/components; ask b
 - Directory: config `outputs.implementations` or `.github/plans/implementations/`
 - Valid Markdown + front matter; same language as the card
 - Status: `Completed` | `In progress` | `Planned` | `Deprecated` | `On Hold`
+- **Before saying the plan is ready**, run:
+  `npm run hyperion:plan-verify -- --plan <path>`
+  If exit ≠ 0 → fix frontmatter (`goal`, `card_id`, `status`), add a `### Phase N` section,
+  or add the `## 7. Verification` section before asking for approval.
 
 ## Template
 

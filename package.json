@@ -28,11 +28,16 @@
     "hyperion:phase-verify": "node scripts/hyperion/phase-verify.mjs",
     "hyperion:project-verify": "node scripts/hyperion/project-verify.mjs",
     "hyperion:review-verify": "node scripts/hyperion/review-verify.mjs",
+    "hyperion:spec-review-verify": "node scripts/hyperion/spec-review-verify.mjs",
+    "hyperion:audit-verify": "node scripts/hyperion/audit-verify.mjs",
+    "hyperion:plan-verify": "node scripts/hyperion/plan-verify.mjs",
+    "hyperion:release-verify": "node scripts/hyperion/release-verify.mjs",
     "hyperion:init": "node scripts/hyperion/init.mjs",
     "hyperion:install-shims": "node scripts/hyperion/install-product-shims.mjs",
     "hyperion:upgrade": "node scripts/hyperion/upgrade.mjs",
     "hyperion:cli": "node scripts/hyperion/cli.mjs",
     "hyperion:docker-build": "docker build -t hyperion-cli -f Dockerfile .",
+    "hyperion:sbom": "npm sbom --sbom-format cyclonedx",
     "cards:init": "node scripts/cards-sync/init.mjs",
     "cards:validate": "node scripts/cards-sync/validate.mjs",
     "cards:sync": "node scripts/cards-sync/sync.mjs",
@@ -41,7 +46,7 @@
     "cards:ci-sync": "node scripts/cards-sync/ci-sync.mjs",
     "cards:pr-guard": "node scripts/cards-sync/pr-board-guard.mjs",
     "cards:pr-recheck": "node scripts/cards-sync/report-pr-guard-check.mjs",
-    "cards:doctor": "node scripts/cards-sync/doctor.mjs --interactive",
+    "cards:doctor": "node scripts/cards-sync/doctor.mjs",
     "cards:watch": "node scripts/cards-sync/watch.mjs",
     "cards:hook": "node scripts/cards-sync/install-hook.mjs",
     "cards:labels-reset": "node scripts/cards-sync/labels-reset.mjs",
@@ -55,5 +60,9 @@
   },
   "bin": {
     "hyperion": "./scripts/hyperion/cli.mjs"
+  },
+  "dependencies": {
+    "ajv": "^8.20.0",
+    "js-yaml": "^5.4.1"
   }
 }

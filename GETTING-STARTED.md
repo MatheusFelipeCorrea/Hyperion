@@ -87,7 +87,15 @@ git clone https://github.com/MatheusFelipeCorrea/Hyperion.git
 
 1. Clone/ZIP → pasta chamada **`Hyperion`**.
 2. Coloque-a em `seu-produto/Hyperion/` (kit inteiro: `.github`, `scripts`, `Dockerfile`, …).
-3. Na **raiz do produto**:
+3. Instale as dependências do kit — dentro de `Hyperion/`:
+
+```bash
+cd Hyperion && npm install && cd ..
+```
+
+(ajv + js-yaml — únicas dependências que o kit tem, usadas pra validar `project.yml`. Pular esse passo faz `hyperion:project-verify` e o `/setup` quebrarem com um erro `Cannot find package 'ajv'`.)
+
+4. Na **raiz do produto**:
 
 ```bash
 npm run hyperion:init --prefix Hyperion -- --adopt
@@ -95,7 +103,7 @@ npm run hyperion:init --prefix Hyperion -- --adopt
 
 Isso grava shims (`CLAUDE.md`, `.cursor/rules/hyperion.mdc`, `.github/project.yml` com `kit.root: Hyperion`) e **não** espalha skills na raiz.
 
-4. Abra o chat no **produto** → **`/setup`** ou **`/migrate`**.
+5. Abra o chat no **produto** → **`/setup`** ou **`/migrate`**.
 
 Cards e plans ficam sob `Hyperion/.github/…`. Já tem CI própria? Use `ci.policy: skip` (ou ignore `/pipeline`) — Hyperion não exige a pipeline do kit.
 
@@ -109,7 +117,8 @@ Copie para a **raiz do seu repositório** (não o `.git` do Hyperion):
 | `scripts/` | **`.github/workflows/`** → **`/pipeline`** no seu repo (ou `ci.policy: skip`) |
 | Scripts `hyperion:*` / `cards:*` no **seu** `package.json` (**merge**) | Substituir o `package.json` do produto |
 | `bin/` + `Dockerfile` (sem Node) | `projects-map` de outro time |
-| `.env.example`, `CLAUDE.md`, `.cursor/rules/` conforme a IDE | Artefatos gerados (`plans/`, audit results) |
+| `.env.example`, `CLAUDE.md`, `.cursor/rules/`, `.github/copilot-instructions.md` conforme a IDE | Artefatos gerados (`plans/`, audit results) |
+| — | **`CODEOWNERS`, `LICENSE`, `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `SECURITY.md`, `SUPPORT.md`, `.github/ISSUE_TEMPLATE/`, `.github/PULL_REQUEST_TEMPLATE.md`** — arquivos do repositório do próprio kit Hyperion, não do seu produto. Se você clonou o repo inteiro (em vez de copiar seletivo), troque ou remova esses. |
 
 Atualizar um repo que já tem o kit: `npm run hyperion:upgrade` (na pasta do kit / com `kit.root`).
 
@@ -153,7 +162,7 @@ Sem GitHub Projects, pule isto. Jira/Linear/Azure/GitLab: [escolher-backend.md](
 
 > **`/refine`** → **`/sync`**
 
-Cards em `.github/cards/` — GitHub completo; Jira/Azure/GitLab com `--reverse`; Linear com `status_map` (só ida por enquanto).
+Cards em `.github/cards/` — GitHub completo; Jira/Azure/GitLab/Linear com `--reverse`.
 
 ---
 

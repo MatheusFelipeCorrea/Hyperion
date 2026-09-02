@@ -12,6 +12,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
+import { fileURLToPath } from "node:url";
 import { resolveHyperionPaths } from "./paths.mjs";
 import { ok, warn, log, pathExists } from "./lib.mjs";
 
@@ -20,7 +21,17 @@ const kitName = process.argv.includes("--kit")
   ? process.argv[process.argv.indexOf("--kit") + 1]
   : "Hyperion";
 
-const workspaceRoot = process.cwd();
+// This script always lives at <kitFolder>/scripts/hyperion/install-product-shims.mjs,
+// and by definition (this is the NESTED-adoption shim installer) <kitFolder> is a
+// direct child of the product root — so derive both from the script's own file
+// location instead of process.cwd(). cwd is NOT reliable here: `npm run
+// hyperion:init --prefix Hyperion -- --adopt` (the command GETTING-STARTED/README
+// document) makes npm run the script with cwd already set to .../Hyperion, which
+// used to make this script look for Hyperion/Hyperion/.github/cards and fail 100%
+// of the time with a misleading "copy the Hyperion folder first" error.
+const scriptDir = path.dirname(fileURLToPath(import.meta.url));
+const kitRootFromScript = path.resolve(scriptDir, "..", "..");
+const workspaceRoot = path.dirname(kitRootFromScript);
 
 async function writeIfMissing(filePath, contents, label) {
   if ((await pathExists(filePath)) && !force) {

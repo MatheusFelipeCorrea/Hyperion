@@ -88,7 +88,7 @@ export function auditSyncCardsWorkflow(content, { kitRootRel = "" } = {}) {
     issues.push("missing_concurrency_block");
     missing.push("concurrency");
   }
-  if (!/cancel-in-progress:\s*true/m.test(text)) {
+  if (!/cancel-in-progress:\s*false/m.test(text)) {
     issues.push("missing_cancel_in_progress");
     missing.push("concurrency.cancel-in-progress");
   }
@@ -212,7 +212,7 @@ on:
 
 concurrency:
   group: hyperion-sync-cards-\${{ github.workflow }}-\${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -850,6 +850,24 @@ export function buildPipelinePlan(detection) {
     warnings: [],
   };
 
+  // Hyperion-owned workflow files already on disk (from listGithubWorkflows)
+  // route to `skips`, same as the product-CI branch below already does —
+  // otherwise the plan claims it will create files that already exist.
+  const existingHyperionFiles = new Set(classified.hyperion || []);
+  function planWorkflowAction(templateKey, reason) {
+    const filename = HYPERION_WORKFLOWS[templateKey];
+    if (existingHyperionFiles.has(filename)) {
+      plan.skips.push(`${WORKFLOWS_DIR}/${filename} already exists — not overwritten.`);
+      return;
+    }
+    plan.actions.push({
+      file: `${WORKFLOWS_DIR}/${filename}`,
+      template: filename,
+      templateDir: "workflows",
+      reason,
+    });
+  }
+
   if (config.policy === "skip") {
     plan.skips.push("All Hyperion workflow writes skipped (ci.policy=skip).");
     return plan;
@@ -871,48 +889,29 @@ export function buildPipelinePlan(detection) {
 
   if (useGithubActions) {
     if (h.cards_sync) {
-      plan.actions.push({
-        file: `${WORKFLOWS_DIR}/${HYPERION_WORKFLOWS.syncCards}`,
-        template: HYPERION_WORKFLOWS.syncCards,
-        templateDir: "workflows",
-        reason: "Cards sync on push to main (.github/cards/ or nested kit.root paths)",
-      });
-      plan.actions.push({
-        file: `${WORKFLOWS_DIR}/${HYPERION_WORKFLOWS.cardsPrGuard}`,
-        template: HYPERION_WORKFLOWS.cardsPrGuard,
-        templateDir: "workflows",
-        reason: "PR directional board guard + merge queue support",
-      });
-      plan.actions.push({
-        file: `${WORKFLOWS_DIR}/${HYPERION_WORKFLOWS.cardsPrRecheck}`,
-        template: HYPERION_WORKFLOWS.cardsPrRecheck,
-        templateDir: "workflows",
-        reason: "Scheduled PR recheck + repository_dispatch on board changes",
-      });
+      planWorkflowAction("syncCards", "Cards sync on push to main (.github/cards/ or nested kit.root paths)");
+      planWorkflowAction("cardsPrGuard", "PR directional board guard + merge queue support");
+      planWorkflowAction("cardsPrRecheck", "Scheduled PR recheck + repository_dispatch on board changes");
     }
 
     if (h.security_scan) {
-      plan.actions.push({
-        file: `${WORKFLOWS_DIR}/${HYPERION_WORKFLOWS.security}`,
-        template: HYPERION_WORKFLOWS.security,
-        templateDir: "workflows",
-        reason: "Optional security scan (npm audit, pip-audit, trufflehog)",
-      });
+      planWorkflowAction("security", "Optional security scan (npm audit, pip-audit, trufflehog)");
     }
 
     if (h.kit_validation) {
-      plan.actions.push({
-        file: `${WORKFLOWS_DIR}/${HYPERION_WORKFLOWS.validate}`,
-        template: HYPERION_WORKFLOWS.validate,
-        templateDir: "workflows",
-        reason: "Hyperion kit validation (docs, skills, runtime rules, cards tests)",
-      });
+      planWorkflowAction("validate", "Hyperion kit validation (docs, skills, runtime rules, cards tests)");
     }
 
     const wantProductCi =
       h.product_ci === true || (h.product_ci === "auto" && !hasProductCi && config.policy !== "merge");
+    // hasProductCi only looks at non-hyperion-prefixed workflows (see
+    // detectPipeline) — it doesn't know hyperion-product-ci.yml itself might
+    // already be on disk from a prior apply, so check that separately too.
+    const productCiExists = existingHyperionFiles.has(HYPERION_WORKFLOWS.productCi);
 
-    if (wantProductCi && config.policy === "hyperion-only") {
+    if (productCiExists && (wantProductCi || hasProductCi)) {
+      plan.skips.push(`${WORKFLOWS_DIR}/${HYPERION_WORKFLOWS.productCi} already exists — not overwritten.`);
+    } else if (wantProductCi && config.policy === "hyperion-only") {
       plan.actions.push({
         file: `${WORKFLOWS_DIR}/${HYPERION_WORKFLOWS.productCi}`,
         template: HYPERION_WORKFLOWS.productCi,

@@ -1,0 +1,58 @@
+name: Hyperion — E2E Cards Sync (opt-in)
+
+# OPT-IN ONLY. This workflow performs a REAL forward sync — it creates and
+# deletes real GitHub issues (+ one throwaway label) against a DISPOSABLE
+# test repo, to verify scripts/cards-sync/sync.mjs actually works end-to-end
+# (sync.test.mjs / lib.test.mjs are unit tests only — they mock fetch and
+# never touch a real GitHub API).
+#
+# Deliberately triggered ONLY by workflow_dispatch — never push/pull_request —
+# so it can never run automatically against a contributor's PR or a push to
+# this repo. Running it accidentally against the wrong repo would create real
+# issues there, so a maintainer must explicitly click "Run workflow".
+#
+# --- One-time maintainer setup -----------------------------------------
+# 1. Create a separate, disposable GitHub repo you own (e.g.
+#    "your-user/hyperion-e2e-sandbox") — NOT this repo. It only needs to
+#    exist; the test creates and deletes its own issues/labels in it.
+# 2. In THIS repo's Settings → Secrets and variables → Actions:
+#      - Variable  E2E_TARGET_REPO   = "your-user/hyperion-e2e-sandbox"
+#      - Secret    E2E_GITHUB_TOKEN  = a PAT scoped to that disposable repo
+#                                       with "Issues: Read and write" +
+#                                       "Contents: Read" (a fine-grained PAT
+#                                       limited to that one repo is safest).
+# 3. Run this workflow manually: Actions → "Hyperion — E2E Cards Sync
+#    (opt-in)" → Run workflow.
+#
+# Until both are configured, the script fails fast locally with a clear
+# error (see scripts/cards-sync/e2e/e2e-forward-sync.mjs) — this job will
+# fail the same way, which is expected until a maintainer sets them up.
+# -------------------------------------------------------------------------
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  e2e-forward-sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+
+      - name: Run E2E forward-sync test (disposable repo only)
+        env:
+          # Repo variable — see "One-time maintainer setup" above.
+          E2E_TARGET_REPO: ${{ vars.E2E_TARGET_REPO }}
+          # Dedicated secret — deliberately NOT secrets.PROJECT_SYNC_TOKEN,
+          # which is scoped to THIS repo's production sync. Keep them separate.
+          E2E_GITHUB_TOKEN: ${{ secrets.E2E_GITHUB_TOKEN }}
+        run: node scripts/cards-sync/e2e/e2e-forward-sync.mjs

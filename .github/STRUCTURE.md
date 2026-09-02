@@ -23,6 +23,7 @@ Canonical layout for the portable kit.
 ├── scripts/
 │   ├── hyperion/                ← npm run hyperion:* + cli.mjs
 │   └── cards-sync/              ← npm run cards:* (sync engine)
+│       └── backends/            ← jira.mjs, azure.mjs, gitlab.mjs, linear.mjs adapters
 ├── CLAUDE.md                    ← Claude Code slash commands
 ├── package.json                 ← npm shortcuts
 ├── .env.example                 ← optional token config
@@ -91,7 +92,7 @@ CI drift check: `npm run hyperion:check-rules`
 |---------|------|
 | Cursor | `.cursor/rules/hyperion.mdc` |
 | Claude Code | `CLAUDE.md` |
-| Copilot | `.github/instructions/copilot-instructions.md` |
+| Copilot | `.github/copilot-instructions.md` |
 
 Policy (Hyperion maintainers only): [docs/meta/doc-maintenance-policy.md](./docs/meta/doc-maintenance-policy.md) · [CONTRIBUTING.md](../CONTRIBUTING.md)
 

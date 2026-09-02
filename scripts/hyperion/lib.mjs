@@ -42,6 +42,48 @@ export async function readTextIfExists(p) {
   }
 }
 
+function isTableSeparatorLine(line) {
+  return /^[\s:|-]+$/.test(line) && line.includes("-");
+}
+
+function sectionHasRealContent(section) {
+  const lines = section
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+  if (lines.length === 0) return false;
+
+  // A markdown table (header row + |---|---| separator) only counts as
+  // filled if a data row after the separator has a non-empty cell —
+  // the header row's own column names ("Term", "Definition", ...) are
+  // boilerplate, not project content.
+  if (lines.length >= 2 && isTableSeparatorLine(lines[1])) {
+    return lines.slice(2).some((row) => {
+      const cells = row.replace(/^\||\|$/g, "").split("|").map((c) => c.trim());
+      return cells.some((cell) => cell.length > 0);
+    });
+  }
+
+  return true;
+}
+
+/**
+ * A memory file (e.g. memory/PROJECT.md) only counts as "filled" when at
+ * least one `## Section` actually has content — not just headers plus the
+ * boilerplate table skeleton the scaffolded template ships with. Length
+ * and keyword heuristics false-positive on that exact template.
+ */
+export async function isMemoryFileFilled(filePath) {
+  const raw = await readTextIfExists(filePath);
+  if (!raw) return false;
+  const withoutComments = raw.replace(/<!--[\s\S]*?-->/g, "");
+  const sections = withoutComments.split(/^##\s+.+$/m).slice(1);
+  if (sections.length === 0) {
+    return withoutComments.replace(/^#\s+.+$/m, "").trim().length > 0;
+  }
+  return sections.some(sectionHasRealContent);
+}
+
 export function parseNodeMajor() {
   const match = /^v(\d+)/.exec(process.version);
   return match ? Number(match[1]) : 0;
@@ -118,12 +160,7 @@ export async function collectHyperionHealth() {
   const hasProjectsMap = await pathExists(projectsMap);
   const hasPackageJson = await pathExists(packageJson);
 
-  let memoryFilled = false;
-  const memoryRaw = await readTextIfExists(memoryProject);
-  if (memoryRaw) {
-    const stripped = memoryRaw.replace(/<!--[\s\S]*?-->/g, "").trim();
-    memoryFilled = stripped.length > 120 && !/TODO|preencha|fill in/i.test(stripped.slice(0, 400));
-  }
+  const memoryFilled = await isMemoryFileFilled(memoryProject);
 
   const issues = [];
   const warnings = [];

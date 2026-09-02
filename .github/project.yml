@@ -11,10 +11,10 @@ layout: single
 
 apps:
   api:
-    root: src
+    root: scripts
     manifest: package.json
     source_dirs:
-      - src
+      - scripts
 
 docs:
   requirements: null

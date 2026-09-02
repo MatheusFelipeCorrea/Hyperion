@@ -1,0 +1,18 @@
+# Code owners — GitHub requests a review from these owners on matching PRs.
+# See: https://docs.github.com/articles/about-code-owners
+#
+# This is Hyperion's OWN repo config — it is never copied to an adopting
+# project by /setup, /migrate, or `hyperion:upgrade` (not in MANAGED_FILES
+# in scripts/hyperion/upgrade-lib.mjs). If you cloned the whole kit repo
+# directly (e.g. GitHub's "Use this template") instead of copying the kit
+# selectively into your own project, delete this file or replace the
+# username below with your own team.
+
+# Default: maintainer reviews everything unless a more specific rule below matches.
+*                           @MatheusFelipeCorrea
+
+# Security-sensitive surfaces
+/.github/workflows/        @MatheusFelipeCorrea
+/scripts/cards-sync/       @MatheusFelipeCorrea
+/.github/project.schema.json @MatheusFelipeCorrea
+/SECURITY.md                @MatheusFelipeCorrea

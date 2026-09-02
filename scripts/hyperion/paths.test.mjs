@@ -1,13 +1,23 @@
-import test from "node:test";
+import test, { after } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { resolveHyperionPaths } from "./paths.mjs";
 
+const createdDirs = [];
+
 function makeTemp() {
-  return fs.mkdtempSync(path.join(os.tmpdir(), "hyperion-paths-"));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "hyperion-paths-"));
+  createdDirs.push(dir);
+  return dir;
 }
+
+after(() => {
+  for (const dir of createdDirs) {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
 
 test("resolveHyperionPaths defaults to legacy when .github/cards at root", () => {
   const dir = makeTemp();

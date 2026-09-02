@@ -88,7 +88,35 @@ npm run hyperion:pipeline-apply -- --refresh-sync --yes
 
 | Limit | Mitigation |
 |-------|------------|
-| Fork PRs | Validate-only job (no board token) |
+| Fork PRs | Validate-only job (no board token) — deliberate, see below |
 | Admin bypass merge | Ruleset + audit |
 | API lag after forward | Post-forward verify + retry in `ci-sync` |
 | GitLab/Azure native webhooks | Use cron recheck on GitHub; MR guard on GitLab/Azure CI |
+
+### Why fork PRs stay validate-only (not a bug)
+
+`hyperion-cards-pr-check.yml`'s real `board-guard` job (and the cron-based
+`hyperion-cards-pr-recheck.yml`) both explicitly exclude fork-origin PRs from
+board-drift checking. This was considered and rejected as fixable:
+
+Both jobs `actions/checkout` the **PR head SHA** and then execute
+`scripts/cards-sync/*.mjs` **from that checkout** — i.e. whatever code is at
+that commit, not a trusted copy. For a same-repo PR, that's a branch only a
+collaborator with push access could create, so this is an accepted risk.
+For a **fork** PR, the head SHA is fully attacker-controlled: if that job ran
+with `secrets.PROJECT_SYNC_TOKEN` in its environment (required for a real
+board-drift comparison), a malicious fork PR could simply edit
+`report-pr-guard-check.mjs` to exfiltrate the secret — the classic GitHub
+Actions ["pwn request"](https://securitylab.github.com/resources/github-actions-preventing-pwn-requests/)
+pattern. Giving fork PRs the same board-token access `hyperion-cards-pr-recheck.yml`
+gives same-repo PRs would be a real vulnerability, not a fix.
+
+The theoretically-safe version of this check exists (`pull_request_target` +
+fetching the PR's *changed file contents* via the read-only API, never
+checking out or executing fork-controlled code in the privileged job) but is
+enough additional attack-surface and complexity to get subtly wrong that it
+isn't worth it for what it buys: fork PRs already get full schema/frontmatter
+validation on open, and the `board-guard`/cron recheck catch any real drift
+the moment the PR lands on `main` via `merge_group`. A fork PR can be
+*stale* relative to the board for the length of its review; it can't merge
+without the board-guard passing.

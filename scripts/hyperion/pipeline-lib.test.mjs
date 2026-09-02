@@ -108,6 +108,48 @@ describe("buildPipelinePlan", () => {
     assert.ok(!plan.actions.some((a) => a.template === "hyperion-sync-cards.yml"));
   });
 
+  it("skips hyperion-owned workflows that already exist on disk", () => {
+    const detection = {
+      config: {
+        ...DEFAULT_CI_CONFIG,
+        policy: "detect",
+        hyperion: { ...DEFAULT_CI_CONFIG.hyperion, kit_validation: true },
+      },
+      hasProductCi: true,
+      classified: {
+        legacy: [],
+        product: [],
+        hyperion: [
+          "hyperion-sync-cards.yml",
+          "hyperion-cards-pr-check.yml",
+          "hyperion-cards-pr-recheck.yml",
+          "hyperion-security.yml",
+          "hyperion-validate.yml",
+        ],
+      },
+      stack: "node-npm",
+      external: [],
+    };
+    const plan = buildPipelinePlan(detection);
+    assert.equal(plan.actions.length, 0, "should not re-plan any already-existing hyperion workflow");
+    for (const name of detection.classified.hyperion) {
+      assert.ok(plan.skips.some((s) => s.includes(name)), `expected a skip entry for ${name}`);
+    }
+  });
+
+  it("skips hyperion-product-ci.yml when it already exists, even though hasProductCi only tracks non-hyperion files", () => {
+    const detection = {
+      config: { ...DEFAULT_CI_CONFIG, policy: "detect", hyperion: { ...DEFAULT_CI_CONFIG.hyperion } },
+      hasProductCi: false, // matches detectPipeline: hyperion-prefixed files never count here
+      classified: { legacy: [], product: [], hyperion: ["hyperion-product-ci.yml"] },
+      stack: "node-npm",
+      external: [],
+    };
+    const plan = buildPipelinePlan(detection);
+    assert.ok(!plan.actions.some((a) => a.template === "hyperion-product-ci.yml"));
+    assert.ok(plan.skips.some((s) => s.includes("hyperion-product-ci.yml")));
+  });
+
   it("plans Azure Pipelines template when azure-pipelines detected", () => {
     const detection = {
       config: {
@@ -130,7 +172,7 @@ describe("renderSyncCardsWorkflow", () => {
   it("includes main branch filter and concurrency for legacy layout", () => {
     const yaml = renderSyncCardsWorkflow();
     assert.match(yaml, /branches: \[main\]/);
-    assert.match(yaml, /cancel-in-progress: true/);
+    assert.match(yaml, /cancel-in-progress: false/);
     assert.match(yaml, /"\.github\/cards\/\*\*\/\*\.md"/);
     assert.doesNotMatch(yaml, /working-directory:/);
   });

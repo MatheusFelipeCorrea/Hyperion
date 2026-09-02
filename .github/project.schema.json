@@ -55,8 +55,8 @@
           "description": "Documentation root directory."
         },
         "requirements": {
-          "type": "string",
-          "description": "Requirements backlog or index file."
+          "type": ["string", "null"],
+          "description": "Requirements backlog or index file. null means intentionally unset (see project.example.yml)."
         },
         "api_readme": {
           "type": "string",
@@ -71,8 +71,8 @@
           "description": "Directory (or file) for architecture/folder blueprints."
         },
         "diagrams": {
-          "type": "string",
-          "description": "Directory for diagrams (PlantUML, C4, etc.)."
+          "type": ["string", "null"],
+          "description": "Directory for diagrams (PlantUML, C4, etc.). null means intentionally unset (see project.example.yml)."
         },
         "historical_audits": {
           "type": "string",
@@ -150,8 +150,8 @@
       "additionalProperties": false,
       "properties": {
         "overlay": {
-          "type": "string",
-          "description": "Optional markdown with project-specific audit context."
+          "type": ["string", "null"],
+          "description": "Optional markdown with project-specific audit context. null means intentionally unset (see project.example.yml)."
         },
         "manifest": {
           "type": "string",
@@ -268,8 +268,8 @@
       "description": "Repo-adaptive shell commands for agents (test, lint, build, audit). Discovery fills defaults when omitted.",
       "properties": {
         "test": { "type": "string", "description": "Run tests (e.g. npm test, pytest)" },
-        "lint": { "type": "string", "description": "Lint command if available" },
-        "build": { "type": "string", "description": "Build command if available" },
+        "lint": { "type": ["string", "null"], "description": "Lint command if available. null means intentionally unset." },
+        "build": { "type": ["string", "null"], "description": "Build command if available. null means intentionally unset." },
         "audit": { "type": "string", "description": "Dependency audit command" }
       }
     },
@@ -290,6 +290,14 @@
           "type": "string",
           "description": "Path to project context file."
         }
+      }
+    },
+    "uncertainties": {
+      "type": "array",
+      "description": "Open questions Configure mode (/discover, /migrate) couldn't resolve automatically — surfaced to the user instead of guessed.",
+      "items": {
+        "type": "string",
+        "minLength": 1
       }
     }
   },

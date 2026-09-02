@@ -1,0 +1,89 @@
+name: Hyperion — Docker Publish
+
+# Builds the hyperion-cli image (see Dockerfile) and pushes it to GHCR.
+# Triggered by a version tag (v*) so a release always ships a matching
+# image, plus workflow_dispatch for a manual rebuild/republish.
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Image tag to publish (default: manual-<short-sha>)"
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate SBOM (CycloneDX)
+        # `npm run` prints a banner to stdout that would corrupt the JSON —
+        # call npm sbom directly (same command as `npm run hyperion:sbom`).
+        run: npm sbom --sbom-format cyclonedx > hyperion-sbom.cdx.json
+
+      - name: Upload SBOM as build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: hyperion-sbom
+          path: hyperion-sbom.cdx.json
+
+      - name: Attach SBOM to the GitHub Release (tag pushes only)
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -e
+          if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
+            gh release upload "${GITHUB_REF_NAME}" hyperion-sbom.cdx.json --clobber
+          else
+            echo "No GitHub Release exists yet for ${GITHUB_REF_NAME} — SBOM is still on the workflow run as a build artifact."
+          fi
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Resolve image tags
+        id: tags
+        run: |
+          IMAGE="ghcr.io/${{ github.repository }}"
+          IMAGE="${IMAGE,,}"
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+            echo "tags=${IMAGE}:${VERSION},${IMAGE}:latest" >> "$GITHUB_OUTPUT"
+          else
+            TAG="${{ inputs.tag }}"
+            if [ -z "$TAG" ]; then TAG="manual-$(echo "${GITHUB_SHA}" | cut -c1-7)"; fi
+            echo "tags=${IMAGE}:${TAG}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.tags.outputs.tags }}

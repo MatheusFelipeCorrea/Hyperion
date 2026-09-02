@@ -11,6 +11,52 @@ import { readProjectCommands } from "./repo-detect.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
+/**
+ * Real JSON-Schema validation against project.schema.json — structural/type
+ * checks (unknown keys, wrong types, bad enums) that the hand-rolled
+ * regex extraction below can't catch, since it only reads the handful of
+ * fields it knows to look for.
+ *
+ * ajv/js-yaml are dynamically imported (not top-level) so a missing
+ * `npm install` produces one clear, actionable line here instead of a raw
+ * `ERR_MODULE_NOT_FOUND` stack trace crashing the whole process before any
+ * of our own error handling can run.
+ */
+async function validateAgainstSchema(root, text) {
+  const schemaPath = join(root, ".github", "project.schema.json");
+  if (!existsSync(schemaPath)) {
+    return { ok: true, skipped: true, errors: [] };
+  }
+  let Ajv2020, loadYaml;
+  try {
+    Ajv2020 = (await import("ajv/dist/2020.js")).default;
+    loadYaml = (await import("js-yaml")).load;
+  } catch {
+    return {
+      ok: false,
+      skipped: false,
+      errors: [
+        'dependencies not installed — run "npm install" in the kit folder first (ajv + js-yaml are required for schema validation)',
+      ],
+    };
+  }
+  let data;
+  try {
+    data = loadYaml(text);
+  } catch (err) {
+    return { ok: false, skipped: false, errors: [`YAML parse error: ${err.message}`] };
+  }
+  const schema = JSON.parse(readFileSync(schemaPath, "utf8"));
+  const ajv = new Ajv2020({ allErrors: true, strict: false });
+  const validate = ajv.compile(schema);
+  const valid = validate(data);
+  if (valid) return { ok: true, skipped: false, errors: [] };
+  const errors = (validate.errors || []).map(
+    (e) => `${e.instancePath || "/"} ${e.message}${e.params?.additionalProperty ? ` (${e.params.additionalProperty})` : ""}`
+  );
+  return { ok: false, skipped: false, errors };
+}
+
 function argValue(flag) {
   const i = process.argv.indexOf(flag);
   if (i === -1) return null;
@@ -125,7 +171,7 @@ function extractDocsPaths(text) {
   return out;
 }
 
-function main() {
+async function main() {
   if (process.argv.includes("--help") || process.argv.includes("-h")) {
     usage();
     process.exit(0);
@@ -141,6 +187,18 @@ function main() {
   const text = readFileSync(ymlPath, "utf8");
   let failed = 0;
   const warnings = [];
+
+  const schemaResult = await validateAgainstSchema(root, text);
+  if (schemaResult.skipped) {
+    warnings.push("no .github/project.schema.json found — skipping JSON-Schema validation");
+  } else if (!schemaResult.ok) {
+    for (const e of schemaResult.errors) {
+      console.error(`FAIL schema: ${e}`);
+      failed++;
+    }
+  } else {
+    console.log("OK schema: project.yml matches project.schema.json");
+  }
 
   const version = extractTopKey(text, "version");
   if (!version || !/^\d+$/.test(version)) {
@@ -192,4 +250,7 @@ function main() {
   console.log("project-verify OK");
 }
 
-main();
+main().catch((err) => {
+  console.error(`FAIL: unexpected error — ${err.message}`);
+  process.exit(1);
+});

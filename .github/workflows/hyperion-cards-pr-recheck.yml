@@ -16,6 +16,9 @@ permissions:
   pull-requests: read
   checks: write
   issues: read
+  # repository-projects governs classic Projects, not ProjectV2 — real access
+  # comes from PROJECT_SYNC_TOKEN (see scripts/cards-sync/sync.mjs). Kept
+  # for GITHUB_TOKEN fallback paths.
   repository-projects: read
 
 jobs:
@@ -74,7 +77,7 @@ jobs:
         if: matrix.skip != true
         uses: actions/setup-node@v5
         with:
-          node-version: "24"
+          node-version: "22"
 
       - name: Recheck board guard + post check run
         if: matrix.skip != true

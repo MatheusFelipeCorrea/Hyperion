@@ -48,7 +48,7 @@ ${README_LOCATIONS == "Auto-detect" ? "Auto-detect and propose the exact files t
 
 Scan what exists in the repo (do not assume a fixed stack):
 
-- Project contracts and agent docs: `.github/project.yml`, `.github/instructions/`, `.cursor/rules/`, `CLAUDE.md`
+- Project contracts and agent docs: `.github/project.yml`, `.github/copilot-instructions.md`, `.cursor/rules/`, `CLAUDE.md`
 - Build/manifests: `package.json`, `pyproject.toml`, `Cargo.toml`, `go.mod`, `pom.xml`, workspace files
 - Source folders discovered from manifests and imports
 - API definitions/routes/handlers/commands relevant to this project type
@@ -323,7 +323,7 @@ This skill is designed to run approximately every 2 weeks. When running periodic
 
 When available, also read:
 - **.github/docs/Project_Architecture_Blueprint.md** *(optional)* — architecture references
-- **.github/docs/exemplars.md** *(optional)* — representative patterns and naming conventions
+- **.github/docs/reference/exemplars.md** *(optional)* — representative patterns and naming conventions
 - **.github/docs/Project_Folders_Structure_Blueprint.md** *(optional)* — folder taxonomy references
 
 If blueprints are missing, rely on the actual codebase and `project.yml` as primary sources.

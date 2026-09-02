@@ -75,6 +75,11 @@ git push && git push --tags
 
 If user uses GitHub Releases: draft release notes from CHANGELOG (gh CLI if available).
 
+**Before declaring the release done**, run:
+`npm run hyperion:release-verify -- --root .`
+If exit ≠ 0 → CHANGELOG.md is missing a dated section for the version just bumped, or
+that section is empty; fix it before tagging/pushing.
+
 ### Step 6 — Memory capture
 
 If `memory.auto_capture: true`, append release decisions via `memory-capture` skill.

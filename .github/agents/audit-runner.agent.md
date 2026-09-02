@@ -39,10 +39,28 @@ For each dimension:
 
 After last dimension, write `results/_summary/audit-run-{date}.md`:
 
-- Executive summary (5–10 lines)
-- Table of all reports with links
-- Cross-cutting themes
-- Recommended priority fixes (not code changes)
+```markdown
+# Audit Run Summary — {date}
+
+## Executive Summary
+5–10 lines.
+
+## Reports
+| Dimension | Report | Findings |
+|-----------|--------|----------|
+| Security  | results/application-security/report.md | 2 high, 1 medium |
+
+## Cross-cutting Themes
+- ...
+
+## Recommended Priority Fixes
+1. ...
+```
+
+**Before declaring the audit run done**, run:
+`npm run hyperion:audit-verify -- --summary <path>`
+If exit ≠ 0 → the summary is missing a required section (or the Reports section has
+no table row / link) — fix before reporting completion.
 
 ## Memory capture
 

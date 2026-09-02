@@ -4,7 +4,7 @@ Agents are **long-running, multi-step flows** with human gates. Skills are reusa
 
 **Adaptability:** all agents read `.github/project.yml` first — especially `commands.*`, `memory.*`, `outputs.*`, and `management.*`.
 
-**Precision gates** ([definition-of-done.md](../docs/meta/definition-of-done.md)): `/execute` → `phase-verify`; `/migrate` → `project-verify`; `/pr-review` → `review-verify`.
+**Precision gates** ([definition-of-done.md](../docs/meta/definition-of-done.md)): `/execute` → `phase-verify`; `/migrate` → `project-verify`; `/pr-review` → `review-verify`; `/implement` → `plan-verify`; `/spec-review` → `spec-review-verify`; `/release` → `release-verify`; `/audit-run` → `audit-verify`. `/mentor` has no fixed artifact — human gate only, no verify script.
 
 ## When to use agent vs skill
 

@@ -187,7 +187,7 @@ When project documentation is provided, use it to generate cards with REAL, ACCU
 - Know error handling and cross-cutting concerns
 - Determine which layers need new/modified files
 
-### .github/docs/exemplars.md *(if present and filled)*
+### .github/docs/reference/exemplars.md *(if present and filled)*
 - Reference existing exemplar files for new file creation
 - Example: 'Criar em: src/services/insumo.service.js — Seguir padrão de: src/services/fazenda.service.js'
 
@@ -343,7 +343,7 @@ Métodos NOVOS a adicionar:
 
 ### fazenda.service.js (NOVO — CRIAR)
 Criar em: `src/services/fazenda.service.js`  
-Seguir padrão de: arquivo de serviço equivalente listado em `.github/docs/exemplars.md`
+Seguir padrão de: arquivo de serviço equivalente listado em `.github/docs/reference/exemplars.md`
 
 ```javascript
 // criarFazenda(dados)
