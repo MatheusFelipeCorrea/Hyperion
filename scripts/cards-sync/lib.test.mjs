@@ -30,7 +30,17 @@ import {
   resolveStatusColumnSpecs,
   normalizeProjectSelectColor,
   DEFAULT_STATUS_COLUMN_KEYS,
+  mergeLabelSpecs,
+  mergeStatusColumnSpecs,
+  resolveOverlayFilePath,
+  loadLabelsCatalog,
+  loadStatusColumnsCatalog,
+  LABELS_OVERLAY_FILENAME,
+  STATUS_COLUMNS_OVERLAY_FILENAME,
 } from "./lib.mjs";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 
 test("pickBestGitHubProject prefers Hyperion title", () => {
   const projects = [
@@ -344,4 +354,91 @@ test("normalizeProjectSelectColor falls back for invalid values", () => {
 test("DEFAULT_STATUS_COLUMN_KEYS has seven workflow columns", () => {
   assert.equal(DEFAULT_STATUS_COLUMN_KEYS.length, 7);
   assert.equal(DEFAULT_STATUS_COLUMN_KEYS[0], "Backlog");
+});
+
+test("mergeLabelSpecs: overlay entry with new name is appended", () => {
+  const base = [{ name: "Bug", color: "d73a4a", description: "" }];
+  const overlay = [{ name: "Payment", color: "0e8a16", description: "Payment domain" }];
+  const merged = mergeLabelSpecs(base, overlay);
+  assert.equal(merged.length, 2);
+  assert.ok(merged.some((s) => s.name === "Payment"));
+});
+
+test("mergeLabelSpecs: overlay entry with existing name overrides the base one", () => {
+  const base = [{ name: "Bug", color: "d73a4a", description: "original" }];
+  const overlay = [{ name: "Bug", color: "ff0000", description: "overridden" }];
+  const merged = mergeLabelSpecs(base, overlay);
+  assert.equal(merged.length, 1);
+  assert.equal(merged[0].color, "ff0000");
+  assert.equal(merged[0].description, "overridden");
+});
+
+test("mergeStatusColumnSpecs: overlay entry with new key is appended, existing key overrides", () => {
+  const base = [
+    { key: "Backlog", color: "GRAY", description: "" },
+    { key: "Done", color: "GREEN", description: "" },
+  ];
+  const overlay = [
+    { key: "Done", color: "PURPLE", description: "custom done" },
+    { key: "Blocked", color: "RED", description: "custom column" },
+  ];
+  const merged = mergeStatusColumnSpecs(base, overlay);
+  assert.equal(merged.length, 3);
+  assert.equal(merged.find((s) => s.key === "Done").color, "PURPLE");
+  assert.ok(merged.some((s) => s.key === "Blocked"));
+});
+
+test("resolveOverlayFilePath joins cardsRoot/config/<filename>", () => {
+  const p = resolveOverlayFilePath("/repo/.github/cards", LABELS_OVERLAY_FILENAME);
+  assert.match(p.split("\\").join("/"), /\/repo\/\.github\/cards\/config\/labels\.custom\.json$/);
+});
+
+test("loadLabelsCatalog merges labels.custom.json when present on disk", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "labels-overlay-"));
+  try {
+    const cardsRoot = join(dir, ".github", "cards");
+    mkdirSync(join(cardsRoot, "config"), { recursive: true });
+    writeFileSync(
+      join(cardsRoot, "config", "labels.en.json"),
+      JSON.stringify([{ name: "Bug", color: "d73a4a", description: "Something broken" }])
+    );
+    writeFileSync(
+      join(cardsRoot, "config", "labels.custom.json"),
+      JSON.stringify([{ name: "Payment", color: "0e8a16", description: "Payment domain" }])
+    );
+    const catalog = await loadLabelsCatalog({
+      cardsRoot,
+      repoConfig: { locale: "en", labelsFile: "labels.{locale}.json" },
+    });
+    assert.ok(catalog.names.includes("Bug"));
+    assert.ok(catalog.names.includes("Payment"));
+    assert.equal(catalog.overlayFile, join(cardsRoot, "config", "labels.custom.json"));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("loadStatusColumnsCatalog merges status-columns.custom.json when present on disk", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "status-overlay-"));
+  try {
+    const cardsRoot = join(dir, ".github", "cards");
+    mkdirSync(join(cardsRoot, "config"), { recursive: true });
+    writeFileSync(
+      join(cardsRoot, "config", "status-columns.en.json"),
+      JSON.stringify([{ key: "Backlog", color: "GRAY", description: "" }])
+    );
+    writeFileSync(
+      join(cardsRoot, "config", "status-columns.custom.json"),
+      JSON.stringify([{ key: "Blocked", color: "RED", description: "custom column" }])
+    );
+    const catalog = await loadStatusColumnsCatalog({
+      cardsRoot,
+      repoConfig: { locale: "en", statusColumnsFile: "status-columns.{locale}.json" },
+    });
+    assert.ok(catalog.keys.includes("Backlog"));
+    assert.ok(catalog.keys.includes("Blocked"));
+    assert.equal(catalog.overlayFile, join(cardsRoot, "config", "status-columns.custom.json"));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

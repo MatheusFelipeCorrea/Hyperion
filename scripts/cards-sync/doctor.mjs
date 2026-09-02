@@ -6,7 +6,12 @@ import { fileURLToPath } from "node:url";
 import readline from "node:readline";
 
 import { resolveHyperionPaths } from "../hyperion/paths.mjs";
-import { discoverGitHubProjectNumber } from "./lib.mjs";
+import {
+  discoverGitHubProjectNumber,
+  LABELS_OVERLAY_FILENAME,
+  STATUS_COLUMNS_OVERLAY_FILENAME,
+  resolveOverlayFilePath,
+} from "./lib.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -362,6 +367,10 @@ if (!labelsFile) {
   if (!labelsExists) warn(`labelsFile resolved path not found: ${fullPath}`);
   else ok(`labelsFile OK: ${fullPath}`);
 }
+const labelsOverlayPath = resolveOverlayFilePath(cardsRoot, LABELS_OVERLAY_FILENAME);
+if (await fs.stat(labelsOverlayPath).then(() => true).catch(() => false)) {
+  ok(`labels overlay OK: ${labelsOverlayPath} (merged into the base catalog)`);
+}
 
 const statusColumnsFile = repoConfig.statusColumnsFile;
 if (!statusColumnsFile) {
@@ -374,6 +383,10 @@ if (!statusColumnsFile) {
   const exists = await fs.stat(fullPath).then(() => true).catch(() => false);
   if (!exists) warn(`statusColumnsFile resolved path not found: ${fullPath}`);
   else ok(`statusColumnsFile OK: ${fullPath}`);
+}
+const statusColumnsOverlayPath = resolveOverlayFilePath(cardsRoot, STATUS_COLUMNS_OVERLAY_FILENAME);
+if (await fs.stat(statusColumnsOverlayPath).then(() => true).catch(() => false)) {
+  ok(`status columns overlay OK: ${statusColumnsOverlayPath} (merged into the base catalog)`);
 }
 
 // remote project checks (only if we have token + projectNumber)

@@ -274,6 +274,8 @@ Default semantic palette:
 | In Revision | ORANGE |
 | Done | GREEN |
 
+**Overlay (repo/domain-specific labels or columns):** drop `.github/cards/config/labels.custom.json` and/or `status-columns.custom.json` next to the locale catalogs, same array shape as `labels.{locale}.json` / `status-columns.{locale}.json`. Both are merged into the base catalog on every load (`labels-reset`, forward sync, `doctor`) — an entry with a `name`/`key` already in the base catalog overrides it, a new one is appended. This is how a product adds domain-specific labels (e.g. `Payment`, `Search`) or extra board columns without forking the kit's generic default catalog. `hyperion:doctor`/`cards:doctor` reports whether an overlay file is present.
+
 **Sprint field:** auto-created as GitHub **Iteration** (`Sprint` / `Número da Sprint`). Cards may keep `sprint: null`; define sprint dates in Project Settings. Configure defaults in `projects-map.json` → `sprintField` (`durationDays`, optional `seedIterations`).
 
 **Issue body enrichment (GitHub forward sync):** after create/update, sync rewrites the issue body with:

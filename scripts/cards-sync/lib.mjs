@@ -678,30 +678,70 @@ export function resolveLabelsCatalogFilePath(cardsRoot, repoConfig, locale) {
     : path.join(cardsRoot, "config", resolvedFileName);
 }
 
+/**
+ * labels.custom.json — optional, per-repo overlay living next to the base
+ * locale catalogs in the same config/ dir. Same array-of-spec shape as
+ * labels.en.json. Entries are merged into the base catalog by `name`
+ * (overlay wins on a name collision, is appended otherwise), so a product
+ * can add domain-specific labels (e.g. "Payment", "Search") without
+ * forking the kit's generic default catalog.
+ */
+export const LABELS_OVERLAY_FILENAME = "labels.custom.json";
+export const STATUS_COLUMNS_OVERLAY_FILENAME = "status-columns.custom.json";
+
+export function resolveOverlayFilePath(cardsRoot, filename) {
+  return path.join(cardsRoot, "config", filename);
+}
+
+export function mergeLabelSpecs(baseSpecs, overlaySpecs) {
+  const byName = new Map(baseSpecs.map((s) => [s.name, s]));
+  for (const spec of overlaySpecs) byName.set(spec.name, spec);
+  return [...byName.values()];
+}
+
+export function mergeStatusColumnSpecs(baseSpecs, overlaySpecs) {
+  const byKey = new Map(baseSpecs.map((s) => [s.key, s]));
+  for (const spec of overlaySpecs) byKey.set(spec.key, spec);
+  return [...byKey.values()];
+}
+
+async function readOverlaySpecs(cardsRoot, filename, parseFn) {
+  const file = resolveOverlayFilePath(cardsRoot, filename);
+  try {
+    const raw = await fs.readFile(file, "utf8");
+    return { specs: parseFn(JSON.parse(raw)), file };
+  } catch {
+    return { specs: [], file: null };
+  }
+}
+
 export async function loadLabelsCatalog({ cardsRoot, repoConfig, projectLocale = null }) {
   const locale = repoConfig.locale || projectLocale || "en";
+  const overlay = await readOverlaySpecs(cardsRoot, LABELS_OVERLAY_FILENAME, parseLabelsCatalogJson);
 
   if (Array.isArray(repoConfig.labels)) {
-    const specs = parseLabelsCatalogJson(repoConfig.labels);
+    const specs = mergeLabelSpecs(parseLabelsCatalogJson(repoConfig.labels), overlay.specs);
     return {
       locale,
       specs,
       names: labelNamesFromCatalog(specs),
       file: "(inline config)",
+      overlayFile: overlay.file,
     };
   }
 
   const file = resolveLabelsCatalogFilePath(cardsRoot, repoConfig, locale);
   if (!file) {
-    return { locale, specs: [], names: [], file: null };
+    const specs = overlay.specs;
+    return { locale, specs, names: labelNamesFromCatalog(specs), file: null, overlayFile: overlay.file };
   }
 
   try {
     const raw = await fs.readFile(file, "utf8");
-    const specs = parseLabelsCatalogJson(JSON.parse(raw));
-    return { locale, specs, names: labelNamesFromCatalog(specs), file };
+    const specs = mergeLabelSpecs(parseLabelsCatalogJson(JSON.parse(raw)), overlay.specs);
+    return { locale, specs, names: labelNamesFromCatalog(specs), file, overlayFile: overlay.file };
   } catch {
-    return { locale, specs: [], names: [], file };
+    return { locale, specs: overlay.specs, names: labelNamesFromCatalog(overlay.specs), file, overlayFile: overlay.file };
   }
 }
 
@@ -806,6 +846,15 @@ export async function loadStatusColumnsCatalog({ cardsRoot, repoConfig, projectL
     }));
   }
 
+  const overlay = await readOverlaySpecs(cardsRoot, STATUS_COLUMNS_OVERLAY_FILENAME, parseStatusColumnsCatalogJson);
+  rawSpecs = mergeStatusColumnSpecs(rawSpecs, overlay.specs);
+
   const specs = resolveStatusColumnSpecs(repoConfig, rawSpecs, locale);
-  return { locale, specs, keys: rawSpecs.map((s) => s.key), file: file || "(fallback)" };
+  return {
+    locale,
+    specs,
+    keys: rawSpecs.map((s) => s.key),
+    file: file || "(fallback)",
+    overlayFile: overlay.file,
+  };
 }
