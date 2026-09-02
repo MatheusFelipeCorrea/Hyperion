@@ -69,7 +69,10 @@ function main() {
   const escaped = version.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   // No "m" flag: with it, "$" would match end-of-line instead of end-of-string,
   // truncating the capture at the version heading's own line.
-  const headingRe = new RegExp(`(?:^|\\n)##\\s*\\[${escaped}\\]([\\s\\S]*?)(?=\\n##\\s|$)`);
+  // [^\n]* consumes the rest of the heading line first (e.g. a Keep-a-Changelog
+  // date suffix: "## [1.2.0] — 2026-09-01") so it can't be mistaken for real
+  // release-note content — the capture group only starts on the next line.
+  const headingRe = new RegExp(`(?:^|\\n)##\\s*\\[${escaped}\\][^\\n]*\\n?([\\s\\S]*?)(?=\\n##\\s|$)`);
   const match = text.match(headingRe);
 
   if (!match) {

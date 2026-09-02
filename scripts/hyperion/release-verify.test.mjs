@@ -103,4 +103,31 @@ describe("release-verify", () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  it("fails when the version section is empty, even with a date suffix on the heading", () => {
+    // Regression: the capture used to start right after "]", so a
+    // Keep-a-Changelog date suffix ("## [2.0.0] — 2026-09-01") was itself
+    // read as section "content" and an empty release silently passed.
+    const dir = mkdtempSync(join(tmpdir(), "rlv-empty-dated-"));
+    try {
+      writeFileSync(
+        join(dir, "CHANGELOG.md"),
+        `# Changelog
+
+## [2.0.0] — 2026-09-01
+
+## [1.0.0]
+### Added
+- Something.
+`
+      );
+      const r = spawnSync(process.execPath, [script, "--root", dir, "--version", "2.0.0"], {
+        encoding: "utf8",
+      });
+      assert.notEqual(r.status, 0);
+      assert.match(r.stderr, /section in CHANGELOG.md is empty/);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });
