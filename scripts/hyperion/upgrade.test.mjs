@@ -13,6 +13,7 @@ import {
   buildUpgradePlan,
   applyUpgradePlan,
   mergePackageJson,
+  mergeGitignore,
   isPreserved,
   summarizePlan,
   recordUpgradeChangelog,
@@ -30,6 +31,7 @@ function makeKit(root) {
   writeFileSync(join(root, ".github", "commands.yml"), "version: 2\n");
   writeFileSync(join(root, ".github", "workflows", "hyperion-validate.yml"), "name: hv2\n");
   writeFileSync(join(root, ".github", "workflows", "product.yml"), "name: product-should-not-copy\n");
+  writeFileSync(join(root, ".gitignore"), "node_modules/\n.github/plans/cards/sync-history.jsonl\n");
   writeFileSync(
     join(root, "package.json"),
     JSON.stringify(
@@ -56,6 +58,7 @@ function makeClient(root) {
   writeFileSync(join(root, ".github", "project.yml"), "name: client\n");
   writeFileSync(join(root, ".github", "memory", "PROJECT.md"), "# mem\n");
   writeFileSync(join(root, ".github", "workflows", "product.yml"), "name: keep-me\n");
+  writeFileSync(join(root, ".gitignore"), "dist/\n.env.local\n");
   writeFileSync(
     join(root, "package.json"),
     JSON.stringify(
@@ -97,6 +100,29 @@ describe("upgrade-lib", () => {
     assert.equal(merged.engines.node, ">=20");
   });
 
+  it("mergeGitignore appends kit block without touching product's own lines", () => {
+    const merged = mergeGitignore("dist/\n.env.local\n", "node_modules/\n.env\n");
+    assert.match(merged, /dist\//);
+    assert.match(merged, /\.env\.local/);
+    assert.match(merged, /node_modules\//);
+    assert.match(merged, /Hyperion kit/);
+  });
+
+  it("mergeGitignore re-run replaces only the kit block, keeps product lines and is idempotent", () => {
+    const once = mergeGitignore("dist/\n", "node_modules/\n");
+    const twice = mergeGitignore(once, "node_modules/\n.env\n");
+    assert.match(twice, /dist\//);
+    assert.match(twice, /node_modules\//);
+    assert.match(twice, /\.env\b/);
+    assert.equal((twice.match(/dist\//g) || []).length, 1);
+    assert.equal(mergeGitignore(twice, "node_modules/\n.env\n"), twice);
+  });
+
+  it("mergeGitignore creates the file from scratch when the client has none", () => {
+    const merged = mergeGitignore("", "node_modules/\n");
+    assert.match(merged, /node_modules\//);
+  });
+
   it("plans updates and preserves client files", async () => {
     const kit = mkdtempSync(join(tmpdir(), "kit-"));
     const client = mkdtempSync(join(tmpdir(), "client-"));
@@ -110,6 +136,7 @@ describe("upgrade-lib", () => {
       assert.equal(byRel[".github/workflows/hyperion-validate.yml"].action, "add");
       assert.ok(!byRel[".github/workflows/product.yml"]);
       assert.equal(byRel["package.json"].action, "update");
+      assert.equal(byRel[".gitignore"].action, "update");
       const counts = summarizePlan(plan);
       assert.ok(counts.update >= 1);
       assert.ok(counts.add >= 1);
@@ -142,6 +169,10 @@ describe("upgrade-lib", () => {
       assert.equal(pkg.name, "acme-app");
       assert.equal(pkg.scripts.start, "node app.js");
       assert.equal(pkg.scripts["hyperion:upgrade"], "node scripts/hyperion/upgrade.mjs");
+      const gitignore = readFileSync(join(client, ".gitignore"), "utf8");
+      assert.match(gitignore, /dist\//, "product's own ignore line must survive the merge");
+      assert.match(gitignore, /node_modules\//, "kit's ignore line must be added");
+      assert.match(gitignore, /sync-history\.jsonl/, "kit's ignore line must be added");
       const meta = JSON.parse(readFileSync(join(client, ".github", "hyperion-kit.json"), "utf8"));
       assert.ok(meta.upgraded_at);
       assert.match(readFileSync(join(client, "CHANGELOG.md"), "utf8"), /Hyperion kit upgrade/);

@@ -27,7 +27,6 @@ export const MANAGED_FILES = [
   ".github/dependabot.yml",
   ".github/hyperion-origin.json",
   ".github/copilot-instructions.md",
-  ".github/FUNDING.yml",
   ".github/mcp/servers.example.json",
   ".github/mcp/README.md",
   "CLAUDE.md",
@@ -190,6 +189,20 @@ export async function buildUpgradePlan(kitRoot, targetRoot) {
     }
   }
 
+  // .gitignore always considered separately (marker-guarded merge, never overwritten wholesale)
+  const kitGitignore = path.join(kitRoot, ".gitignore");
+  if (await pathExists(kitGitignore)) {
+    const kit = await fs.readFile(kitGitignore, "utf8");
+    const tgtGitignore = path.join(targetRoot, ".gitignore");
+    const tgt = (await pathExists(tgtGitignore)) ? await fs.readFile(tgtGitignore, "utf8") : "";
+    const merged = mergeGitignore(tgt, kit);
+    items.push({
+      rel: ".gitignore",
+      action: merged === tgt ? "unchanged" : tgt ? "update" : "add",
+      reason: "merge kit-managed ignore rules",
+    });
+  }
+
   return items;
 }
 
@@ -222,6 +235,31 @@ export function mergePackageJson(targetPkg, kitPkg) {
   return out;
 }
 
+const GITIGNORE_MARKER_START =
+  "# --- Hyperion kit (managed by hyperion:upgrade — edit the kit's .gitignore, not this block) ---";
+const GITIGNORE_MARKER_END = "# --- end Hyperion kit ---";
+
+/**
+ * Merge the kit's ignore rules into the client's .gitignore inside a
+ * marker-guarded block, leaving everything else the adopter added (their own
+ * stack's ignores) untouched. Re-running just replaces the block's contents.
+ */
+export function mergeGitignore(targetContent, kitContent) {
+  const kitBlock = kitContent.trim();
+  const startIdx = targetContent.indexOf(GITIGNORE_MARKER_START);
+  const endIdx = targetContent.indexOf(GITIGNORE_MARKER_END);
+
+  if (startIdx !== -1 && endIdx !== -1 && endIdx > startIdx) {
+    const before = targetContent.slice(0, startIdx).trimEnd();
+    const after = targetContent.slice(endIdx + GITIGNORE_MARKER_END.length).replace(/^\s*\n/, "");
+    const afterPart = after.trim() ? `\n\n${after.trimEnd()}` : "";
+    return `${before}\n\n${GITIGNORE_MARKER_START}\n${kitBlock}\n${GITIGNORE_MARKER_END}${afterPart}\n`;
+  }
+
+  const base = targetContent.trimEnd();
+  return `${base ? `${base}\n\n` : ""}${GITIGNORE_MARKER_START}\n${kitBlock}\n${GITIGNORE_MARKER_END}\n`;
+}
+
 export async function applyUpgradePlan(
   kitRoot,
   targetRoot,
@@ -246,6 +284,17 @@ export async function applyUpgradePlan(
       const merged = mergePackageJson(tgt, kit);
       await fs.mkdir(path.dirname(tgtPath), { recursive: true });
       await fs.writeFile(tgtPath, `${JSON.stringify(merged, null, 2)}\n`, "utf8");
+      applied.push(item.rel);
+      continue;
+    }
+
+    if (item.rel === ".gitignore") {
+      const kit = await fs.readFile(path.join(kitRoot, ".gitignore"), "utf8");
+      const tgtPath = path.join(targetRoot, ".gitignore");
+      const tgt = (await pathExists(tgtPath)) ? await fs.readFile(tgtPath, "utf8") : "";
+      const merged = mergeGitignore(tgt, kit);
+      await fs.mkdir(path.dirname(tgtPath), { recursive: true });
+      await fs.writeFile(tgtPath, merged, "utf8");
       applied.push(item.rel);
       continue;
     }
