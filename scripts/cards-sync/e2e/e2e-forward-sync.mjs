@@ -50,7 +50,7 @@ import os from "node:os";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
-import { detectRepoFromGit } from "../lib.mjs";
+import { detectRepoFromGit, parseCardIdFromIssueBody, pickCanonicalIssueForCardId } from "../lib.mjs";
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const syncScriptPath = path.join(scriptDir, "..", "sync.mjs");
@@ -179,7 +179,13 @@ async function findIssueByCardId(cardId) {
     { owner: targetOwner, name: targetName }
   );
   const nodes = data.repository?.issues?.nodes || [];
-  return nodes.find((issue) => issue.body?.includes(`CARD_ID: ${cardId}`)) || null;
+  let match = null;
+  for (const issue of nodes) {
+    const cardIdFromBody = parseCardIdFromIssueBody(issue.body);
+    if (cardIdFromBody !== cardId) continue;
+    match = pickCanonicalIssueForCardId(match, issue);
+  }
+  return match;
 }
 
 async function deleteIssue(issueId) {
