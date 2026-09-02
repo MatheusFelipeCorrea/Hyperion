@@ -44,7 +44,8 @@ jobs:
           PROJECT_SYNC_TOKEN: ${{ secrets.PROJECT_SYNC_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           GITHUB_BASE_SHA: ${{ github.event_name == 'merge_group' && github.event.merge_group.base_sha || github.event.pull_request.base.sha }}
-          CARDS_CI_REQUIRE_PROJECT: "true"
+          # Kit template: no consumer projectNumber in projects-map.json
+          CARDS_CI_REQUIRE_PROJECT: "false"
           CARDS_CI_STRICT_GIT: "true"
         run: node scripts/cards-sync/pr-board-guard.mjs
 
