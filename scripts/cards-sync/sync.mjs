@@ -145,6 +145,12 @@ export function log(message) {
   console.log(`[cards-sync] ${message}`);
 }
 
+if (tokenSource === "gh-cli") {
+  log(
+    "Warning: no PROJECT_SYNC_TOKEN/GITHUB_TOKEN set — falling back to your local `gh auth token` session. This makes REAL API calls (reads, and writes if not --dry-run) using your own GitHub identity. Set an explicit token to avoid this."
+  );
+}
+
 function readManagementHintsFromProjectYml(content) {
   const blockMatch = content.match(/^\s*management\s*:\s*\n([\s\S]*?)(?:^\S|\Z)/m);
   if (!blockMatch) return {};
@@ -2191,10 +2197,20 @@ const directRunPath = process.argv[1] ? path.resolve(process.argv[1]) : "";
 const currentFilePath = fileURLToPath(import.meta.url);
 const isDirectRun = directRunPath === currentFilePath;
 
+const CONFIG_ERROR_PATTERN = /backend requires .+\(env or config\)\.?$/;
+
 if (isDirectRun) {
   main().catch((error) => {
-    console.error("[cards-sync] FATAL ERROR");
-    console.error(error);
+    const message = String(error?.message || error);
+    if (CONFIG_ERROR_PATTERN.test(message)) {
+      // A missing/misconfigured backend is a setup problem, not a crash —
+      // show the actionable message only, keep the stack for --verbose.
+      console.error(`[cards-sync] ${message}`);
+      if (process.argv.includes("--verbose")) console.error(error);
+    } else {
+      console.error("[cards-sync] FATAL ERROR");
+      console.error(error);
+    }
     process.exit(1);
   });
 }
@@ -2234,4 +2250,5 @@ export {
   resolveHyperionStatusFromRemote,
   canonicalizeLinearState,
   inverseStatusMap,
+  getLabelId,
 };

@@ -30,6 +30,7 @@ import {
   buildRemoteFrontmatterUpdates,
   resolveHyperionStatusFromRemote,
   canonicalizeLinearState,
+  getLabelId,
 } from "./sync.mjs";
 import { pickCanonicalIssueForCardId } from "./lib.mjs";
 
@@ -342,6 +343,98 @@ test("graphql sends headers and returns payload.data (mocked fetch)", async () =
 
     const data = await graphql("query($x:Int!){ __typename }", { x: 1 });
     assert.deepEqual(data, { hello: "world" });
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test("getLabelId creates a missing label", async () => {
+  const originalFetch = global.fetch;
+  try {
+    let call = 0;
+    global.fetch = async (url, options) => {
+      call += 1;
+      const body = JSON.parse(options.body);
+      if (call === 1) {
+        assert.match(body.query, /label\(name: \$labelName\)/);
+        return {
+          ok: true,
+          json: async () => ({ data: { repository: { id: "REPO_ID", label: null } } }),
+        };
+      }
+      assert.match(body.query, /createLabel/);
+      return {
+        ok: true,
+        json: async () => ({ data: { createLabel: { label: { id: "NEW_LABEL_ID" } } } }),
+      };
+    };
+
+    const id = await getLabelId("acme", "app", "bug", true);
+    assert.equal(id, "NEW_LABEL_ID");
+    assert.equal(call, 2);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test("getLabelId falls back to a lookup when createLabel races and loses (PR #66 regression)", async () => {
+  const originalFetch = global.fetch;
+  try {
+    let call = 0;
+    global.fetch = async (url, options) => {
+      call += 1;
+      const body = JSON.parse(options.body);
+      if (call === 1) {
+        // No label yet, per the first read.
+        return {
+          ok: true,
+          json: async () => ({ data: { repository: { id: "REPO_ID", label: null } } }),
+        };
+      }
+      if (call === 2) {
+        assert.match(body.query, /createLabel/);
+        // Another concurrent sync run created it first.
+        return {
+          ok: true,
+          json: async () => ({
+            errors: [{ message: "Name has already been taken" }],
+          }),
+        };
+      }
+      assert.match(body.query, /label\(name: \$labelName\) \{ id \}/);
+      return {
+        ok: true,
+        json: async () => ({ data: { repository: { label: { id: "WINNER_LABEL_ID" } } } }),
+      };
+    };
+
+    const id = await getLabelId("acme", "app", "bug", true);
+    assert.equal(id, "WINNER_LABEL_ID");
+    assert.equal(call, 3);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test("getLabelId re-throws createLabel errors unrelated to the name-taken race", async () => {
+  const originalFetch = global.fetch;
+  try {
+    let call = 0;
+    global.fetch = async () => {
+      call += 1;
+      if (call === 1) {
+        return {
+          ok: true,
+          json: async () => ({ data: { repository: { id: "REPO_ID", label: null } } }),
+        };
+      }
+      return { ok: true, json: async () => ({ errors: [{ message: "insufficient permissions" }] }) };
+    };
+
+    await assert.rejects(
+      () => getLabelId("acme", "app", "bug", true),
+      /insufficient permissions/
+    );
   } finally {
     global.fetch = originalFetch;
   }
