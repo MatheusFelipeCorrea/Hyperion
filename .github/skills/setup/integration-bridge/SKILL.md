@@ -35,6 +35,8 @@ Cards remain in `.github/cards/` — sync engine reads from there regardless of 
 
 ## Step 1 — Detect current backend
 
+Reference MCP configs: `.github/mcp/servers.example.json` + [mcp/README.md](../../../mcp/README.md).
+
 Check in order:
 1. `project.yml` → `management.backend` field
 2. Config files in repo: `.jira.yml`, `azure-pipelines.yml`, `.linear/`

@@ -1,0 +1,9 @@
+## 📋 Resumo
+
+### ✅ Concluído
+- Escopo refinado com critérios de aceite claros
+- CARD_ID atribuído seguindo padrão PROJECT-TYPE-SEQ
+
+### ⏳ Pendente
+- Validar paths reais com o time
+- Confirmar prioridade e sprint

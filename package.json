@@ -1,6 +1,6 @@
 {
   "name": "hyperion",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "Hyperion — portable AI agents and skills for software projects",
   "repository": {
@@ -21,9 +21,11 @@
     "hyperion:generate-rules": "node scripts/hyperion/generate-runtime-rules.mjs",
     "hyperion:check-rules": "node scripts/hyperion/generate-runtime-rules.mjs --check",
     "docs:check": "node scripts/hyperion/docs-check.mjs",
+    "docs:prose-check": "node scripts/hyperion/docs-prose-check.mjs",
     "skills:validate": "node scripts/hyperion/skills-validate.mjs",
     "hyperion:repo-detect": "node scripts/hyperion/repo-detect.mjs",
     "hyperion:skills-eval": "node scripts/hyperion/skills-eval.mjs",
+    "hyperion:llm-eval": "node scripts/hyperion/llm-eval.mjs",
     "hyperion:skills-catalog": "node scripts/hyperion/skills-catalog.mjs",
     "hyperion:phase-verify": "node scripts/hyperion/phase-verify.mjs",
     "hyperion:project-verify": "node scripts/hyperion/project-verify.mjs",
@@ -53,7 +55,8 @@
     "cards:migrate-layout": "node scripts/cards-sync/migrate-layout.mjs",
     "cards:test": "node --test scripts/cards-sync/*.test.mjs",
     "hyperion:test": "node --test scripts/hyperion/*.test.mjs",
-    "test": "npm run hyperion:test && npm run cards:test"
+    "test": "npm run hyperion:test && npm run cards:test",
+    "test:coverage": "node --experimental-test-coverage --test-coverage-exclude=**/*.test.mjs --test scripts/hyperion/*.test.mjs scripts/cards-sync/*.test.mjs"
   },
   "engines": {
     "node": ">=20"

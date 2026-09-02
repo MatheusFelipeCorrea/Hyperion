@@ -37,8 +37,9 @@ import {
   loadStatusColumnsCatalog,
   LABELS_OVERLAY_FILENAME,
   STATUS_COLUMNS_OVERLAY_FILENAME,
+  appendSyncEvent,
 } from "./lib.mjs";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -441,4 +442,26 @@ test("loadStatusColumnsCatalog merges status-columns.custom.json when present on
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test("appendSyncEvent writes jsonl history", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "hyperion-sync-hist-"));
+  const plansDir = join(dir, ".github", "plans", "cards");
+  mkdirSync(plansDir, { recursive: true });
+
+  await appendSyncEvent({
+    workspaceRoot: dir,
+    plansCardsDir: plansDir,
+    type: "forward-sync",
+    repositorySlug: "org/repo",
+    ok: true,
+    details: { cardCount: 2 },
+  });
+
+  const history = readFileSync(join(plansDir, "sync-history.jsonl"), "utf8").trim();
+  const row = JSON.parse(history.split("\n").pop());
+  assert.equal(row.type, "forward-sync");
+  assert.equal(row.repository, "org/repo");
+  assert.equal(row.cardCount, 2);
+  rmSync(dir, { recursive: true, force: true });
 });

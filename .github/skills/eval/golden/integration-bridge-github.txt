@@ -1,0 +1,7 @@
+Backend: GitHub (default)
+
+Configuration:
+- `.github/cards/config/projects-map.json` for GitHub Projects sync
+- `.github/project.yml` → `management.backend: github`
+
+No extra MCP server required for the default GitHub path.

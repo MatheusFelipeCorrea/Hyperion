@@ -1,0 +1,14 @@
+[
+  {
+    "id": "card-refiner-summary",
+    "golden": "card-refiner-summary.txt",
+    "mustContain": ["Concluído", "Pendente"],
+    "mustMatch": ["^## .+Resumo"]
+  },
+  {
+    "id": "integration-bridge-github",
+    "golden": "integration-bridge-github.txt",
+    "mustContain": ["projects-map.json", "management.backend"],
+    "mustMatch": ["GitHub"]
+  }
+]

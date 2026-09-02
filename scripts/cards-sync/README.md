@@ -380,6 +380,7 @@ node scripts/cards-sync/watch.mjs
 | Issue body links | Parent, sub-issues, Hyperion footer on forward sync |
 | Incremental sync | `--only CARD_ID,...` or `CARDS_SYNC_ONLY` env (watch uses this); loads all issues for link resolution |
 | Sync summary | Writes `.github/plans/cards/last-sync.md` after each forward sync |
+| Sync history | Appends JSON lines to `.github/plans/cards/sync-history.jsonl` (forward-sync + pr-guard events) |
 | Pre-commit hook | `npm run cards:hook` validates staged `.github/cards/*.md` |
 | **PR board guard** | `hyperion-cards-pr-check.yml` — directional reverse + diff; blocks **external** board drift only |
 | **Main CI sync** | `hyperion-sync-cards.yml` — pull → verify → push after merge to main |

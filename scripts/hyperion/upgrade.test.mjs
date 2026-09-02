@@ -15,6 +15,7 @@ import {
   mergePackageJson,
   isPreserved,
   summarizePlan,
+  recordUpgradeChangelog,
 } from "./upgrade-lib.mjs";
 import { sameCommit, resolveOrigin, DEFAULT_ORIGIN } from "./upgrade-fetch.mjs";
 
@@ -143,6 +144,7 @@ describe("upgrade-lib", () => {
       assert.equal(pkg.scripts["hyperion:upgrade"], "node scripts/hyperion/upgrade.mjs");
       const meta = JSON.parse(readFileSync(join(client, ".github", "hyperion-kit.json"), "utf8"));
       assert.ok(meta.upgraded_at);
+      assert.match(readFileSync(join(client, "CHANGELOG.md"), "utf8"), /Hyperion kit upgrade/);
     } finally {
       rmSync(kit, { recursive: true, force: true });
       rmSync(client, { recursive: true, force: true });
