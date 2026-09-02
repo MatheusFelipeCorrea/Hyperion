@@ -52,6 +52,32 @@ test("pickBestGitHubProject prefers Hyperion title", () => {
   assert.equal(picked.number, 7);
 });
 
+test("pickBestGitHubProject picks sole repo-name match when multiple boards exist", () => {
+  const projects = [
+    { number: 1, title: "Other Board" },
+    { number: 26, title: "Pulso Sprint 7" },
+    { number: 3, title: "Template" },
+  ];
+  const picked = pickBestGitHubProject(projects, "Pulso");
+  assert.equal(picked.number, 26);
+});
+
+test("pickBestGitHubProject picks repo-named Hyperion project among account boards", () => {
+  const projects = [
+    { number: 25, title: "[Hyperion] Hyperion Project" },
+    { number: 26, title: "Pulso Hyperion Project" },
+  ];
+  assert.equal(pickBestGitHubProject(projects, "Pulso").number, 26);
+});
+
+test("pickBestGitHubProject returns null when multiple repo-named projects", () => {
+  const projects = [
+    { number: 1, title: "Pulso Board A" },
+    { number: 2, title: "Pulso Board B" },
+  ];
+  assert.equal(pickBestGitHubProject(projects, "Pulso"), null);
+});
+
 test("pickBestGitHubProject uses single project when only one exists", () => {
   const projects = [{ number: 3, title: "Solo Project" }];
   assert.equal(pickBestGitHubProject(projects, "repo").number, 3);

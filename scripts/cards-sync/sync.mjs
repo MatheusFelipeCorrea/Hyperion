@@ -1513,6 +1513,7 @@ async function runForwardSync() {
   let projectOwner = process.env.PROJECT_OWNER || repoConfig.projectOwner || repoOwner;
   let projectNumber =
     Number(process.env.PROJECT_NUMBER || "0") || Number(repoConfig.projectNumber || "0");
+  let projectDiscovery = { reason: null, candidates: [] };
 
   if (backend === "github" && token && repoOwner !== "unknown" && projectNumber <= 0) {
     try {
@@ -1525,6 +1526,7 @@ async function runForwardSync() {
         repositorySlug,
         persist: !dryRun,
       });
+      projectDiscovery = discovery;
       if (discovery.discovered) {
         if (dryRun) {
           log(
@@ -1717,11 +1719,19 @@ async function runForwardSync() {
     if (projectNumber > 0) {
       log(`Project #${projectNumber} not found — check projectOwner/projectNumber in config.`);
     } else if (repoConfig.autoCreateProject !== false) {
-      try {
-        const created = await autoCreateProject(projectOwner, repoConfig);
-        project = await getProject(projectOwner, created.number);
-      } catch (e) {
-        log(`Auto-create project failed: ${e.message}`);
+      if (projectDiscovery.reason === "ambiguous") {
+        log("Auto-create skipped: multiple GitHub Projects found — set projectNumber in projects-map.json");
+        for (const c of projectDiscovery.candidates || []) {
+          log(`  candidate: #${c.number} ${c.title}`);
+        }
+        log("Run: npm run cards:doctor");
+      } else {
+        try {
+          const created = await autoCreateProject(projectOwner, repoConfig);
+          project = await getProject(projectOwner, created.number);
+        } catch (e) {
+          log(`Auto-create project failed: ${e.message}`);
+        }
       }
     }
   }
