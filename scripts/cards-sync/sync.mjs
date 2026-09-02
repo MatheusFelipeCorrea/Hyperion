@@ -570,23 +570,39 @@ async function getLabelId(owner, name, labelName, createIfMissing = false) {
   if (!createIfMissing) return "";
 
   const repositoryId = data.repository.id;
-  const created = await graphql(
-    `mutation($repositoryId: ID!, $name: String!, $color: String!, $description: String) {
-      createLabel(input: {
-        repositoryId: $repositoryId
-        name: $name
-        color: $color
-        description: $description
-      }) { label { id } }
-    }`,
-    {
-      repositoryId,
-      name: labelName,
-      color: desiredColor,
-      description: desiredDescription || null,
+  try {
+    const created = await graphql(
+      `mutation($repositoryId: ID!, $name: String!, $color: String!, $description: String) {
+        createLabel(input: {
+          repositoryId: $repositoryId
+          name: $name
+          color: $color
+          description: $description
+        }) { label { id } }
+      }`,
+      {
+        repositoryId,
+        name: labelName,
+        color: desiredColor,
+        description: desiredDescription || null,
+      }
+    );
+    return created.createLabel.label.id;
+  } catch (error) {
+    const msg = String(error.message || "");
+    if (!msg.includes("already been taken") && !msg.includes("Name has already been taken")) {
+      throw error;
     }
-  );
-  return created.createLabel.label.id;
+    const retry = await graphql(
+      `query($owner: String!, $name: String!, $labelName: String!) {
+        repository(owner: $owner, name: $name) {
+          label(name: $labelName) { id }
+        }
+      }`,
+      { owner, name, labelName }
+    );
+    return retry.repository?.label?.id || "";
+  }
 }
 
 async function setIssueLabels(issueId, owner, name, labels) {
