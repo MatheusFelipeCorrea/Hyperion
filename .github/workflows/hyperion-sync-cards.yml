@@ -20,11 +20,18 @@ on:
 
 concurrency:
   group: hyperion-sync-cards-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # false, unlike the kit's other workflows: ci-sync.mjs performs multiple
+  # non-transactional writes (labels, issues, ProjectV2 fields). Cancelling
+  # an in-flight run mid-write can leave the board partially synced with no
+  # rollback, so a second trigger queues instead of cutting the first one off.
+  cancel-in-progress: false
 
 permissions:
   contents: read
   issues: write
+  # repository-projects governs classic Projects, not ProjectV2 — the actual
+  # write access ci-sync.mjs needs comes from secrets.PROJECT_SYNC_TOKEN
+  # (see scripts/cards-sync/sync.mjs). Kept for GITHUB_TOKEN fallback paths.
   repository-projects: write
 
 jobs:

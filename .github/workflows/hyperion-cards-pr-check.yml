@@ -16,6 +16,9 @@ on:
 permissions:
   contents: read
   issues: read
+  # repository-projects governs classic Projects, not ProjectV2 — real read
+  # access for the board-guard's GraphQL queries comes from PROJECT_SYNC_TOKEN
+  # (see scripts/cards-sync/sync.mjs). Kept for GITHUB_TOKEN fallback paths.
   repository-projects: read
 
 jobs:

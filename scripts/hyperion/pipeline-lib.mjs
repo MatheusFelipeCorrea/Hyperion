@@ -88,7 +88,7 @@ export function auditSyncCardsWorkflow(content, { kitRootRel = "" } = {}) {
     issues.push("missing_concurrency_block");
     missing.push("concurrency");
   }
-  if (!/cancel-in-progress:\s*true/m.test(text)) {
+  if (!/cancel-in-progress:\s*false/m.test(text)) {
     issues.push("missing_cancel_in_progress");
     missing.push("concurrency.cancel-in-progress");
   }
@@ -212,7 +212,7 @@ on:
 
 concurrency:
   group: hyperion-sync-cards-\${{ github.workflow }}-\${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -904,8 +904,14 @@ export function buildPipelinePlan(detection) {
 
     const wantProductCi =
       h.product_ci === true || (h.product_ci === "auto" && !hasProductCi && config.policy !== "merge");
+    // hasProductCi only looks at non-hyperion-prefixed workflows (see
+    // detectPipeline) — it doesn't know hyperion-product-ci.yml itself might
+    // already be on disk from a prior apply, so check that separately too.
+    const productCiExists = existingHyperionFiles.has(HYPERION_WORKFLOWS.productCi);
 
-    if (wantProductCi && config.policy === "hyperion-only") {
+    if (productCiExists && (wantProductCi || hasProductCi)) {
+      plan.skips.push(`${WORKFLOWS_DIR}/${HYPERION_WORKFLOWS.productCi} already exists — not overwritten.`);
+    } else if (wantProductCi && config.policy === "hyperion-only") {
       plan.actions.push({
         file: `${WORKFLOWS_DIR}/${HYPERION_WORKFLOWS.productCi}`,
         template: HYPERION_WORKFLOWS.productCi,

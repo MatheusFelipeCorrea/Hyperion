@@ -137,6 +137,19 @@ describe("buildPipelinePlan", () => {
     }
   });
 
+  it("skips hyperion-product-ci.yml when it already exists, even though hasProductCi only tracks non-hyperion files", () => {
+    const detection = {
+      config: { ...DEFAULT_CI_CONFIG, policy: "detect", hyperion: { ...DEFAULT_CI_CONFIG.hyperion } },
+      hasProductCi: false, // matches detectPipeline: hyperion-prefixed files never count here
+      classified: { legacy: [], product: [], hyperion: ["hyperion-product-ci.yml"] },
+      stack: "node-npm",
+      external: [],
+    };
+    const plan = buildPipelinePlan(detection);
+    assert.ok(!plan.actions.some((a) => a.template === "hyperion-product-ci.yml"));
+    assert.ok(plan.skips.some((s) => s.includes("hyperion-product-ci.yml")));
+  });
+
   it("plans Azure Pipelines template when azure-pipelines detected", () => {
     const detection = {
       config: {
@@ -159,7 +172,7 @@ describe("renderSyncCardsWorkflow", () => {
   it("includes main branch filter and concurrency for legacy layout", () => {
     const yaml = renderSyncCardsWorkflow();
     assert.match(yaml, /branches: \[main\]/);
-    assert.match(yaml, /cancel-in-progress: true/);
+    assert.match(yaml, /cancel-in-progress: false/);
     assert.match(yaml, /"\.github\/cards\/\*\*\/\*\.md"/);
     assert.doesNotMatch(yaml, /working-directory:/);
   });
