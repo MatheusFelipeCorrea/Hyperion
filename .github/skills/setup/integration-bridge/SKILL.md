@@ -28,8 +28,8 @@ Cards remain in `.github/cards/` — sync engine reads from there regardless of 
 | Backend | Connection method | Card sync | Bidirectional |
 |---------|------------------|-----------|---------------|
 | **GitHub** (default) | GitHub API / gh CLI | Full (Issues + Projects + fields) | Yes (`--reverse`) |
-| **Jira** | MCP (`mcp-jira`) or REST API | Forward + reverse (`backends/jira.mjs`) | Yes (`--reverse` rebuilds Markdown) |
-| **Azure DevOps** | MCP (`mcp-azure-devops`) or REST API | Forward + reverse; `System.State` via `status_map` | Yes (`--reverse`) |
+| **Jira** | MCP (`mcp-atlassian`) or REST API | Forward + reverse (`backends/jira.mjs`) | Yes (`--reverse` rebuilds Markdown) |
+| **Azure DevOps** | MCP (`@azure-devops/mcp`) or REST API | Forward + reverse; `System.State` via `status_map` | Yes (`--reverse`) |
 | **Linear** | MCP (`mcp-linear`) or GraphQL | Forward + reverse; workflow state via `status_map` | Yes (`--reverse`) |
 | **GitLab** | MCP (`mcp-gitlab`) or REST API | Forward + reverse; open/close + `status:` label | Yes (`--reverse`) |
 
@@ -55,7 +55,7 @@ If you have MCP tool access in this runtime:
 Already configured via `projects-map.json`. No extra setup needed.
 
 ### For Jira
-1. Verify MCP `mcp-jira` is available, OR ask for API token
+1. Verify MCP `mcp-atlassian` is available, OR ask for API token
 2. Gather: Jira URL, project key, email
 3. Update `project.yml`:
    ```yaml
@@ -85,7 +85,7 @@ Already configured via `projects-map.json`. No extra setup needed.
    ```
 
 ### For Azure DevOps
-1. Verify MCP `mcp-azure-devops` is available, OR ask for PAT
+1. Verify MCP `@azure-devops/mcp` is available, OR ask for PAT
 2. Gather: organization URL, project name
 3. Update `project.yml`:
    ```yaml
@@ -167,10 +167,10 @@ When MCP servers are available, the agent can interact directly:
 
 ```
 # Jira via MCP
-mcp-jira: create_issue, update_issue, search_issues, get_project
+mcp-atlassian: create_issue, update_issue, search_issues, get_project
 
 # Azure DevOps via MCP  
-mcp-azure-devops: create_work_item, update_work_item, get_boards
+@azure-devops/mcp: create_work_item, update_work_item, get_boards
 
 # Linear via MCP
 mcp-linear: create_issue, update_issue, get_team_issues
@@ -193,5 +193,5 @@ If no MCP is available, fall back to REST API calls via the sync script.
 ## Example
 
 > "Connect this project to our Jira"
-> → Checks for mcp-jira availability, asks for project URL and key,
+> → Checks for mcp-atlassian availability, asks for project URL and key,
 >   creates field mapping, tests with one card, documents the decision.
