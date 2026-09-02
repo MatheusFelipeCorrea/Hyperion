@@ -163,7 +163,10 @@ async function main() {
     if (!args.yes) {
       warn("Dry-run only. Re-run with --yes to fetch/apply (remote) or apply (--from).");
       ok("hyperion:upgrade dry-run complete");
-      process.exit(0);
+      // Return (not process.exit) so the `finally` below still runs and
+      // cleans up the temp clone from materializeKitFromGitHub — exiting
+      // here used to skip it and leak a hyperion-upgrade-* dir per run.
+      return;
     }
 
     const applied = await applyUpgradePlan(kitRoot, targetRoot, items, {
