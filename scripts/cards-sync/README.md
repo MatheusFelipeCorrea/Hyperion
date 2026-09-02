@@ -283,7 +283,32 @@ Default semantic palette:
 - Optional section emoji headers (`## Resumo` → `## 📋 Resumo`) if not already present
 - **🔄 Hyperion sync** blockquote (card id, parent, source path) + machine-readable `CARD_ID` metadata
 
-**Unit tests:** `npm run cards:test` (27+ tests for parsers, mapping, body enrichment).
+**Unit tests:** `npm run cards:test` (27+ tests for parsers, mapping, body enrichment). These mock `global.fetch` — no test in this suite ever calls a real GitHub/Jira/Azure/Linear/GitLab API.
+
+### End-to-end test (opt-in)
+
+`scripts/cards-sync/e2e/e2e-forward-sync.mjs` closes the gap the unit tests can't: it runs the **real** `sync.mjs` forward sync against a **disposable** GitHub repo, then asserts the resulting Issue(s) actually exist with the right title/labels/body — and deletes what it created afterward (`try`/`finally`, runs even on assertion failure).
+
+This is **opt-in only** and never runs automatically:
+- It is not part of `npm test` / `npm run cards:test` (it doesn't match the `scripts/cards-sync/*.test.mjs` glob — it lives in `scripts/cards-sync/e2e/`).
+- Its GitHub Actions workflow, `.github/workflows/hyperion-e2e-cards.yml`, is triggered **only** by `workflow_dispatch` — never `push`/`pull_request` — so it can't run against a contributor's PR or a push to this repo.
+
+**One-time maintainer setup:**
+1. Create a separate, disposable GitHub repo you own (e.g. `your-user/hyperion-e2e-sandbox`) — never this repo. It just needs to exist; the test creates and deletes its own issues/labels in it.
+2. In this repo's Settings → Secrets and variables → Actions, add:
+   - Variable **`E2E_TARGET_REPO`** = `your-user/hyperion-e2e-sandbox`
+   - Secret **`E2E_GITHUB_TOKEN`** = a PAT scoped to that disposable repo with `Issues: Read and write` + `Contents: Read` (a fine-grained PAT limited to that one repo is safest).
+3. Trigger it: Actions → **Hyperion — E2E Cards Sync (opt-in)** → Run workflow.
+
+Run it locally instead of via Actions:
+
+```bash
+E2E_TARGET_REPO="your-user/hyperion-e2e-sandbox" \
+E2E_GITHUB_TOKEN="ghp_xxx" \
+  node scripts/cards-sync/e2e/e2e-forward-sync.mjs
+```
+
+Without `E2E_TARGET_REPO` / a token, the script fails fast with a clear error instead of crashing — and it also refuses to run if `E2E_TARGET_REPO` resolves to the same repo the script is running from.
 
 ## Commands
 
