@@ -206,6 +206,29 @@ describe("auditSyncCardsWorkflow", () => {
     assert.match(yaml, /CARDS_CI_REQUIRE_PROJECT/);
     assert.match(yaml, /timeout-minutes: 30/);
   });
+
+  it("a stale-looking file without the marker still fails (no accidental opt-out)", () => {
+    const stale = `on:\n  workflow_dispatch:\n`;
+    assert.equal(auditSyncCardsWorkflow(stale).ok, false);
+  });
+
+  it("the hyperion:no-auto-refresh marker opts a customized file out of the audit, even with no push trigger", () => {
+    const customized = `# hyperion:no-auto-refresh — deliberately no push trigger\non:\n  workflow_dispatch:\n`;
+    const audit = auditSyncCardsWorkflow(customized);
+    assert.equal(audit.ok, true);
+    assert.deepEqual(audit.issues, []);
+  });
+
+  it("this repo's own hyperion-sync-cards.yml carries the marker and audits clean (regression guard for pipeline-apply --refresh-sync reverting PR #69)", async () => {
+    const { readFile } = await import("node:fs/promises");
+    const { fileURLToPath } = await import("node:url");
+    const path = await import("node:path");
+    const here = path.dirname(fileURLToPath(import.meta.url));
+    const ownWorkflowPath = path.join(here, "..", "..", ".github", "workflows", "hyperion-sync-cards.yml");
+    const content = await readFile(ownWorkflowPath, "utf8");
+    const audit = auditSyncCardsWorkflow(content);
+    assert.equal(audit.ok, true, `expected the kit's own hyperion-sync-cards.yml to audit clean, got issues: ${audit.issues.join(", ")}`);
+  });
 });
 
 describe("renderPrBoardGuardWorkflow", () => {

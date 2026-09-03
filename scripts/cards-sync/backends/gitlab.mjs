@@ -3,6 +3,7 @@ import path from "node:path";
 import {
   parseOnlyFilter,
   parseCardFile,
+  buildEdges,
   buildIssueTitle,
   buildRemoteDescriptionFromCard,
   normalizeText,
@@ -120,6 +121,22 @@ export async function runForwardSyncGitLab(repoConfig, management) {
     });
   }
 
+  // Parent-child hierarchy: plain GitLab Issues have no native Epic-style
+  // hierarchy on the Free tier, so the closest real equivalent is an issue
+  // link (relates_to) between child and parent, mirroring the
+  // buildEdges()-driven linking already done for Jira.
+  async function gitlabLinkIssues(childIid, parentIid) {
+    await gitlabRequest(
+      `/api/v4/projects/${encodeURIComponent(projectId)}/issues/${encodeURIComponent(childIid)}/links`,
+      "POST",
+      {
+        target_project_id: projectId,
+        target_issue_iid: parentIid,
+        link_type: "relates_to",
+      }
+    );
+  }
+
   async function gitlabApplyStatus(iid, card) {
     const action = resolveGitLabStatusAction(statusMap, card.status);
     if (!action) return { applied: false, reason: "no_status" };
@@ -162,7 +179,11 @@ export async function runForwardSyncGitLab(repoConfig, management) {
     return;
   }
 
+  const edges = buildEdges(syncableCards);
+  log(`Parent-child links: ${edges.length}`);
+
   const actions = [];
+  const issueIidByCardId = new Map();
   for (const card of syncableCards) {
     const existing = await gitlabFindIssueByCardId(card);
     if (dryRun) {
@@ -183,6 +204,7 @@ export async function runForwardSyncGitLab(repoConfig, management) {
       iid = created?.iid;
       actions.push({ action: "CREATED", cardId: card.cardId, gitlabIssueIid: iid || null });
     }
+    if (iid) issueIidByCardId.set(card.cardId, iid);
     if (iid && card.status) {
       const st = await gitlabApplyStatus(iid, card);
       actions.push({
@@ -192,6 +214,20 @@ export async function runForwardSyncGitLab(repoConfig, management) {
         status: card.status,
         ...st,
       });
+    }
+  }
+
+  if (!dryRun) {
+    for (const edge of edges) {
+      const parentIid = issueIidByCardId.get(edge.parentCardId);
+      const childIid = issueIidByCardId.get(edge.childCardId);
+      if (!parentIid || !childIid) continue;
+      try {
+        await gitlabLinkIssues(childIid, parentIid);
+        actions.push({ action: "LINKED", parent: parentIid, child: childIid });
+      } catch (error) {
+        actions.push({ action: "LINK_FAILED", parent: parentIid, child: childIid, reason: error.message });
+      }
     }
   }
 

@@ -1,7 +1,9 @@
 ---
 description: >-
   Orchestrates the full Hyperion audit suite (6 dimensions) with structured pauses,
-  progress tracking, and consolidated summary. Use with /audit-run for a guided
+  progress tracking, and consolidated summary. Companion to the full-audit skill —
+  same manifest and dimension order, plus agent-runtime extras (pause/resume
+  tracking, audit-verify gate, memory capture). Use with /audit-run for a guided
   repo health sweep without re-explaining each audit skill.
 tools: ['search/codebase', 'search', 'web/fetch', 'read/problems']
 ---
@@ -11,6 +13,13 @@ tools: ['search/codebase', 'search', 'web/fetch', 'read/problems']
 ## Primary directive
 
 Run audits **in order**, one dimension at a time, delegating to audit skills and prompts. You are the **conductor**, not a replacement for audit checklists.
+
+Structurally this is the same sweep as the `full-audit` skill
+(`.github/skills/quality/full-audit/SKILL.md`) — same `audits/manifest.yml`,
+same 6-dimension order, same consolidated-summary shape. This agent adds three
+things the skill alone can't: the pause/resume flow below, the
+`hyperion:audit-verify` completion gate, and memory capture. Prefer the skill
+directly only when no agent runtime is available.
 
 ## Bootstrap
 

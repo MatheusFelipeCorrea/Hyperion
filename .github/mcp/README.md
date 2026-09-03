@@ -7,14 +7,16 @@ Copy the snippet for your IDE and replace env placeholders.
 
 See [servers.example.json](./servers.example.json) — copy to your product repo as `.cursor/mcp.json`.
 
-| Config key | npm package | Purpose | Required env / args |
-|------------|-------------|---------|----------------------|
-| `jira` | [`mcp-atlassian`](https://www.npmjs.com/package/mcp-atlassian) | Jira + Confluence issues/fields | `ATLASSIAN_BASE_URL`, `ATLASSIAN_EMAIL`, `ATLASSIAN_API_TOKEN` |
-| `linear` | [`mcp-linear`](https://www.npmjs.com/package/mcp-linear) | Linear issues + workflow | `LINEAR_API_KEY` |
-| `azure-devops` | [`@azure-devops/mcp`](https://www.npmjs.com/package/@azure-devops/mcp) (official, Microsoft) | Azure Boards | org name as a CLI arg (not env); auths via `az login` by default |
-| `gitlab` | [`mcp-gitlab`](https://www.npmjs.com/package/mcp-gitlab) | GitLab issues | `GITLAB_TOKEN`, `GITLAB_URL` |
+| Config key | npm package | Purpose | Required env / args | Maintenance |
+|------------|-------------|---------|----------------------|-------------|
+| `azure-devops` | [`@azure-devops/mcp`](https://www.npmjs.com/package/@azure-devops/mcp) | Azure Boards | org name as a CLI arg (not env); auths via `az login` by default | **Official (Microsoft)** — actively published |
+| `jira` | [`mcp-atlassian`](https://www.npmjs.com/package/mcp-atlassian) | Jira + Confluence issues/fields | `ATLASSIAN_BASE_URL`, `ATLASSIAN_EMAIL`, `ATLASSIAN_API_TOKEN` | Community, single maintainer — last published Aug 2025. Review before production use. |
+| `gitlab` | [`mcp-gitlab`](https://www.npmjs.com/package/mcp-gitlab) | GitLab issues | `GITLAB_TOKEN`, `GITLAB_URL` | Community, single maintainer — last published Aug 2025. Review before production use. |
+| `linear` | [`mcp-linear`](https://www.npmjs.com/package/mcp-linear) | Linear issues + workflow | `LINEAR_API_KEY` | Community, single maintainer — last published Dec 2024 (**~2 years stale**, review carefully or consider Linear's own MCP offering if one exists by the time you read this). |
 
 Config keys above match the top-level keys in `servers.example.json` exactly — copy the file as-is and only replace env placeholders / the Azure DevOps org name.
+
+Only `@azure-devops/mcp` is an official, vendor-published package. The other three are community-maintained, single-maintainer projects — check the npm page's "last published" date yourself before depending on one in production, since that can drift stale after this table is written.
 
 ## Setup flow
 
