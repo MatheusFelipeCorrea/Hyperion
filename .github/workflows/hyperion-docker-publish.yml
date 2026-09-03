@@ -94,13 +94,19 @@ jobs:
         # mounted at /workspace — same as a real user's `docker run -v
         # $(pwd):/workspace`. This is exactly the check that would have
         # caught cli.mjs missing real commands (COMMANDS drifting out of
-        # sync with package.json) before a broken image got published.
+        # sync with package.json) before a broken image got published —
+        # exercises every command that was missing before that fix, not
+        # just one, so a future regression on any of them fails the build.
         run: |
           set -e
           IMAGE_TAG=$(echo "${{ steps.tags.outputs.tags }}" | cut -d, -f1)
           echo "Smoke-testing $IMAGE_TAG"
           docker run --rm -v "$PWD:/workspace" "$IMAGE_TAG" help
           docker run --rm -v "$PWD:/workspace" "$IMAGE_TAG" distribution-purity-check
+          for cmd in docs-prose-check llm-eval spec-review-verify audit-verify plan-verify release-verify install-shims; do
+            echo "  -- $cmd --help"
+            docker run --rm -v "$PWD:/workspace" "$IMAGE_TAG" "$cmd" --help
+          done
 
       - name: Push image (smoke test passed)
         run: |
