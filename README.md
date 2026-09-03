@@ -253,7 +253,7 @@ npm run hyperion:sync
 
 ## Contribuir
 
-Melhorias no **repositório Hyperion**: [CONTRIBUTING.md](./CONTRIBUTING.md) · [Code of Conduct](./CODE_OF_CONDUCT.md) · [Security](./SECURITY.md) · [Support](./SUPPORT.md) · [Changelog](./CHANGELOG.md)
+Melhorias no **repositório Hyperion**: [CONTRIBUTING.md](./CONTRIBUTING.md) · [Code of Conduct](./CODE_OF_CONDUCT.md) · [Security](./SECURITY.md) · [Support](./SUPPORT.md) · [Changelog](./CHANGELOG.md) · [Roadmap](./ROADMAP.md)
 
 `main` é protegida — PRs entram por `dev`, nunca direto. Fluxo completo (`dev` → `qa` → `main`) na seção [Fluxo de branches](./CONTRIBUTING.md#fluxo-de-branches) do CONTRIBUTING.md.
 
