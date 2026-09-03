@@ -216,9 +216,9 @@ on:
   workflow_dispatch:
     inputs:
       dry_run:
-        description: "Run without persisting changes"
+        description: "Run without persisting changes (set to false for a real sync)"
         required: false
-        default: "false"
+        default: "true"
       sync_direction:
         description: "pull-forward | forward-only | reverse"
         required: false

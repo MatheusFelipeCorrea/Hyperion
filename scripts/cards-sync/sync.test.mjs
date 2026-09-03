@@ -31,6 +31,7 @@ import {
   resolveHyperionStatusFromRemote,
   canonicalizeLinearState,
   getLabelId,
+  shouldPromptBeforeLiveSync,
 } from "./sync.mjs";
 import { pickCanonicalIssueForCardId } from "./lib.mjs";
 
@@ -632,6 +633,36 @@ test("resolveHyperionStatusFromRemote maps via status_map inverse", () => {
   const statusMap = { Backlog: "Todo", "In Progress": "Doing" };
   assert.equal(resolveHyperionStatusFromRemote("Doing", statusMap, {}), "In Progress");
   assert.equal(resolveHyperionStatusFromRemote("Todo", statusMap, {}), "Backlog");
+});
+
+test("shouldPromptBeforeLiveSync only fires for an interactive, unattended, non-dry-run invocation", () => {
+  // dry-run: never prompt, no matter how the rest looks
+  assert.equal(
+    shouldPromptBeforeLiveSync({ dryRun: true, isTTY: true, argv: [], env: {} }),
+    false
+  );
+  // no TTY (CI, or piped): never prompt — this is what keeps ci-sync.mjs
+  // and hyperion-sync-cards.yml's production push-triggered sync silent
+  assert.equal(
+    shouldPromptBeforeLiveSync({ dryRun: false, isTTY: false, argv: [], env: {} }),
+    false
+  );
+  // --yes explicitly opts out
+  assert.equal(
+    shouldPromptBeforeLiveSync({ dryRun: false, isTTY: true, argv: ["--yes"], env: {} }),
+    false
+  );
+  // CARDS_SYNC_YES=true explicitly opts out — this is what watch.mjs's
+  // live mode sets, so an already-confirmed watcher never re-prompts
+  assert.equal(
+    shouldPromptBeforeLiveSync({ dryRun: false, isTTY: true, argv: [], env: { CARDS_SYNC_YES: "true" } }),
+    false
+  );
+  // the actual risky case: real write, human at a terminal, no opt-out — prompt
+  assert.equal(
+    shouldPromptBeforeLiveSync({ dryRun: false, isTTY: true, argv: [], env: {} }),
+    true
+  );
 });
 
 test("canonicalizeLinearState aliases resolveHyperionStatusFromRemote", () => {

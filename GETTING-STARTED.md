@@ -120,6 +120,8 @@ Copie para a **raiz do seu repositório** (não o `.git` do Hyperion):
 | `.env.example`, `CLAUDE.md`, `.cursor/rules/`, `.github/copilot-instructions.md` conforme a IDE | Artefatos gerados (`plans/`, audit results) |
 | — | **`CODEOWNERS`, `.github/FUNDING.yml`, `LICENSE`, `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `SECURITY.md`, `SUPPORT.md`, `.github/ISSUE_TEMPLATE/`, `.github/PULL_REQUEST_TEMPLATE.md`** — arquivos do repositório do próprio kit Hyperion, não do seu produto. Se você clonou o repo inteiro (em vez de copiar seletivo), troque ou remova esses. |
 
+Não confie só na memória pra essa lista — depois de copiar, rode `npm run hyperion:adopt-check` (ou `hyperion adopt-check` via CLI/Docker): ele varre esses arquivos e falha se algum ainda carregar a identidade do próprio Hyperion (username do mantenedor, "Hyperion Contributors" no LICENSE, etc.).
+
 Atualizar um repo que já tem o kit: `npm run hyperion:upgrade` (na pasta do kit / com `kit.root`).
 
 Sem Node: [node-and-docker.md](./.github/docs/meta/node-and-docker.md). Gates: [definition-of-done.md](./.github/docs/meta/definition-of-done.md).

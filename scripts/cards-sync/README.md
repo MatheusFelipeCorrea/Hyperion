@@ -326,6 +326,9 @@ node scripts/cards-sync/sync.mjs --dry-run
 
 # Forward sync (Markdown -> GitHub)
 node scripts/cards-sync/sync.mjs
+# At an interactive terminal this asks you to type "yes" first — it's a
+# real write to your live board. Skip the prompt with --yes or
+# CARDS_SYNC_YES=true (CI never prompts either way — no TTY there).
 
 # Incremental sync (your cards — not kit samples in `_examples/`)
 node scripts/cards-sync/sync.mjs --only PROJ-STORY-001,PROJ-EPIC-001
@@ -411,6 +414,7 @@ On GitHub, explicit `status` in frontmatter always applies. Safe mode only appli
 | PROJECT_OWNER | Optional | Override project owner |
 | PROJECT_NUMBER | Optional | Override project number |
 | DRY_RUN | Optional | "true" to simulate |
+| CARDS_SYNC_YES | Optional | "true" to skip the interactive "type yes" confirmation before a live (non-dry-run) sync at a terminal — same effect as `--yes`. Never needed in CI (no TTY, never prompts). |
 | SYNC_DIRECTION | Optional | "forward" or "reverse" |
 | CREATE_MISSING_LABELS | Optional | "true" (default) to auto-create labels |
 | CARDS_SYNC_BACKEND | Optional | `github` (default), `jira`, `azure-devops`, `linear`, `gitlab` |

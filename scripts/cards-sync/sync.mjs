@@ -3,6 +3,7 @@ import { execSync } from "node:child_process";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
+import readline from "node:readline/promises";
 import {
   parseOnlyFilter,
   expandCardIdsWithParents,
@@ -2190,7 +2191,49 @@ async function runReverseSync() {
 // Main
 // ---------------------------------------------------------------------------
 
+/**
+ * Whether to interrupt a live (non-dry-run) sync with a confirmation prompt
+ * before writing anything. Only fires for a human at an interactive
+ * terminal — CI (ci-sync.mjs, hyperion-sync-cards.yml) has no TTY, so this
+ * is always false there regardless of dry-run state, and watch.mjs's live
+ * mode passes CARDS_SYNC_YES itself (the user already opted in once, at
+ * the watcher level, by setting CARDS_WATCH_LIVE).
+ */
+export function shouldPromptBeforeLiveSync({
+  dryRun: isDryRun,
+  isTTY,
+  argv = process.argv,
+  env = process.env,
+} = {}) {
+  if (isDryRun) return false;
+  if (!isTTY) return false;
+  if (argv.includes("--yes")) return false;
+  if (String(env.CARDS_SYNC_YES || "").toLowerCase() === "true") return false;
+  return true;
+}
+
+async function confirmLiveSync() {
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    const answer = await rl.question(
+      `[cards-sync] This will write to your LIVE board (no --dry-run). Type "yes" to continue: `
+    );
+    return answer.trim().toLowerCase() === "yes";
+  } finally {
+    rl.close();
+  }
+}
+
 async function main() {
+  if (shouldPromptBeforeLiveSync({ dryRun, isTTY: process.stdin.isTTY })) {
+    const confirmed = await confirmLiveSync();
+    if (!confirmed) {
+      log("Aborted — nothing written. Pass --yes (or CARDS_SYNC_YES=true) to skip this prompt.");
+      process.exitCode = 1;
+      return;
+    }
+  }
+
   if (syncDirection === "reverse") {
     await runReverseSync();
   } else {

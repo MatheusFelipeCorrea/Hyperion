@@ -24,9 +24,13 @@ on:
   workflow_dispatch:
     inputs:
       dry_run:
-        description: "Run without persisting changes"
+        # Defaults to true on purpose: a manual "Run workflow" click that
+        # forgets to touch this dropdown must never write to the live
+        # board by accident — same fail-closed principle as watch.mjs.
+        # Set to "false" explicitly when you actually want a real sync.
+        description: "Run without persisting changes (set to false for a real sync)"
         required: false
-        default: "false"
+        default: "true"
       sync_direction:
         description: "pull-forward | forward-only | reverse"
         required: false
