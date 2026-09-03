@@ -20,9 +20,9 @@ Before any task, read:
 <!-- HYPERION:SKILLS:START -->
 Skills live in `.github/skills/` organized by category:
 
-- **planning/** — acceptance-spec, card-refiner, hypothesis-forge, project-architect, refactor-guide, sprint-retro
+- **planning/** — acceptance-spec, api-contract-guide, card-refiner, feature-flag-manager, hypothesis-forge, project-architect, refactor-guide, sprint-retro
 - **setup/** — cards-sync-setup, hyperion-ops, integration-bridge, memory-capture, pipeline-architect, project-discovery, project-startup, repo-migration
-- **quality/** — architecture-audit, code-review, dependency-health, devops-audit, full-audit, po-audit, pr-review, security-audit, tech-debt-tracker, testing-strategy, ux-audit
+- **quality/** — architecture-audit, code-review, compliance-audit, dependency-health, devops-audit, eng-metrics, full-audit, po-audit, pr-review, security-audit, tech-debt-tracker, testing-strategy, ux-audit
 - **docs/** — adr-generator, changelog-generator, plantuml-generator, readme-updater, release-manager
 
 When the user asks for any of these capabilities, read the corresponding `SKILL.md` and follow its instructions exactly.
@@ -77,9 +77,13 @@ See `.github/agents/README.md` for catalog and recommended flow.
 | `/release` | `release` agent |
 | `/mentor` | `mentoring` agent |
 | `/refactor` | `refactor-guide` |
+| `/feature-flags` | `feature-flag-manager` |
+| `/api-contract` | `api-contract-guide` |
 | `/retro` | `sprint-retro` |
 | `/test-plan` | `testing-strategy` |
 | `/tech-debt` | `tech-debt-tracker` |
+| `/eng-metrics` | `eng-metrics` |
+| `/compliance` | `compliance-audit` |
 | `/changelog` | `changelog-generator` |
 | `/connect` | `integration-bridge` |
 | `/cards-setup` | `cards-sync-setup` |

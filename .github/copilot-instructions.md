@@ -101,9 +101,9 @@ Use Conventional Commits:
 <!-- HYPERION:SKILLS:START -->
 Skills live in `.github/skills/` organized by category:
 
-- **planning/** — acceptance-spec, card-refiner, hypothesis-forge, project-architect, refactor-guide, sprint-retro
+- **planning/** — acceptance-spec, api-contract-guide, card-refiner, feature-flag-manager, hypothesis-forge, project-architect, refactor-guide, sprint-retro
 - **setup/** — cards-sync-setup, hyperion-ops, integration-bridge, memory-capture, pipeline-architect, project-discovery, project-startup, repo-migration
-- **quality/** — architecture-audit, code-review, dependency-health, devops-audit, full-audit, po-audit, pr-review, security-audit, tech-debt-tracker, testing-strategy, ux-audit
+- **quality/** — architecture-audit, code-review, compliance-audit, dependency-health, devops-audit, eng-metrics, full-audit, po-audit, pr-review, security-audit, tech-debt-tracker, testing-strategy, ux-audit
 - **docs/** — adr-generator, changelog-generator, plantuml-generator, readme-updater, release-manager
 
 When the user asks for any of these capabilities, read the corresponding `SKILL.md` and follow its instructions exactly.
@@ -154,9 +154,13 @@ When a task maps to an existing skill, suggest using it — **or run npm yoursel
 | Changelog, version, tag | `release` agent |
 | Socratic teaching | `mentoring` agent |
 | Safe refactoring guide | `refactor-guide` — or user says `/refactor` |
+| Flag lifecycle: rollout, kill switch, removal date | `feature-flag-manager` — or user says `/feature-flags` |
+| API versioning, breaking changes, deprecation | `api-contract-guide` — or user says `/api-contract` |
 | Sprint retrospective | `sprint-retro` — or user says `/retro` |
 | Testing strategy | `testing-strategy` — or user says `/test-plan` |
 | Tech debt inventory | `tech-debt-tracker` — or user says `/tech-debt` |
+| DORA metrics snapshot | `eng-metrics` — or user says `/eng-metrics` |
+| LGPD/GDPR technical signals | `compliance-audit` — or user says `/compliance` |
 | Generate CHANGELOG | `changelog-generator` — or user says `/changelog` |
 | Jira/Azure/Linear/GitLab bridge | `integration-bridge` — or user says `/connect` |
 | Cards sync wizard | `cards-sync-setup` — or user says `/cards-setup` |

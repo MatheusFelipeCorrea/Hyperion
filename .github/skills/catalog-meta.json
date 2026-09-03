@@ -178,5 +178,29 @@
     "when_pt": "Checklist de release",
     "when_en": "Release checklist",
     "output": ".github/plans/releases/"
+  },
+  "feature-flag-manager": {
+    "phase": "deliver",
+    "when_pt": "Ciclo de vida de flag: rollout, kill switch, remoção",
+    "when_en": "Flag lifecycle: rollout, kill switch, removal",
+    "output": ".github/docs/flags/"
+  },
+  "api-contract-guide": {
+    "phase": "plan",
+    "when_pt": "Versionamento de API, breaking changes",
+    "when_en": "API versioning, breaking changes",
+    "output": ".github/docs/api/"
+  },
+  "eng-metrics": {
+    "phase": "quality",
+    "when_pt": "Métricas DORA (deploy, lead time, MTTR)",
+    "when_en": "DORA metrics (deploy, lead time, MTTR)",
+    "output": ".github/audits/results/_summary/eng-metrics-*.md"
+  },
+  "compliance-audit": {
+    "phase": "quality",
+    "when_pt": "Sinais técnicos LGPD/GDPR",
+    "when_en": "LGPD/GDPR technical signals",
+    "output": ".github/audits/results/compliance/"
   }
 }

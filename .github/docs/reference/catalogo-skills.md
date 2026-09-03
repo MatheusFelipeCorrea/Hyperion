@@ -1,7 +1,7 @@
 # 🧩 Catálogo de skills Hyperion
 
 <p align="center">
-  <img src="https://img.shields.io/badge/skills-30-F5D76E?style=for-the-badge&labelColor=0B1220" alt="30 skills">
+  <img src="https://img.shields.io/badge/skills-34-F5D76E?style=for-the-badge&labelColor=0B1220" alt="34 skills">
   <img src="https://img.shields.io/badge/agents-8-F5D76E?style=for-the-badge&labelColor=0B1220" alt="8 agents">
   <img src="https://img.shields.io/badge/áreas-5-2563EB?style=for-the-badge&labelColor=0B1220" alt="5 áreas">
 </p>
@@ -39,6 +39,7 @@ Legenda de área: 🧭 Bootstrap · 📋 Planejamento · ⚡ Entrega · 🔍 Qua
 | Skill | Comando | Quando | Output | SKILL |
 |-------|---------|--------|--------|-------|
 | **acceptance-spec** | `/spec` | Spec Given/When/Then de uma story | .github/plans/specs/ | [SKILL.md](../../skills/planning/acceptance-spec/SKILL.md) |
+| **api-contract-guide** | `/api-contract` | Versionamento de API, breaking changes | .github/docs/api/ | [SKILL.md](../../skills/planning/api-contract-guide/SKILL.md) |
 | **card-refiner** | `/refine` | Ideia → cards; mover status no board | .github/cards/ | [SKILL.md](../../skills/planning/card-refiner/SKILL.md) |
 | **hypothesis-forge** | `/explore` | Explorar ideia antes de virar card | .github/memory/discoveries/ | [SKILL.md](../../skills/planning/hypothesis-forge/SKILL.md) |
 | **project-architect** | `/architect` | Arquitetura greenfield | .github/docs/Project_*_Blueprint.md | [SKILL.md](../../skills/planning/project-architect/SKILL.md) |
@@ -49,6 +50,7 @@ Legenda de área: 🧭 Bootstrap · 📋 Planejamento · ⚡ Entrega · 🔍 Qua
 
 | Skill | Comando | Quando | Output | SKILL |
 |-------|---------|--------|--------|-------|
+| **feature-flag-manager** | `/feature-flags` | Ciclo de vida de flag: rollout, kill switch, remoção | .github/docs/flags/ | [SKILL.md](../../skills/planning/feature-flag-manager/SKILL.md) |
 | **pr-review** | `—` | Revisão de PR (skill) | .github/plans/reviews/pr-* | [SKILL.md](../../skills/quality/pr-review/SKILL.md) |
 | **testing-strategy** | `/test-plan` | Plano de testes | .github/plans/specs/testing-strategy-*.md | [SKILL.md](../../skills/quality/testing-strategy/SKILL.md) |
 
@@ -58,8 +60,10 @@ Legenda de área: 🧭 Bootstrap · 📋 Planejamento · ⚡ Entrega · 🔍 Qua
 |-------|---------|--------|--------|-------|
 | **architecture-audit** | `/architecture` | Revisão de arquitetura | .github/audits/results/architecture/ | [SKILL.md](../../skills/quality/architecture-audit/SKILL.md) |
 | **code-review** | `/review` | Code review pontual | .github/audits/results/code-review/ | [SKILL.md](../../skills/quality/code-review/SKILL.md) |
+| **compliance-audit** | `/compliance` | Sinais técnicos LGPD/GDPR | .github/audits/results/compliance/ | [SKILL.md](../../skills/quality/compliance-audit/SKILL.md) |
 | **dependency-health** | `/deps` | Audit de dependências (/deps) | .github/audits/results/dependency/ | [SKILL.md](../../skills/quality/dependency-health/SKILL.md) |
 | **devops-audit** | `/devops` | Revisão DevOps/CI | .github/audits/results/devops/ | [SKILL.md](../../skills/quality/devops-audit/SKILL.md) |
+| **eng-metrics** | `/eng-metrics` | Métricas DORA (deploy, lead time, MTTR) | .github/audits/results/_summary/eng-metrics-*.md | [SKILL.md](../../skills/quality/eng-metrics/SKILL.md) |
 | **full-audit** | `/audit` | Auditoria 6 dimensões (/audit) | .github/audits/results/ | [SKILL.md](../../skills/quality/full-audit/SKILL.md) |
 | **po-audit** | `/po` | Alinhamento de produto | .github/audits/results/product-owner/ | [SKILL.md](../../skills/quality/po-audit/SKILL.md) |
 | **security-audit** | `/security` | Revisão de segurança | .github/audits/results/application-security/ | [SKILL.md](../../skills/quality/security-audit/SKILL.md) |
