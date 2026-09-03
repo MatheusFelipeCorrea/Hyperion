@@ -10,7 +10,7 @@
  */
 import { readFileSync, existsSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const root = join(__dirname, "../..");
@@ -20,7 +20,7 @@ const goldenDir = join(evalRoot, "golden");
 
 const live = String(process.env.HYPERION_LLM_EVAL_LIVE || "").toLowerCase() === "1";
 
-function loadCases() {
+export function loadCases() {
   if (!existsSync(casesPath)) {
     console.error("FAIL: missing .github/skills/eval/llm-cases.json");
     process.exit(1);
@@ -33,7 +33,7 @@ function loadCases() {
   return cases;
 }
 
-function scoreOutput(text, c) {
+export function scoreOutput(text, c) {
   let ok = true;
   for (const needle of c.mustContain || []) {
     if (!text.includes(needle)) {
@@ -51,32 +51,52 @@ function scoreOutput(text, c) {
   return ok;
 }
 
-async function callProvider(prompt) {
-  const key = process.env.OPENAI_API_KEY || process.env.ANTHROPIC_API_KEY;
-  if (!key) {
-    console.error("FAIL live mode: set OPENAI_API_KEY or ANTHROPIC_API_KEY");
-    process.exit(1);
+export async function callAnthropic(prompt) {
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "x-api-key": process.env.ANTHROPIC_API_KEY,
+      "anthropic-version": "2023-06-01",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: process.env.HYPERION_LLM_MODEL || "claude-haiku-4-5-20251001",
+      max_tokens: 1024,
+      messages: [{ role: "user", content: prompt }],
+    }),
+  });
+  if (!res.ok) {
+    throw new Error(`Anthropic ${res.status}: ${await res.text()}`);
   }
-  if (process.env.OPENAI_API_KEY) {
-    const res = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: process.env.HYPERION_LLM_MODEL || "gpt-4o-mini",
-        messages: [{ role: "user", content: prompt }],
-        temperature: 0,
-      }),
-    });
-    if (!res.ok) {
-      throw new Error(`OpenAI ${res.status}: ${await res.text()}`);
-    }
-    const data = await res.json();
-    return data.choices?.[0]?.message?.content || "";
+  const data = await res.json();
+  return (data.content || []).map((block) => block.text || "").join("");
+}
+
+export async function callOpenAI(prompt) {
+  const res = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: process.env.HYPERION_LLM_MODEL || "gpt-4o-mini",
+      messages: [{ role: "user", content: prompt }],
+      temperature: 0,
+    }),
+  });
+  if (!res.ok) {
+    throw new Error(`OpenAI ${res.status}: ${await res.text()}`);
   }
-  throw new Error("Anthropic live path not wired yet — use OPENAI_API_KEY or fixture mode");
+  const data = await res.json();
+  return data.choices?.[0]?.message?.content || "";
+}
+
+export async function callProvider(prompt) {
+  if (process.env.ANTHROPIC_API_KEY) return callAnthropic(prompt);
+  if (process.env.OPENAI_API_KEY) return callOpenAI(prompt);
+  console.error("FAIL live mode: set ANTHROPIC_API_KEY or OPENAI_API_KEY");
+  process.exit(1);
 }
 
 async function main() {
@@ -120,7 +140,11 @@ async function main() {
   );
 }
 
-main().catch((err) => {
-  console.error("llm-eval FATAL:", err.message);
-  process.exit(1);
-});
+const isMain = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
+
+if (isMain) {
+  main().catch((err) => {
+    console.error("llm-eval FATAL:", err.message);
+    process.exit(1);
+  });
+}

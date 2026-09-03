@@ -28,6 +28,6 @@ Ver árvore de decisão em [card-refiner SKILL](../../skills/planning/card-refin
 
 ## English
 
-[learning-path-en.md](./learning-path-en.md) · PM section: same flow with `/refine` + `/sync`.
+[pm-track-en.md](./pm-track-en.md) — same flow, in English.
 
 **Back:** [trilha-de-aprendizado.md](./trilha-de-aprendizado.md)

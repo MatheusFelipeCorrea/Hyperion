@@ -1,6 +1,8 @@
 ﻿import fs from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
+import { execSync } from "node:child_process";
+import { pathToFileURL } from "node:url";
 import { resolveHyperionPaths } from "../hyperion/paths.mjs";
 
 const CARDS_MARKER = "# hyperion-cards-validate";
@@ -40,20 +42,37 @@ fi
 `;
 }
 
+/**
+ * Resolve the real hooks directory via git itself — works for a normal
+ * clone, a git worktree, and a submodule alike, where `.git` may be a
+ * file (not a directory) pointing at the actual git dir elsewhere.
+ */
+function resolveHooksDir(workspaceRoot) {
+  try {
+    const gitPath = execSync("git rev-parse --git-path hooks", {
+      encoding: "utf8",
+      cwd: workspaceRoot,
+      stdio: ["pipe", "pipe", "pipe"],
+    }).trim();
+    return path.isAbsolute(gitPath) ? gitPath : path.join(workspaceRoot, gitPath);
+  } catch {
+    return null;
+  }
+}
+
 async function main() {
   const workspaceRoot = process.cwd();
   const argYes = process.argv.includes("--yes");
-  const hookPath = path.join(workspaceRoot, ".git", "hooks", "pre-commit");
-  const paths = resolveHyperionPaths(workspaceRoot);
-  const hookBody = buildPreCommitHookBody(paths);
 
-  const gitDir = path.join(workspaceRoot, ".git");
-  try {
-    await fs.stat(gitDir);
-  } catch {
+  const hooksDir = resolveHooksDir(workspaceRoot);
+  if (!hooksDir) {
     console.error("[install-hook] Not a git repository — init git first.");
     process.exit(1);
   }
+  const hookPath = path.join(hooksDir, "pre-commit");
+
+  const paths = resolveHyperionPaths(workspaceRoot);
+  const hookBody = buildPreCommitHookBody(paths);
 
   let existing = "";
   try {
@@ -80,6 +99,7 @@ async function main() {
     merged = merged ? `${merged.trimEnd()}\n\n${block}` : block;
   }
 
+  await fs.mkdir(hooksDir, { recursive: true });
   await fs.writeFile(hookPath, `${merged}\n`, "utf8");
 
   try {
@@ -89,7 +109,11 @@ async function main() {
   console.log("[install-hook] ✅ pre-commit hook installed (cards validate + rules regen on commands.yml)");
 }
 
-main().catch((error) => {
-  console.error("[install-hook] FATAL:", error.message);
-  process.exit(1);
-});
+const isMain = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
+
+if (isMain) {
+  main().catch((error) => {
+    console.error("[install-hook] FATAL:", error.message);
+    process.exit(1);
+  });
+}

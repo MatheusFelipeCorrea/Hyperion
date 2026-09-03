@@ -7,12 +7,14 @@ Copy the snippet for your IDE and replace env placeholders.
 
 See [servers.example.json](./servers.example.json) — copy to your product repo as `.cursor/mcp.json`.
 
-| Server | Purpose | Required env |
-|--------|---------|--------------|
-| `mcp-jira` | Jira issues + fields | `JIRA_URL`, `JIRA_EMAIL`, `JIRA_API_TOKEN` |
-| `mcp-linear` | Linear issues + workflow | `LINEAR_API_KEY` |
-| `mcp-azure-devops` | Azure Boards | `AZURE_DEVOPS_ORG`, `AZURE_DEVOPS_PAT` |
-| `mcp-gitlab` | GitLab issues | `GITLAB_TOKEN`, `GITLAB_URL` |
+| Config key | npm package | Purpose | Required env / args |
+|------------|-------------|---------|----------------------|
+| `jira` | [`mcp-atlassian`](https://www.npmjs.com/package/mcp-atlassian) | Jira + Confluence issues/fields | `ATLASSIAN_BASE_URL`, `ATLASSIAN_EMAIL`, `ATLASSIAN_API_TOKEN` |
+| `linear` | [`mcp-linear`](https://www.npmjs.com/package/mcp-linear) | Linear issues + workflow | `LINEAR_API_KEY` |
+| `azure-devops` | [`@azure-devops/mcp`](https://www.npmjs.com/package/@azure-devops/mcp) (official, Microsoft) | Azure Boards | org name as a CLI arg (not env); auths via `az login` by default |
+| `gitlab` | [`mcp-gitlab`](https://www.npmjs.com/package/mcp-gitlab) | GitLab issues | `GITLAB_TOKEN`, `GITLAB_URL` |
+
+Config keys above match the top-level keys in `servers.example.json` exactly — copy the file as-is and only replace env placeholders / the Azure DevOps org name.
 
 ## Setup flow
 

@@ -1,1 +1,9 @@
+# Funding links shown on this repo's "Sponsor" button.
+# See: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/displaying-a-sponsor-button-in-your-repository
+#
+# This is Hyperion's OWN repo config — like CODEOWNERS, it is never copied to
+# an adopting project by /setup, /migrate, or `hyperion:upgrade` (not in
+# MANAGED_FILES in scripts/hyperion/upgrade-lib.mjs). If you cloned the whole
+# kit repo directly instead of copying it selectively into your own project,
+# delete this file or replace the username below with your own.
 github: MatheusFelipeCorrea

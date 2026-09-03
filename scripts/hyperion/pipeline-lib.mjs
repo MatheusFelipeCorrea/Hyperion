@@ -1,5 +1,4 @@
 import fs from "node:fs/promises";
-import fsSync from "node:fs";
 import path from "node:path";
 import { execSync } from "node:child_process";
 import { workspaceRoot, pathExists, readTextIfExists } from "./lib.mjs";
@@ -47,12 +46,19 @@ export function detectDefaultBranch(root = workspaceRoot) {
     /* detached or no git */
   }
 
-  const headsDir = path.join(root, ".git", "refs", "heads");
-  try {
-    if (fsSync.existsSync(path.join(headsDir, "main"))) return "main";
-    if (fsSync.existsSync(path.join(headsDir, "master"))) return "master";
-  } catch {
-    /* ignore */
+  // Last resort: ask git directly whether main/master exist as branches.
+  // (Reading .git/refs/heads/* directly would break in a worktree or
+  // submodule, where .git is a file pointing elsewhere, not a directory.)
+  for (const candidate of ["main", "master"]) {
+    try {
+      execSync(`git rev-parse --verify --quiet ${candidate}`, {
+        cwd: root,
+        stdio: ["ignore", "ignore", "ignore"],
+      });
+      return candidate;
+    } catch {
+      /* branch doesn't exist */
+    }
   }
 
   return "main";

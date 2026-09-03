@@ -337,7 +337,16 @@ const locale = repoConfig.locale || "en";
 const backend = await detectBackend(repoConfig);
 
 ok(`Repo: ${repoOwner}/${repoName}`);
-ok(`Token source: ${tokenSource}`);
+if (backend !== "github") {
+  // Token/tokenSource above are GitHub-specific (gh CLI, GITHUB_TOKEN) — irrelevant noise
+  // for a non-GitHub backend, which has its own required-env-var checks below.
+} else if (tokenSource === "none") {
+  warn("Token source: none — no PROJECT_SYNC_TOKEN, GITHUB_TOKEN, or `gh auth token` available.");
+} else if (tokenSource === "gh-cli") {
+  warn("Token source: gh-cli — falling back to your local `gh auth token` session. This makes REAL read calls to the GitHub API using your own identity. Set PROJECT_SYNC_TOKEN or GITHUB_TOKEN to avoid this.");
+} else {
+  ok(`Token source: ${tokenSource}`);
+}
 ok(`Backend detected: ${backend}`);
 
 // project.yml checks (auto-refresh trigger)

@@ -376,7 +376,7 @@ node scripts/cards-sync/watch.mjs
 | Auto-detect repo | `git remote get-url origin` |
 | Auto-detect token | `gh auth token` |
 | Auto-discover Project | Lists repo Projects; picks `[RepoName] Hyperion Project`, any Hyperion title, or sole project; saves `projectNumber` |
-| Auto-create Project | When none exists and `autoCreateProject: true` — links repo as default |
+| Auto-create Project | When **no** project exists and discovery is unambiguous (`autoCreateProject: true`) — skipped when multiple candidates exist |
 | Issue body links | Parent, sub-issues, Hyperion footer on forward sync |
 | Incremental sync | `--only CARD_ID,...` or `CARDS_SYNC_ONLY` env (watch uses this); loads all issues for link resolution |
 | Sync summary | Writes `.github/plans/cards/last-sync.md` after each forward sync |

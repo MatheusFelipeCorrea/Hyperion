@@ -2,11 +2,11 @@
   "mcpServers": {
     "jira": {
       "command": "npx",
-      "args": ["-y", "@atlassian/mcp-server-jira"],
+      "args": ["-y", "mcp-atlassian"],
       "env": {
-        "JIRA_URL": "${JIRA_URL}",
-        "JIRA_EMAIL": "${JIRA_EMAIL}",
-        "JIRA_API_TOKEN": "${JIRA_API_TOKEN}"
+        "ATLASSIAN_BASE_URL": "${JIRA_URL}",
+        "ATLASSIAN_EMAIL": "${JIRA_EMAIL}",
+        "ATLASSIAN_API_TOKEN": "${JIRA_API_TOKEN}"
       }
     },
     "linear": {
@@ -18,11 +18,8 @@
     },
     "azure-devops": {
       "command": "npx",
-      "args": ["-y", "@azure-devops/mcp-server"],
-      "env": {
-        "AZURE_DEVOPS_ORG": "${AZURE_DEVOPS_ORG}",
-        "AZURE_DEVOPS_PAT": "${AZURE_DEVOPS_PAT}"
-      }
+      "args": ["-y", "@azure-devops/mcp", "<your-organization-name>"],
+      "_comment": "Official Microsoft server (github.com/microsoft/azure-devops-mcp). Replace <your-organization-name> literally — it's a CLI arg, not an env var. Auths via Azure CLI (`az login`) by default; see the package's own README for PAT-based auth if you can't use az login."
     },
     "gitlab": {
       "command": "npx",

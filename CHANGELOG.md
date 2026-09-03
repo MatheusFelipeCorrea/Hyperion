@@ -6,6 +6,21 @@ Format inspired by [Keep a Changelog](https://keepachangelog.com/). Versioning f
 
 ## [Unreleased]
 
+### Fixed
+- **`sync.mjs` could create a duplicate GitHub Project** when automatic Project discovery was ambiguous (an account with more than one Project candidate) — `pickBestGitHubProject` picked the first regex match instead of checking for uniqueness, and the caller didn't check for an "ambiguous" discovery result before falling through to auto-create. Fixed both: `pickBestGitHubProject` now prefers a repo-named board and only returns a single unambiguous match, and auto-create is skipped when discovery reports ambiguity.
+- **`install-hook.mjs` had no entrypoint guard** — importing the module (as its own test did) ran `main()` for real, silently installing/mutating a pre-commit hook in whatever repo happened to be the current working directory. Guarded with the same `pathToFileURL` pattern used elsewhere in the kit; added regression tests (import vs. direct-run).
+- **`install-hook.mjs` assumed `.git` is always a directory** — broke with `ENOENT` in a git worktree or submodule, where `.git` is a file pointing elsewhere. Now resolves the real hooks directory via `git rev-parse --git-path hooks`; added a regression test that reproduces a real worktree.
+- **`sync.mjs`/`doctor.mjs` fell back to your local `gh auth token` session silently** when no `PROJECT_SYNC_TOKEN`/`GITHUB_TOKEN` was set — making real GitHub API calls under your own identity with no warning. Both now log an explicit warning when this happens; `doctor.mjs` no longer shows a green check for "no token available".
+- **`pipeline-lib.mjs`'s default-branch fallback read `.git/refs/heads/*` directly** — same worktree/submodule blind spot as above. Now asks git itself (`git rev-parse --verify`).
+- **`getLabelId`'s create/retry race (PR #66) had zero unit coverage** — only ever exercised by the opt-in E2E test. Exported it and added mocked-fetch tests covering the create path, the "name already taken" race, and unrelated errors re-throwing.
+- **Backend config errors (Jira/Azure/GitLab/Linear) printed a raw stack trace** for an entirely expected "you haven't configured this backend yet" case. `sync.mjs` now prints just the actionable message unless `--verbose` is passed.
+- **`.github/mcp/servers.example.json` referenced two npm packages that don't exist** (`@atlassian/mcp-server-jira`, `@azure-devops/mcp-server`) — replaced with real packages (`mcp-atlassian`, the official `@azure-devops/mcp`), and aligned the README's server names with the JSON's actual keys.
+- **`hyperion:llm-eval`'s live mode was 100% inoperative** regardless of API key — `.github/skills/eval/prompts/` didn't exist, and `ANTHROPIC_API_KEY` was accepted by the key check but the Anthropic call path threw "not wired yet". Implemented the real Anthropic call, added the missing prompts, and documented both eval modes in a new `.github/skills/eval/README.md`.
+- **English PM onboarding was a redirect loop** — `trilha-pm.md`'s English section pointed at `learning-path-en.md`, which pointed back at `trilha-pm.md` (Portuguese-only), with no real English content anywhere. Added `pm-track-en.md` and pointed both sides at it directly.
+- **`.gitignore`'s kit-managed lines were never propagated by `hyperion:upgrade`** — adopters missed new ignore rules (e.g. `sync-history.jsonl`) added to the kit's own `.gitignore`. Added a marker-guarded merge (`mergeGitignore`), same pattern as the existing `package.json` merge, so adopter-added lines are never touched.
+- **`.github/FUNDING.yml` shipped live** (not as a template) with the maintainer's personal GitHub handle, and was in `MANAGED_FILES` — every `hyperion:upgrade` silently propagated it to adopters. Removed from `MANAGED_FILES` (same treatment as `CODEOWNERS`: this repo's own config, not adopter-facing), documented in `GETTING-STARTED.md`'s copy table.
+- An internal maintainer planning doc (`gap-closure-action-plan.md`, referencing an internal dogfood repo and token setup notes) was committed directly under `.github/plans/` and shipped in every clone/`npm pack` — moved into the already-`.gitignore`d `.github/plans/implementations/`.
+
 ## [0.2.0] — 2026-09-02
 
 ### Added

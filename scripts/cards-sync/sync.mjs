@@ -145,6 +145,15 @@ export function log(message) {
   console.log(`[cards-sync] ${message}`);
 }
 
+/** Only meaningful for the GitHub backend — gh CLI/GITHUB_TOKEN don't apply to Jira/Azure/GitLab/Linear. */
+function warnIfGhCliFallback() {
+  if (tokenSource === "gh-cli") {
+    log(
+      "Warning: no PROJECT_SYNC_TOKEN/GITHUB_TOKEN set — falling back to your local `gh auth token` session. This makes REAL API calls (reads, and writes if not --dry-run) using your own GitHub identity. Set an explicit token to avoid this."
+    );
+  }
+}
+
 function readManagementHintsFromProjectYml(content) {
   const blockMatch = content.match(/^\s*management\s*:\s*\n([\s\S]*?)(?:^\S|\Z)/m);
   if (!blockMatch) return {};
@@ -1505,6 +1514,7 @@ async function runForwardSync() {
 
     log(`Repository: ${repoOwner}/${repoName}`);
     log(`Token source: ${tokenSource}`);
+    warnIfGhCliFallback();
   }
 
   const defaults = repoConfig.defaults || {};
@@ -1513,6 +1523,7 @@ async function runForwardSync() {
   let projectOwner = process.env.PROJECT_OWNER || repoConfig.projectOwner || repoOwner;
   let projectNumber =
     Number(process.env.PROJECT_NUMBER || "0") || Number(repoConfig.projectNumber || "0");
+  let projectDiscovery = { reason: null, candidates: [] };
 
   if (backend === "github" && token && repoOwner !== "unknown" && projectNumber <= 0) {
     try {
@@ -1525,6 +1536,7 @@ async function runForwardSync() {
         repositorySlug,
         persist: !dryRun,
       });
+      projectDiscovery = discovery;
       if (discovery.discovered) {
         if (dryRun) {
           log(
@@ -1717,11 +1729,19 @@ async function runForwardSync() {
     if (projectNumber > 0) {
       log(`Project #${projectNumber} not found — check projectOwner/projectNumber in config.`);
     } else if (repoConfig.autoCreateProject !== false) {
-      try {
-        const created = await autoCreateProject(projectOwner, repoConfig);
-        project = await getProject(projectOwner, created.number);
-      } catch (e) {
-        log(`Auto-create project failed: ${e.message}`);
+      if (projectDiscovery.reason === "ambiguous") {
+        log("Auto-create skipped: multiple GitHub Projects found — set projectNumber in projects-map.json");
+        for (const c of projectDiscovery.candidates || []) {
+          log(`  candidate: #${c.number} ${c.title}`);
+        }
+        log("Run: npm run cards:doctor");
+      } else {
+        try {
+          const created = await autoCreateProject(projectOwner, repoConfig);
+          project = await getProject(projectOwner, created.number);
+        } catch (e) {
+          log(`Auto-create project failed: ${e.message}`);
+        }
       }
     }
   }
@@ -2042,6 +2062,7 @@ async function runReverseSyncGitHub(repoConfig) {
   log(`Repository: ${repoOwner}/${repoName}`);
   log(`Dry-run: ${dryRun ? "yes" : "no"}`);
   log("Direction: reverse (GitHub -> Markdown)");
+  warnIfGhCliFallback();
 
   const issueMap = await loadIssueMapByCardId(repoOwner, repoName);
   const issues = [...issueMap.values()];
@@ -2181,10 +2202,20 @@ const directRunPath = process.argv[1] ? path.resolve(process.argv[1]) : "";
 const currentFilePath = fileURLToPath(import.meta.url);
 const isDirectRun = directRunPath === currentFilePath;
 
+const CONFIG_ERROR_PATTERN = /backend requires .+\(env or config\)\.?$/;
+
 if (isDirectRun) {
   main().catch((error) => {
-    console.error("[cards-sync] FATAL ERROR");
-    console.error(error);
+    const message = String(error?.message || error);
+    if (CONFIG_ERROR_PATTERN.test(message)) {
+      // A missing/misconfigured backend is a setup problem, not a crash —
+      // show the actionable message only, keep the stack for --verbose.
+      console.error(`[cards-sync] ${message}`);
+      if (process.argv.includes("--verbose")) console.error(error);
+    } else {
+      console.error("[cards-sync] FATAL ERROR");
+      console.error(error);
+    }
     process.exit(1);
   });
 }
@@ -2224,4 +2255,5 @@ export {
   resolveHyperionStatusFromRemote,
   canonicalizeLinearState,
   inverseStatusMap,
+  getLabelId,
 };

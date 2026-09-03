@@ -247,12 +247,18 @@ export function filterEdgesForCards(edges, cardIds) {
 export function pickBestGitHubProject(projects, repoName) {
   if (!Array.isArray(projects) || projects.length === 0) return null;
 
-  const kitTitle = `${repoName} Hyperion Project`;
+  const repo = String(repoName || "").trim();
+  const kitTitle = `${repo} Hyperion Project`;
   const exact = projects.find((p) => p.title === kitTitle);
   if (exact) return exact;
 
-  const kitMatch = projects.find((p) => /hyperion/i.test(p.title || ""));
-  if (kitMatch) return kitMatch;
+  const repoInTitle = projects.filter((p) =>
+    new RegExp(`\\b${repo.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i").test(p.title || "")
+  );
+  if (repoInTitle.length === 1) return repoInTitle[0];
+
+  const kitMatch = projects.filter((p) => /hyperion/i.test(p.title || ""));
+  if (kitMatch.length === 1) return kitMatch[0];
 
   if (projects.length === 1) return projects[0];
 

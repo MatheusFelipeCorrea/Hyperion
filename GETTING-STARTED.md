@@ -118,7 +118,7 @@ Copie para a **raiz do seu repositório** (não o `.git` do Hyperion):
 | Scripts `hyperion:*` / `cards:*` no **seu** `package.json` (**merge**) | Substituir o `package.json` do produto |
 | `bin/` + `Dockerfile` (sem Node) | `projects-map` de outro time |
 | `.env.example`, `CLAUDE.md`, `.cursor/rules/`, `.github/copilot-instructions.md` conforme a IDE | Artefatos gerados (`plans/`, audit results) |
-| — | **`CODEOWNERS`, `LICENSE`, `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `SECURITY.md`, `SUPPORT.md`, `.github/ISSUE_TEMPLATE/`, `.github/PULL_REQUEST_TEMPLATE.md`** — arquivos do repositório do próprio kit Hyperion, não do seu produto. Se você clonou o repo inteiro (em vez de copiar seletivo), troque ou remova esses. |
+| — | **`CODEOWNERS`, `.github/FUNDING.yml`, `LICENSE`, `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `SECURITY.md`, `SUPPORT.md`, `.github/ISSUE_TEMPLATE/`, `.github/PULL_REQUEST_TEMPLATE.md`** — arquivos do repositório do próprio kit Hyperion, não do seu produto. Se você clonou o repo inteiro (em vez de copiar seletivo), troque ou remova esses. |
 
 Atualizar um repo que já tem o kit: `npm run hyperion:upgrade` (na pasta do kit / com `kit.root`).
 
