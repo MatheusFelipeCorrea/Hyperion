@@ -441,6 +441,7 @@ On GitHub, explicit `status` in frontmatter always applies. Safe mode only appli
 | PROJECT_OWNER | Optional | Override project owner |
 | PROJECT_NUMBER | Optional | Override project number |
 | DRY_RUN | Optional | "true" to simulate |
+| CARDS_SYNC_CONCURRENCY | Optional | Max cards processed in flight at once per sync phase (default `4`). Lower it if a large board's first sync trips GitHub's secondary rate limits; `1` reproduces the old fully-sequential behavior. |
 | CARDS_SYNC_YES | Optional | "true" to skip the interactive "type yes" confirmation before a live (non-dry-run) sync at a terminal — same effect as `--yes`. Never needed in CI (no TTY, never prompts). |
 | SYNC_DIRECTION | Optional | "forward" or "reverse" |
 | CREATE_MISSING_LABELS | Optional | "true" (default) to auto-create labels |

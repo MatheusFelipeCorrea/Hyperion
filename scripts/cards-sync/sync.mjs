@@ -55,6 +55,7 @@ import {
   resolveHyperionStatusFromRemote,
   canonicalizeLinearState,
   frontmatterUpdatesFromConvertedMarkdown,
+  mapWithConcurrency,
 } from "./lib.mjs";
 import { resolveHyperionPaths } from "../hyperion/paths.mjs";
 import {
@@ -141,6 +142,12 @@ const tokenSource = process.env.PROJECT_SYNC_TOKEN
 
 let createMissingLabels =
   String(process.env.CREATE_MISSING_LABELS || "true").toLowerCase() === "true";
+
+// How many cards to process in flight at once, per sync phase (create/update
+// issue, body-link enrichment, Project add+fields). Sequential (1) was the
+// only option before; this stays conservative by default to avoid tripping
+// GitHub's secondary rate limits on a large board's first sync.
+const syncConcurrency = Math.max(1, Number(process.env.CARDS_SYNC_CONCURRENCY) || 4);
 
 export function log(message) {
   console.log(`[cards-sync] ${message}`);
@@ -1634,7 +1641,7 @@ async function runForwardSync() {
   const preloadedIssueMap = token ? await loadIssueMapByCardId(repoOwner, repoName) : new Map();
   const repositoryId = dryRun ? null : await getRepositoryNodeId(repoOwner, repoName);
 
-  for (const card of cardsToSync) {
+  await mapWithConcurrency(cardsToSync, syncConcurrency, async (card) => {
     const issueTitle = buildIssueTitle(card);
     const issueBody = buildIssueBody(card);
 
@@ -1644,7 +1651,7 @@ async function runForwardSync() {
       actions.push({ action: existing ? "UPDATE" : "CREATE", cardId: card.cardId, title: issueTitle });
       issueByCardId.set(card.cardId, existing || { id: `DRY-${card.cardId}`, number: 0 });
       issueExistedByCardId.set(card.cardId, Boolean(existing));
-      continue;
+      return;
     }
 
     const issue = existing
@@ -1668,7 +1675,7 @@ async function runForwardSync() {
         actions.push({ action: "LABELS_FAILED", cardId: card.cardId, reason: e.message });
       }
     }
-  }
+  });
 
   if (!dryRun && issueByCardId.size) {
     try {
@@ -1681,9 +1688,9 @@ async function runForwardSync() {
     }
 
     const linkContext = { issueByCardId, owner: repoOwner, name: repoName };
-    for (const card of cardsToSync) {
+    await mapWithConcurrency(cardsToSync, syncConcurrency, async (card) => {
       const issue = issueByCardId.get(card.cardId);
-      if (!issue?.id) continue;
+      if (!issue?.id) return;
       try {
         const enrichedBody = buildIssueBody(card, linkContext);
         await updateIssue(issue.id, buildIssueTitle(card), enrichedBody);
@@ -1691,7 +1698,7 @@ async function runForwardSync() {
       } catch (e) {
         actions.push({ action: "BODY_ENRICH_FAILED", cardId: card.cardId, reason: e.message });
       }
-    }
+    });
   }
 
   // Link sub-issues
@@ -1764,9 +1771,9 @@ async function runForwardSync() {
     const fParent = resolveProjectField(project, "parent", fieldMap);
     const fDueDate = resolveProjectField(project, "dueDate", fieldMap);
 
-    for (const card of cardsToSync) {
+    await mapWithConcurrency(cardsToSync, syncConcurrency, async (card) => {
       const issue = issueByCardId.get(card.cardId);
-      if (!issue) continue;
+      if (!issue) return;
 
       let itemId;
       try {
@@ -1777,7 +1784,7 @@ async function runForwardSync() {
         }
       } catch (e) {
         actions.push({ action: "PROJECT_ADD_FAILED", cardId: card.cardId, reason: e.message });
-        continue;
+        return;
       }
 
       try {
@@ -1807,7 +1814,7 @@ async function runForwardSync() {
       } catch (e) {
         actions.push({ action: "FIELD_UPDATE_FAILED", cardId: card.cardId, reason: e.message });
       }
-    }
+    });
   }
 
   // Print summary

@@ -38,6 +38,7 @@ import {
   LABELS_OVERLAY_FILENAME,
   STATUS_COLUMNS_OVERLAY_FILENAME,
   appendSyncEvent,
+  mapWithConcurrency,
 } from "./lib.mjs";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -490,4 +491,49 @@ test("appendSyncEvent writes jsonl history", async () => {
   assert.equal(row.repository, "org/repo");
   assert.equal(row.cardCount, 2);
   rmSync(dir, { recursive: true, force: true });
+});
+
+test("mapWithConcurrency preserves result order and calls every item exactly once", async () => {
+  const items = [10, 20, 30, 40, 50, 60, 70];
+  const calls = [];
+  const results = await mapWithConcurrency(items, 3, async (n) => {
+    calls.push(n);
+    await new Promise((r) => setTimeout(r, n % 3)); // jitter, so completion order isn't input order
+    return n * 2;
+  });
+  assert.deepEqual(results, items.map((n) => n * 2));
+  assert.deepEqual([...calls].sort((a, b) => a - b), items);
+});
+
+test("mapWithConcurrency never runs more than `limit` workers at once", async () => {
+  const items = Array.from({ length: 12 }, (_, i) => i);
+  let inFlight = 0;
+  let maxInFlight = 0;
+  await mapWithConcurrency(items, 4, async (n) => {
+    inFlight++;
+    maxInFlight = Math.max(maxInFlight, inFlight);
+    await new Promise((r) => setTimeout(r, 2));
+    inFlight--;
+    return n;
+  });
+  assert.ok(maxInFlight <= 4, `expected max 4 concurrent, saw ${maxInFlight}`);
+  assert.ok(maxInFlight > 1, "expected genuine concurrency, not effectively serial");
+});
+
+test("mapWithConcurrency lets a per-item error propagate (caller decides how to handle it)", async () => {
+  const items = [1, 2, 3];
+  await assert.rejects(
+    () =>
+      mapWithConcurrency(items, 2, async (n) => {
+        if (n === 2) throw new Error("boom");
+        return n;
+      }),
+    /boom/
+  );
+});
+
+test("mapWithConcurrency handles limit larger than the item count and an empty list", async () => {
+  const results = await mapWithConcurrency([1, 2], 10, async (n) => n + 1);
+  assert.deepEqual(results, [2, 3]);
+  assert.deepEqual(await mapWithConcurrency([], 5, async (n) => n), []);
 });
