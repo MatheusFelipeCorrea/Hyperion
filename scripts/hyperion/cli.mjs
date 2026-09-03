@@ -67,6 +67,7 @@ const CARDS_COMMANDS = {
   validate: { script: "validate.mjs", desc: "cards:validate" },
   init: { script: "init.mjs", desc: "cards:init" },
   watch: { script: "watch.mjs", desc: "cards:watch" },
+  metrics: { script: "metrics.mjs", desc: "cards:metrics" },
 };
 
 export function resolveCommand(argv) {

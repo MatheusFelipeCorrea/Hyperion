@@ -368,6 +368,11 @@ node --test scripts/cards-sync/*.test.mjs
 # Watch mode — incremental validate + sync on file changes
 node scripts/cards-sync/watch.mjs
 # or: npm run cards:watch
+
+# Flow metrics — WIP by status + average cycle time, mined from git log
+# (no board API call; just the status: frontmatter you already commit)
+npm run cards:metrics
+npm run cards:metrics -- --json
 ```
 
 ## GitHub automation
@@ -393,6 +398,28 @@ node scripts/cards-sync/watch.mjs
 Mark **Hyperion — Cards PR Board Guard** as a required status check in GitHub Branch protection.
 
 Disable auto-discovery: set `"autoDiscoverProject": false` in `projects-map.json`.
+
+### Running the PR board guard outside GitHub Actions
+
+The guard itself (`pr-board-guard.mjs`) doesn't hard-depend on GitHub Actions — the two env vars that matter for CI wiring already have generic names:
+
+| Env var | GitHub Actions equivalent | What to set it to elsewhere |
+|---------|---------------------------|------------------------------|
+| `CARDS_GUARD_BASE_REF` | (auto: `GITHUB_BASE_SHA`) | The target/base branch SHA of the merge request — e.g. GitLab CI's `CI_MERGE_REQUEST_DIFF_BASE_SHA`, Azure Pipelines' `System.PullRequest.TargetBranch` resolved to a SHA |
+| `CARDS_SYNC_BACKEND` | (defaults to `github`) | `jira`, `azure-devops`, `linear`, or `gitlab` — same value used everywhere else in this README |
+
+```bash
+# GitLab CI (.gitlab-ci.yml), only block/blocked syntax shown
+board-guard:
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+  script:
+    - node scripts/cards-sync/pr-board-guard.mjs
+  variables:
+    CARDS_GUARD_BASE_REF: $CI_MERGE_REQUEST_DIFF_BASE_SHA
+```
+
+What's GitHub-specific: `report-pr-guard-check.mjs` (posts a GitHub Check Run via the REST API) and the ready-made `hyperion-cards-pr-check.yml`/`hyperion-cards-pr-recheck.yml` workflows. On another CI platform, skip that script and just let the guard's own exit code fail the pipeline job directly — you lose the separate check-run annotation, not the guard itself.
 
 ## IDE → Board status update
 
