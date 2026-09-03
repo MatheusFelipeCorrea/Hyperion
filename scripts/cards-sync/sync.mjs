@@ -145,10 +145,13 @@ export function log(message) {
   console.log(`[cards-sync] ${message}`);
 }
 
-if (tokenSource === "gh-cli") {
-  log(
-    "Warning: no PROJECT_SYNC_TOKEN/GITHUB_TOKEN set — falling back to your local `gh auth token` session. This makes REAL API calls (reads, and writes if not --dry-run) using your own GitHub identity. Set an explicit token to avoid this."
-  );
+/** Only meaningful for the GitHub backend — gh CLI/GITHUB_TOKEN don't apply to Jira/Azure/GitLab/Linear. */
+function warnIfGhCliFallback() {
+  if (tokenSource === "gh-cli") {
+    log(
+      "Warning: no PROJECT_SYNC_TOKEN/GITHUB_TOKEN set — falling back to your local `gh auth token` session. This makes REAL API calls (reads, and writes if not --dry-run) using your own GitHub identity. Set an explicit token to avoid this."
+    );
+  }
 }
 
 function readManagementHintsFromProjectYml(content) {
@@ -1511,6 +1514,7 @@ async function runForwardSync() {
 
     log(`Repository: ${repoOwner}/${repoName}`);
     log(`Token source: ${tokenSource}`);
+    warnIfGhCliFallback();
   }
 
   const defaults = repoConfig.defaults || {};
@@ -2058,6 +2062,7 @@ async function runReverseSyncGitHub(repoConfig) {
   log(`Repository: ${repoOwner}/${repoName}`);
   log(`Dry-run: ${dryRun ? "yes" : "no"}`);
   log("Direction: reverse (GitHub -> Markdown)");
+  warnIfGhCliFallback();
 
   const issueMap = await loadIssueMapByCardId(repoOwner, repoName);
   const issues = [...issueMap.values()];

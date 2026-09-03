@@ -51,6 +51,7 @@ async function main() {
     ok("Kit structure looks good.");
   }
 
+  let cardsWarningCount = 0;
   if (!argSkipCards && health.hasProjectsMap) {
     log("", "");
     log("", "Running cards-sync doctor...");
@@ -58,6 +59,7 @@ async function main() {
     const cardsOutputOk =
       cards.stdout.includes("Doctor finished.") &&
       !cards.stdout.includes("Missing required Project fields");
+    cardsWarningCount = (cards.stdout.match(/\[doctor\] ⚠️/g) || []).length;
     if (cards.code !== 0) {
       if (process.platform === "win32" && cardsOutputOk) {
         warn("cards-sync doctor: Windows Node cleanup quirk — output OK, continuing.");
@@ -68,6 +70,8 @@ async function main() {
     }
   }
 
+  const totalWarnings = health.warnings.length + cardsWarningCount;
+
   log("", "");
   if (health.issues.length > 0) {
     fail(`Doctor finished with ${health.issues.length} blocking issue(s).`);
@@ -75,8 +79,8 @@ async function main() {
     process.exit(1);
   }
 
-  if (health.warnings.length > 0) {
-    warn(`Doctor finished with ${health.warnings.length} warning(s) — kit usable, improvements recommended.`);
+  if (totalWarnings > 0) {
+    warn(`Doctor finished with ${totalWarnings} warning(s) — kit usable, improvements recommended.`);
     log("", "Agent shortcut: ask \"Rode o doctor do Hyperion\" or /doctor");
     process.exit(0);
   }
