@@ -155,7 +155,10 @@ test("checkNoLeakedPaths passes clean, fails on a committed absolute personal pa
   checkNoLeakedPaths(dir, fail);
   assert.equal(failures.length, 0);
 
-  writeFileSync(join(dir, "leak.mjs"), 'const p = "C:\\\\Users\\\\someone\\\\secret.txt";\n');
+  // Built from parts at runtime, not a literal in this file — otherwise this
+  // very test fixture would trip the check when it scans its own source.
+  const examplePath = ["C:", "Users", "someone", "secret.txt"].join("\\\\");
+  writeFileSync(join(dir, "leak.mjs"), `const p = "${examplePath}";\n`);
   commitAll(dir);
   ({ failures, fail } = makeFailCollector());
   checkNoLeakedPaths(dir, fail);
