@@ -12,6 +12,13 @@ name: Hyperion — Sync Cards
 # push-triggered run would just fail CI's projectNumber check forever.
 # Adopters installing the kit into an actual product DO want the push
 # trigger, so it stays in the template.
+#
+# hyperion:no-auto-refresh — this marker tells auditSyncCardsWorkflow
+# (scripts/hyperion/pipeline-lib.mjs) to treat this file as intentionally
+# customized rather than "outdated". Without it, hyperion:doctor's own
+# suggested fix (pipeline-apply --refresh-sync --yes) would silently
+# overwrite this file back to the generic template — reintroducing the
+# push trigger PR #69 removed on purpose.
 
 on:
   workflow_dispatch:

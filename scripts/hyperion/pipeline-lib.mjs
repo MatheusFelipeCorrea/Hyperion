@@ -71,6 +71,16 @@ export function normalizeKitRootRel(kitRootRel) {
 }
 
 /**
+ * Marker a maintainer can put anywhere in hyperion-sync-cards.yml to opt the
+ * file out of the "outdated, refresh me" audit entirely — e.g. this kit's
+ * own repo deliberately drops the push trigger (PR #69) because it has no
+ * real GitHub Project to sync to. Without this, hyperion:doctor's own
+ * suggested fix (pipeline-apply --refresh-sync --yes) would silently
+ * overwrite that deliberate customization back to the generic template.
+ */
+export const NO_AUTO_REFRESH_MARKER = "hyperion:no-auto-refresh";
+
+/**
  * Audit hyperion-sync-cards.yml for branch filter, concurrency, and nested paths.
  * @returns {{ ok: boolean, issues: string[], missing: string[] }}
  */
@@ -83,6 +93,10 @@ export function auditSyncCardsWorkflow(content, { kitRootRel = "" } = {}) {
 
   if (!text.trim()) {
     return { ok: false, issues: ["missing_file"], missing: ["file"] };
+  }
+
+  if (text.includes(NO_AUTO_REFRESH_MARKER)) {
+    return { ok: true, issues: [], missing: [] };
   }
 
   if (!/^\s*on:/m.test(text)) missing.push("on");

@@ -81,9 +81,32 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
-      - name: Build and push
+      - name: Build image (local only — not pushed until it passes the smoke test below)
         uses: docker/build-push-action@v7
         with:
           context: .
-          push: true
+          push: false
+          load: true
           tags: ${{ steps.tags.outputs.tags }}
+
+      - name: Smoke-test the image before publishing
+        # cli.mjs (the ENTRYPOINT) only reads scripts/ from whatever's
+        # mounted at /workspace — same as a real user's `docker run -v
+        # $(pwd):/workspace`. This is exactly the check that would have
+        # caught cli.mjs missing real commands (COMMANDS drifting out of
+        # sync with package.json) before a broken image got published.
+        run: |
+          set -e
+          IMAGE_TAG=$(echo "${{ steps.tags.outputs.tags }}" | cut -d, -f1)
+          echo "Smoke-testing $IMAGE_TAG"
+          docker run --rm -v "$PWD:/workspace" "$IMAGE_TAG" help
+          docker run --rm -v "$PWD:/workspace" "$IMAGE_TAG" distribution-purity-check
+
+      - name: Push image (smoke test passed)
+        run: |
+          set -e
+          IFS=',' read -ra TAGS <<< "${{ steps.tags.outputs.tags }}"
+          for t in "${TAGS[@]}"; do
+            echo "Pushing $t"
+            docker push "$t"
+          done

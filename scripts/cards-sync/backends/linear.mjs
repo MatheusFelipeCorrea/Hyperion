@@ -3,6 +3,7 @@ import path from "node:path";
 import {
   parseOnlyFilter,
   parseCardFile,
+  buildEdges,
   buildIssueTitle,
   buildRemoteDescriptionFromCard,
   normalizeText,
@@ -122,6 +123,16 @@ export async function runForwardSyncLinear(repoConfig, management) {
     await linearGraphql(query, { id: issueId, input });
   }
 
+  // Parent-child hierarchy: Linear has real sub-issues, unlike GitLab Free —
+  // setting parentId on the child is a first-class relationship, not just a
+  // link, mirroring the buildEdges()-driven linking already done for Jira.
+  async function linearSetParent(childIssueId, parentIssueId) {
+    const query = `mutation($id: String!, $input: IssueUpdateInput!) {
+      issueUpdate(id: $id, input: $input) { success issue { id parent { id } } }
+    }`;
+    await linearGraphql(query, { id: childIssueId, input: { parentId: parentIssueId } });
+  }
+
   let linearStatesCache = null;
   async function linearGetTeamStates() {
     if (linearStatesCache) return linearStatesCache;
@@ -186,7 +197,11 @@ export async function runForwardSyncLinear(repoConfig, management) {
     return;
   }
 
+  const edges = buildEdges(syncableCards);
+  log(`Parent-child links: ${edges.length}`);
+
   const actions = [];
+  const issueIdByCardId = new Map();
   for (const card of syncableCards) {
     const existingId = await linearFindIssueIdByCardId(card.cardId);
     if (dryRun) {
@@ -196,6 +211,7 @@ export async function runForwardSyncLinear(repoConfig, management) {
     if (existingId) {
       await linearUpdateIssue(existingId, card);
       actions.push({ action: "UPDATED", cardId: card.cardId, linearIssueId: existingId });
+      issueIdByCardId.set(card.cardId, existingId);
       if (card.status) {
         const st = await linearApplyStatus(existingId, card.status);
         actions.push({
@@ -209,6 +225,7 @@ export async function runForwardSyncLinear(repoConfig, management) {
     } else {
       const createdId = await linearCreateIssue(card);
       actions.push({ action: "CREATED", cardId: card.cardId, linearIssueId: createdId });
+      if (createdId) issueIdByCardId.set(card.cardId, createdId);
       if (createdId && card.status) {
         const st = await linearApplyStatus(createdId, card.status);
         actions.push({
@@ -218,6 +235,20 @@ export async function runForwardSyncLinear(repoConfig, management) {
           status: card.status,
           ...st,
         });
+      }
+    }
+  }
+
+  if (!dryRun) {
+    for (const edge of edges) {
+      const parentId = issueIdByCardId.get(edge.parentCardId);
+      const childId = issueIdByCardId.get(edge.childCardId);
+      if (!parentId || !childId) continue;
+      try {
+        await linearSetParent(childId, parentId);
+        actions.push({ action: "LINKED", parent: parentId, child: childId });
+      } catch (error) {
+        actions.push({ action: "LINK_FAILED", parent: parentId, child: childId, reason: error.message });
       }
     }
   }

@@ -93,23 +93,36 @@ function parseFrontmatter(content) {
   return { meta, body };
 }
 
+/**
+ * Returns { card, reason }. `card` is null when the file can't be parsed as
+ * a card at all — the caller must surface `reason` loudly (not just skip),
+ * since a silently-dropped card also silently never syncs.
+ */
 function extractCard(content, relativeFile) {
   const parsed = parseFrontmatter(content);
-  if (!parsed?.meta?.card_id) return null;
+  if (!parsed) {
+    return { card: null, reason: "malformed frontmatter — expected a `---`-delimited YAML block at the top of the file" };
+  }
+  if (!parsed.meta?.card_id) {
+    return { card: null, reason: "missing required `card_id` in frontmatter" };
+  }
 
   const meta = parsed.meta;
   return {
-    cardId: meta.card_id,
-    status: meta.status || null,
-    type: meta.type || "Story",
-    priority: meta.priority || null,
-    sprint: meta.sprint || null,
-    storyPoints: meta.story_points ?? null,
-    reporter: meta.reporter || null,
-    parent: meta.parent || null,
-    dueDate: meta.due_date || null,
-    categories: Array.isArray(meta.categories) ? meta.categories : [],
-    relativeFile,
+    card: {
+      cardId: meta.card_id,
+      status: meta.status || null,
+      type: meta.type || "Story",
+      priority: meta.priority || null,
+      sprint: meta.sprint || null,
+      storyPoints: meta.story_points ?? null,
+      reporter: meta.reporter || null,
+      parent: meta.parent || null,
+      dueDate: meta.due_date || null,
+      categories: Array.isArray(meta.categories) ? meta.categories : [],
+      relativeFile,
+    },
+    reason: null,
   };
 }
 
@@ -164,14 +177,18 @@ try {
 }
 
 const errors = [];
+const skipped = [];
 const cards = [];
 const cardIdSet = new Set();
 
 for (const file of allMd) {
   const relative = path.relative(workspaceRoot, file).replace(/\\/g, "/");
   const raw = await fs.readFile(file, "utf8");
-  const card = extractCard(raw, relative);
-  if (!card) continue;
+  const { card, reason } = extractCard(raw, relative);
+  if (!card) {
+    skipped.push(`${relative}: ${reason} — this file will NOT be validated or synced.`);
+    continue;
+  }
 
   cards.push(card);
 
@@ -217,7 +234,8 @@ for (const file of allMd) {
     if (typeof card.parent !== "string") errors.push(`${relative}: parent must be a CARD_ID string or null.`);
   }
 
-  if (!Array.isArray(card.categories)) errors.push(`${relative}: categories must be an array.`);
+  // extractCard() already normalizes categories to an array, so no
+  // Array.isArray check is needed here — only the element type matters.
   if (card.categories.some((c) => typeof c !== "string")) errors.push(`${relative}: categories must be an array of strings.`);
 
   // Nested-by-parent layout (warning by default; --strict-layout promotes to error)
@@ -250,6 +268,14 @@ if (errors.length) {
   console.log("[validate] ❌ Cards validation failed:");
   for (const e of errors) console.log(`- ${e}`);
   process.exit(1);
+}
+
+if (skipped.length) {
+  // Loud on purpose: a card that never made it into `cards` also never
+  // syncs, silently. Reported separately from layout warnings below since
+  // it's a different class of problem (unparseable, not just misplaced).
+  console.log(`[validate] ⚠️  ${skipped.length} file(s) skipped — could not be read as cards:`);
+  for (const s of skipped) console.log(`- ${s}`);
 }
 
 if (warnings.length) {

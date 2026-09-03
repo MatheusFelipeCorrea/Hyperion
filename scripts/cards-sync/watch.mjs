@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import { spawn, execSync } from "node:child_process";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { cardIdFromRelativePath, isNonSyncCardPath, isKitSampleCardId } from "./lib.mjs";
 import { resolveHyperionPaths } from "../hyperion/paths.mjs";
 import { detectDefaultBranch } from "../hyperion/pipeline-lib.mjs";
@@ -41,20 +41,27 @@ function runNodeScript(scriptName, extraEnv = {}) {
   });
 }
 
-function isDefaultBranch() {
+export function isDefaultBranch(root = workspaceRoot) {
   if (String(process.env.CARDS_WATCH_ANY_BRANCH || "").toLowerCase() === "true") return true;
   try {
     const branch = execSync("git branch --show-current", {
       encoding: "utf8",
-      cwd: workspaceRoot,
+      cwd: root,
       stdio: ["pipe", "pipe", "pipe"],
     }).trim();
-    if (!branch) return true;
-    const defaultBranch = detectDefaultBranch(workspaceRoot);
+    // Fail closed: an undetectable branch (detached HEAD, git error) must not
+    // be treated as the default branch — that would let a real sync run
+    // against an unknown checkout state.
+    if (!branch) return false;
+    const defaultBranch = detectDefaultBranch(root);
     return branch === defaultBranch || branch === "main" || branch === "master";
   } catch {
-    return true;
+    return false;
   }
+}
+
+export function isLiveSyncAllowed() {
+  return String(process.env.CARDS_WATCH_LIVE || "").toLowerCase() === "true";
 }
 
 async function runPipeline() {
@@ -74,19 +81,29 @@ async function runPipeline() {
 
     if (!isDefaultBranch()) {
       log(
-        "Skipping forward sync — not on default branch. After board moves run: npm run cards:reverse → commit → merge. Override: CARDS_WATCH_ANY_BRANCH=true"
+        "Skipping forward sync — not on default branch (or branch could not be detected). After board moves run: npm run cards:reverse → commit → merge. Override: CARDS_WATCH_ANY_BRANCH=true"
       );
       log("Done (validate only).");
       return;
     }
 
-    if (ids.length) {
-      log(`Incremental sync: ${ids.join(", ")}`);
-      await runNodeScript("sync.mjs", { CARDS_SYNC_ONLY: ids.join(",") });
-    } else {
-      log("Syncing all cards...");
-      await runNodeScript("sync.mjs");
+    const extraEnv = ids.length ? { CARDS_SYNC_ONLY: ids.join(",") } : {};
+
+    if (!isLiveSyncAllowed()) {
+      log(
+        "DRY RUN — no board will be written. This is the default so a watcher left running never surprises you with a real sync. Set CARDS_WATCH_LIVE=true to sync for real."
+      );
+      await runNodeScript("sync.mjs", { ...extraEnv, DRY_RUN: "true" });
+      log("Done (dry-run).");
+      return;
     }
+
+    if (ids.length) {
+      log(`Incremental sync (LIVE): ${ids.join(", ")}`);
+    } else {
+      log("Syncing all cards (LIVE)...");
+    }
+    await runNodeScript("sync.mjs", extraEnv);
 
     log("Done.");
   } catch (error) {
@@ -120,15 +137,24 @@ function scheduleRun(label) {
   }, 600);
 }
 
-if (!fs.existsSync(cardsRoot)) {
-  console.error(`[cards-watch] ${hyperionPaths.cardsPrefix}/ not found. Run from product repo root (or set kit.root).`);
-  process.exit(1);
+const isMain = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
+
+if (isMain) {
+  if (!fs.existsSync(cardsRoot)) {
+    console.error(`[cards-watch] ${hyperionPaths.cardsPrefix}/ not found. Run from product repo root (or set kit.root).`);
+    process.exit(1);
+  }
+
+  log(`Watching ${path.relative(workspaceRoot, cardsRoot)}/ (recursive, incremental)`);
+  log(
+    isLiveSyncAllowed()
+      ? "LIVE mode — real board writes on every change (CARDS_WATCH_LIVE=true)."
+      : "Dry-run mode (default) — no board writes. Set CARDS_WATCH_LIVE=true to sync for real."
+  );
+  log("Press Ctrl+C to stop.");
+
+  fs.watch(cardsRoot, { recursive: true }, (_event, filename) => {
+    registerChange(filename || "");
+    scheduleRun(filename || "");
+  });
 }
-
-log(`Watching ${path.relative(workspaceRoot, cardsRoot)}/ (recursive, incremental)`);
-log("Press Ctrl+C to stop.");
-
-fs.watch(cardsRoot, { recursive: true }, (_event, filename) => {
-  registerChange(filename || "");
-  scheduleRun(filename || "");
-});

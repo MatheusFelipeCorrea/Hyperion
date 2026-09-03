@@ -40,8 +40,23 @@ export const COMMANDS = {
   "skills-eval": { script: "skills-eval.mjs", desc: "Structural skills eval" },
   "skills-catalog": { script: "skills-catalog.mjs", desc: "Generate skills catalog" },
   "docs-check": { script: "docs-check.mjs", desc: "Markdown link check" },
+  "docs-prose-check": { script: "docs-prose-check.mjs", desc: "Docs prose drift check" },
   "skills-validate": { script: "skills-validate.mjs", desc: "Validate skill frontmatter" },
+  "llm-eval": { script: "llm-eval.mjs", desc: "LLM eval fixtures" },
+  "distribution-purity-check": { script: "distribution-purity-check.mjs", desc: "No binding to this repo" },
+  "spec-review-verify": { script: "spec-review-verify.mjs", desc: "Gate /spec-review artifact" },
+  "audit-verify": { script: "audit-verify.mjs", desc: "Gate /audit-run summary" },
+  "plan-verify": { script: "plan-verify.mjs", desc: "Gate /implement plan" },
+  "release-verify": { script: "release-verify.mjs", desc: "Gate /release artifact" },
+  "install-shims": { script: "install-product-shims.mjs", desc: "Install product npm shims" },
 };
+
+// Every `hyperion:*`/`docs:*`/`skills:*` npm script must have a matching
+// COMMANDS entry — this file and package.json are two lists of the same
+// thing kept in sync by hand, and that's exactly how the count of missing
+// commands here kept drifting (6 → 7 → 8) across audit rounds without
+// anyone catching it. See cli.test.mjs for the parity test that now
+// guards this.
 
 const CARDS_COMMANDS = {
   sync: { script: "sync.mjs", desc: "cards:sync" },

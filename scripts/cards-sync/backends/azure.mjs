@@ -3,6 +3,7 @@ import path from "node:path";
 import {
   parseOnlyFilter,
   parseCardFile,
+  buildEdges,
   buildIssueTitle,
   buildRemoteDescriptionFromCard,
   resolveMappedStatus,
@@ -139,6 +140,29 @@ export async function runForwardSyncAzure(repoConfig, management) {
     }
   }
 
+  // Parent-child hierarchy: Azure DevOps work items link via a relation on
+  // the child pointing back at the parent (System.LinkTypes.Hierarchy-Reverse),
+  // mirroring the buildEdges()-driven linking already done for Jira.
+  async function azureLinkWorkItems(childId, parentId) {
+    const parentUrl = `${baseUrl}/${encodeURIComponent(project)}/_apis/wit/workitems/${parentId}`;
+    const ops = [
+      {
+        op: "add",
+        path: "/relations/-",
+        value: {
+          rel: "System.LinkTypes.Hierarchy-Reverse",
+          url: parentUrl,
+        },
+      },
+    ];
+    await azureRequest(
+      `/_apis/wit/workitems/${childId}?api-version=7.0`,
+      "PATCH",
+      ops,
+      "application/json-patch+json"
+    );
+  }
+
   const allMd = await listMarkdownFiles(cardsRoot);
   const cards = [];
   for (const file of allMd) {
@@ -164,7 +188,11 @@ export async function runForwardSyncAzure(repoConfig, management) {
 
   log("Dry-run in Azure mode depends on your DRY_RUN/--dry-run env; no GitHub side-effects.");
 
+  const edges = buildEdges(syncableCards);
+  log(`Parent-child links: ${edges.length}`);
+
   const actions = [];
+  const workItemByCardId = new Map();
   for (const card of syncableCards) {
     const existingId = await azureFindWorkItemIdByCardId(card.cardId);
     if (dryRun) {
@@ -184,6 +212,7 @@ export async function runForwardSyncAzure(repoConfig, management) {
       workItemId = await azureCreateWorkItem(card);
       actions.push({ action: "CREATED", cardId: card.cardId, workItemId });
     }
+    workItemByCardId.set(card.cardId, workItemId);
     if (workItemId && card.status) {
       const st = await azureApplyState(workItemId, card.status);
       actions.push({
@@ -193,6 +222,20 @@ export async function runForwardSyncAzure(repoConfig, management) {
         status: card.status,
         ...st,
       });
+    }
+  }
+
+  if (!dryRun) {
+    for (const edge of edges) {
+      const parentId = workItemByCardId.get(edge.parentCardId);
+      const childId = workItemByCardId.get(edge.childCardId);
+      if (!parentId || !childId) continue;
+      try {
+        await azureLinkWorkItems(childId, parentId);
+        actions.push({ action: "LINKED", parent: parentId, child: childId });
+      } catch (error) {
+        actions.push({ action: "LINK_FAILED", parent: parentId, child: childId, reason: error.message });
+      }
     }
   }
 
