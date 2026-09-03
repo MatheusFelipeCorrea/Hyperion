@@ -3,6 +3,15 @@ name: Hyperion — Sync Cards
 # Pull → verify → push cards on push to main (production sync), or a
 # manual forward/reverse-only run via workflow_dispatch. See
 # scripts/cards-sync/ci-sync.mjs for the actual pull-verify-push logic.
+#
+# This repo's own copy is workflow_dispatch-only, unlike the adopter
+# template (scripts/hyperion/templates/workflows/hyperion-sync-cards.yml),
+# which keeps the push trigger. Hyperion's own repo is the kit itself, not
+# a real product — it was never meant to bind its cards to a real GitHub
+# Project board, so there's no projectNumber configured on purpose, and a
+# push-triggered run would just fail CI's projectNumber check forever.
+# Adopters installing the kit into an actual product DO want the push
+# trigger, so it stays in the template.
 
 on:
   workflow_dispatch:
@@ -15,12 +24,6 @@ on:
         description: "pull-forward | forward-only | reverse"
         required: false
         default: "pull-forward"
-  push:
-    branches: [main]
-    paths:
-      - ".github/cards/**/*.md"
-      - ".github/cards/config/projects-map.json"
-      - "scripts/cards-sync/**"
 
 concurrency:
   group: hyperion-sync-cards-${{ github.workflow }}-${{ github.ref }}
