@@ -31,6 +31,7 @@
     "hyperion:project-verify": "node scripts/hyperion/project-verify.mjs",
     "hyperion:distribution-purity-check": "node scripts/hyperion/distribution-purity-check.mjs",
     "hyperion:adopt-check": "node scripts/hyperion/adopt-check.mjs",
+    "hyperion:telemetry": "node scripts/hyperion/telemetry.mjs",
     "hyperion:review-verify": "node scripts/hyperion/review-verify.mjs",
     "hyperion:spec-review-verify": "node scripts/hyperion/spec-review-verify.mjs",
     "hyperion:audit-verify": "node scripts/hyperion/audit-verify.mjs",

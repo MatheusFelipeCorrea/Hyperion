@@ -299,6 +299,17 @@
         "type": "string",
         "minLength": 1
       }
+    },
+    "telemetry": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Local, opt-in usage telemetry for the agent gates (phase/review/audit/plan/spec-review/release-verify). Off by default; never leaves the machine.",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "When true, agent-gate verify scripts append an event to .github/plans/telemetry/usage.jsonl (gitignored)."
+        }
+      }
     }
   },
   "$defs": {

@@ -9,6 +9,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { recordEvent } from "./telemetry-lib.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const defaultRoot = join(__dirname, "../..");
@@ -103,6 +104,7 @@ function main() {
     console.error(`\nrelease-verify FAILED (${failed})`);
     process.exit(1);
   }
+  recordEvent(rootDir, "agent-gate", "release-verify");
   console.log("release-verify OK");
 }
 

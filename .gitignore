@@ -17,6 +17,7 @@
 !.github/plans/releases/.gitkeep
 .github/plans/cards/last-sync.md
 .github/plans/cards/sync-history.jsonl
+.github/plans/telemetry/usage.jsonl
 
 # OS files
 .DS_Store
