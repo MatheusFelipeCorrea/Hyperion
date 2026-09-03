@@ -13,12 +13,23 @@ Ajuda de adotante: [SUPPORT.md](SUPPORT.md). Histórico de mudanças: [CHANGELOG
 1. Leia [GETTING-STARTED.md](GETTING-STARTED.md) (visão de adotante).
 2. Procure issues com o label **`good first issue`** ou **`help wanted`**.
 3. Comente na issue antes de grandes mudanças (evita trabalho duplicado).
-4. Abra um PR a partir de uma branch (a `main` é protegida — sem push direto).
+4. Abra sua branch a partir de **`dev`**, não de `main` (veja "Fluxo de branches" abaixo) — a `main` é protegida — sem push direto.
+
+## Fluxo de branches
+
+| Branch | Papel | Quem manda PR pra cá |
+|--------|-------|------------------------|
+| **`main`** | O que `git clone`/`hyperion:upgrade` puxa. Sempre limpa — zero vínculo com este repositório específico (sem GitHub Project vinculado, sem card real, sem config pessoal propagada). | Só `qa`, manualmente, depois de tudo verde |
+| **`dev`** | Integração — todo `feat/*`/`fix/*` abre PR pra cá | Contribuidores e mantenedor |
+| **`qa`** | Release candidate — valida antes de promover pra `main` | `dev`, quando um lote está pronto |
+| **`internal`** | Uso real do próprio Hyperion nele mesmo (board vinculado, cards reais) | Nunca manda PR de volta — só puxa de `main` |
+
+**A `main` nunca deve ter vínculo com este repositório específico.** Um check dedicado (`npm run hyperion:distribution-purity-check`, rodando em todo PR pra `main`/`dev`/`qa` via `hyperion-validate.yml`) garante isso automaticamente — projectNumber tem que ser nulo, `hyperion-sync-cards.yml` não pode ter gatilho de push, `CODEOWNERS`/`FUNDING.yml` não podem propagar via upgrade, e nenhum card real pode existir fora de `_examples/`. **Se esse check (ou qualquer outro do `hyperion-validate.yml`) falhar, o PR não pode ser mergeado — sem exceção, mesmo que pareça um detalhe pequeno.** Corrija na branch de origem e deixe rodar de novo.
 
 ## Como contribuir
 
 1. Fork [MatheusFelipeCorrea/Hyperion](https://github.com/MatheusFelipeCorrea/Hyperion)
-2. Crie uma branch para sua feature (`git checkout -b feature/minha-skill`)
+2. Crie uma branch a partir de `dev` para sua feature (`git checkout -b feature/minha-skill dev`)
 3. Faça suas alterações
 4. Valide localmente antes do PR:
    ```bash

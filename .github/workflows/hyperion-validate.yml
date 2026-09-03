@@ -2,12 +2,20 @@ name: Hyperion — Kit Validation
 
 # Runs Hyperion maintainer checks. Enable via project.yml → ci.hyperion.kit_validation: true
 # Safe to add alongside existing product CI — does not replace lint/test/build.
+#
+# On this repo, this is also the required status check gating dev → qa → main
+# promotion (branch protection on main requires it to pass). The
+# "Distribution purity check" step specifically is what stands between a
+# real vínculo (GitHub Project link, personal CODEOWNERS/FUNDING, real
+# backlog cards) and a branch someone else will `git clone` — see
+# scripts/hyperion/distribution-purity-check.mjs. It fails closed: if it
+# breaks, nothing merges until the source branch is fixed, no exceptions.
 
 on:
   push:
-    branches: [main]
+    branches: [main, dev, qa]
   pull_request:
-    branches: [main]
+    branches: [main, dev, qa]
   workflow_call:
 
 permissions:
@@ -31,6 +39,9 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Distribution purity check (no binding to this repo)
+        run: npm run hyperion:distribution-purity-check
 
       - name: Validate project.yml against schema
         run: npm run hyperion:project-verify
