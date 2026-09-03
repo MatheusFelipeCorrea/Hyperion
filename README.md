@@ -189,7 +189,7 @@ git clone https://github.com/MatheusFelipeCorrea/Hyperion.git
 |---|--------|------|
 | 1 | **Obter** | Clone ou ZIP → pasta **`Hyperion`** |
 | 2 | **Colar** | Coloque a pasta **inteira** em `seu-produto/Hyperion/` |
-| 3 | **Instalar** | Dentro de `Hyperion/`: `npm install` (ajv + js-yaml — únicas dependências do kit) |
+| 3 | **Instalar** | Tem Node ≥ 20? Dentro de `Hyperion/`: `npm install` (ajv + js-yaml — únicas dependências do kit). **Sem Node no produto?** Pule este passo — o wrapper `./bin/hyperion` roda via Docker automaticamente em qualquer comando dos passos seguintes. Ver [node-and-docker.md](./.github/docs/meta/node-and-docker.md) |
 | 4 | **Shims** | Na raiz do produto: `npm run hyperion:init --prefix Hyperion -- --adopt` |
 | 5 | **Usar** | Chat no **produto**: `/setup` ou `/migrate` |
 
@@ -254,6 +254,8 @@ npm run hyperion:sync
 ## Contribuir
 
 Melhorias no **repositório Hyperion**: [CONTRIBUTING.md](./CONTRIBUTING.md) · [Code of Conduct](./CODE_OF_CONDUCT.md) · [Security](./SECURITY.md) · [Support](./SUPPORT.md) · [Changelog](./CHANGELOG.md)
+
+`main` é protegida — PRs entram por `dev`, nunca direto. Fluxo completo (`dev` → `qa` → `main`) na seção [Fluxo de branches](./CONTRIBUTING.md#fluxo-de-branches) do CONTRIBUTING.md.
 
 Issues boas para começar: filtre por [`good first issue`](https://github.com/MatheusFelipeCorrea/Hyperion/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22).
 
