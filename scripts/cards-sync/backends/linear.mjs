@@ -31,6 +31,24 @@ function linearCardSearchMarker(card) {
   return `CARD_ID: ${card.cardId}`;
 }
 
+/**
+ * Parent-child hierarchy: Linear has real sub-issues, unlike GitLab Free —
+ * setting parentId on the child is a first-class relationship, not just a
+ * link, mirroring the buildEdges()-driven linking already done for Jira.
+ *
+ * Standalone + exported (not a closure over runForwardSyncLinear's local
+ * linearGraphql) specifically so it's unit-testable with a stub GraphQL
+ * function.
+ *
+ * @param {(query: string, variables?: object) => Promise<unknown>} linearGraphql
+ */
+export async function linearSetParent(linearGraphql, childIssueId, parentIssueId) {
+  const query = `mutation($id: String!, $input: IssueUpdateInput!) {
+    issueUpdate(id: $id, input: $input) { success issue { id parent { id } } }
+  }`;
+  await linearGraphql(query, { id: childIssueId, input: { parentId: parentIssueId } });
+}
+
 export async function runForwardSyncLinear(repoConfig, management) {
   if (!management.linearTeamId || !management.linearApiToken) {
     throw new Error("Linear backend requires LINEAR_TEAM_ID and LINEAR_API_TOKEN (env or config).");
@@ -121,16 +139,6 @@ export async function runForwardSyncLinear(repoConfig, management) {
     };
 
     await linearGraphql(query, { id: issueId, input });
-  }
-
-  // Parent-child hierarchy: Linear has real sub-issues, unlike GitLab Free —
-  // setting parentId on the child is a first-class relationship, not just a
-  // link, mirroring the buildEdges()-driven linking already done for Jira.
-  async function linearSetParent(childIssueId, parentIssueId) {
-    const query = `mutation($id: String!, $input: IssueUpdateInput!) {
-      issueUpdate(id: $id, input: $input) { success issue { id parent { id } } }
-    }`;
-    await linearGraphql(query, { id: childIssueId, input: { parentId: parentIssueId } });
   }
 
   let linearStatesCache = null;
@@ -245,7 +253,7 @@ export async function runForwardSyncLinear(repoConfig, management) {
       const childId = issueIdByCardId.get(edge.childCardId);
       if (!parentId || !childId) continue;
       try {
-        await linearSetParent(childId, parentId);
+        await linearSetParent(linearGraphql, childId, parentId);
         actions.push({ action: "LINKED", parent: parentId, child: childId });
       } catch (error) {
         actions.push({ action: "LINK_FAILED", parent: parentId, child: childId, reason: error.message });

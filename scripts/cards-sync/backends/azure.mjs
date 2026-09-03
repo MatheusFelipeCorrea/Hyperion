@@ -39,6 +39,33 @@ export function buildAzureWiqlForAllCardIds() {
   return `SELECT [System.Id] FROM WorkItems WHERE [System.Description] CONTAINS 'CARD_ID:' ORDER BY [System.Changed Date] DESC`;
 }
 
+/**
+ * Parent-child hierarchy: Azure DevOps work items link via a relation on
+ * the child pointing back at the parent (System.LinkTypes.Hierarchy-Reverse),
+ * mirroring the buildEdges()-driven linking already done for Jira.
+ *
+ * Standalone + exported (not a closure over runForwardSyncAzure's local
+ * baseUrl/project/azureRequest) specifically so it's unit-testable with a
+ * stub request function, instead of only ever exercised inside the full
+ * forward-sync flow.
+ *
+ * @param {(endpoint: string, method: string, body?: unknown, contentType?: string) => Promise<unknown>} azureRequest
+ */
+export async function azureLinkWorkItems(azureRequest, baseUrl, project, childId, parentId) {
+  const parentUrl = `${baseUrl}/${encodeURIComponent(project)}/_apis/wit/workitems/${parentId}`;
+  const ops = [
+    {
+      op: "add",
+      path: "/relations/-",
+      value: {
+        rel: "System.LinkTypes.Hierarchy-Reverse",
+        url: parentUrl,
+      },
+    },
+  ];
+  await azureRequest(`/_apis/wit/workitems/${childId}?api-version=7.0`, "PATCH", ops, "application/json-patch+json");
+}
+
 export async function runForwardSyncAzure(repoConfig, management) {
   if (!management.azureOrgUrl || !management.azureProject || !management.azurePat) {
     throw new Error("Azure DevOps backend requires AZDO_ORG_URL, AZDO_PROJECT, and AZDO_PAT (env or config).");
@@ -140,29 +167,6 @@ export async function runForwardSyncAzure(repoConfig, management) {
     }
   }
 
-  // Parent-child hierarchy: Azure DevOps work items link via a relation on
-  // the child pointing back at the parent (System.LinkTypes.Hierarchy-Reverse),
-  // mirroring the buildEdges()-driven linking already done for Jira.
-  async function azureLinkWorkItems(childId, parentId) {
-    const parentUrl = `${baseUrl}/${encodeURIComponent(project)}/_apis/wit/workitems/${parentId}`;
-    const ops = [
-      {
-        op: "add",
-        path: "/relations/-",
-        value: {
-          rel: "System.LinkTypes.Hierarchy-Reverse",
-          url: parentUrl,
-        },
-      },
-    ];
-    await azureRequest(
-      `/_apis/wit/workitems/${childId}?api-version=7.0`,
-      "PATCH",
-      ops,
-      "application/json-patch+json"
-    );
-  }
-
   const allMd = await listMarkdownFiles(cardsRoot);
   const cards = [];
   for (const file of allMd) {
@@ -231,7 +235,7 @@ export async function runForwardSyncAzure(repoConfig, management) {
       const childId = workItemByCardId.get(edge.childCardId);
       if (!parentId || !childId) continue;
       try {
-        await azureLinkWorkItems(childId, parentId);
+        await azureLinkWorkItems(azureRequest, baseUrl, project, childId, parentId);
         actions.push({ action: "LINKED", parent: parentId, child: childId });
       } catch (error) {
         actions.push({ action: "LINK_FAILED", parent: parentId, child: childId, reason: error.message });

@@ -57,10 +57,10 @@
     "cards:labels-reset": "node scripts/cards-sync/labels-reset.mjs",
     "cards:migrate-layout": "node scripts/cards-sync/migrate-layout.mjs",
     "cards:metrics": "node scripts/cards-sync/metrics.mjs",
-    "cards:test": "node --test scripts/cards-sync/*.test.mjs",
+    "cards:test": "node --test scripts/cards-sync/*.test.mjs scripts/cards-sync/backends/*.test.mjs",
     "hyperion:test": "node --test scripts/hyperion/*.test.mjs",
     "test": "npm run hyperion:test && npm run cards:test",
-    "test:coverage": "node --experimental-test-coverage --test-coverage-exclude=**/*.test.mjs --test scripts/hyperion/*.test.mjs scripts/cards-sync/*.test.mjs"
+    "test:coverage": "node --experimental-test-coverage --test-coverage-exclude=**/*.test.mjs --test scripts/hyperion/*.test.mjs scripts/cards-sync/*.test.mjs scripts/cards-sync/backends/*.test.mjs"
   },
   "engines": {
     "node": ">=20"
