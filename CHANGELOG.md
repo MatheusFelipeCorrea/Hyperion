@@ -6,6 +6,9 @@ Format inspired by [Keep a Changelog](https://keepachangelog.com/). Versioning f
 
 ## [Unreleased]
 
+### Added
+- **`hyperion:distribution-purity-check`** — a fail-closed gate that codifies "this repo carries no binding to itself" as an automated, required CI check instead of something that has to be re-discovered by hand: no real GitHub Project number persisted, `hyperion-sync-cards.yml` never gets a `push` trigger back, `CODEOWNERS`/`FUNDING.yml` never end up in `MANAGED_FILES`, no real backlog card outside `_examples/`, no committed doc under `.github/plans/` beyond the `.gitkeep` scaffolds, no leaked absolute personal filesystem path. Wired into `hyperion-validate.yml`, which now also runs on `dev`/`qa` (not just `main`) — this is the required check gating a new `dev → qa → main` (+ `internal`) branch model, documented in `CONTRIBUTING.md`.
+
 ### Fixed
 - **`sync.mjs` could create a duplicate GitHub Project** when automatic Project discovery was ambiguous (an account with more than one Project candidate) — `pickBestGitHubProject` picked the first regex match instead of checking for uniqueness, and the caller didn't check for an "ambiguous" discovery result before falling through to auto-create. Fixed both: `pickBestGitHubProject` now prefers a repo-named board and only returns a single unambiguous match, and auto-create is skipped when discovery reports ambiguity.
 - **`install-hook.mjs` had no entrypoint guard** — importing the module (as its own test did) ran `main()` for real, silently installing/mutating a pre-commit hook in whatever repo happened to be the current working directory. Guarded with the same `pathToFileURL` pattern used elsewhere in the kit; added regression tests (import vs. direct-run).
