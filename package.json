@@ -56,6 +56,7 @@
     "cards:hook": "node scripts/cards-sync/install-hook.mjs",
     "cards:labels-reset": "node scripts/cards-sync/labels-reset.mjs",
     "cards:migrate-layout": "node scripts/cards-sync/migrate-layout.mjs",
+    "cards:project-fields-apply": "node scripts/cards-sync/project-fields-apply.mjs",
     "cards:metrics": "node scripts/cards-sync/metrics.mjs",
     "cards:test": "node --test scripts/cards-sync/*.test.mjs scripts/cards-sync/backends/*.test.mjs",
     "hyperion:test": "node --test scripts/hyperion/*.test.mjs",

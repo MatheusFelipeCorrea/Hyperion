@@ -278,6 +278,15 @@ Default semantic palette:
 
 **Sprint field:** auto-created as GitHub **Iteration** (`Sprint` / `Número da Sprint`). Cards may keep `sprint: null`; define sprint dates in Project Settings. Configure defaults in `projects-map.json` → `sprintField` (`durationDays`, optional `seedIterations`).
 
+**Fix fields on an existing Project:** forward sync only creates the 8 required fields (Status, Type, Priority, Sprint, Story Points, Reporter, Parent, Due Date) when it auto-creates a brand-new Project. If you already have a Project and `cards:doctor` reports missing/misnamed fields, fix that Project in place instead of recreating it:
+
+```bash
+npm run cards:project-fields-apply             # preview (dry-run by default)
+npm run cards:project-fields-apply -- --yes    # create missing fields, rename ones under an alias
+```
+
+Requires `projects-map.json` to already have a `projectNumber` set — it fixes fields on an existing Project, it doesn't auto-create one (use `cards:sync` for that).
+
 **Issue body enrichment (GitHub forward sync):** after create/update, sync rewrites the issue body with:
 - Clickable **Parent** and **Sub-issues** links (`[CARD_ID (#n)](url)`)
 - Optional section emoji headers (`## Resumo` → `## 📋 Resumo`) if not already present

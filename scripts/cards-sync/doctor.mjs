@@ -717,8 +717,9 @@ for (const [key, configuredName] of Object.entries(required)) {
 if (missingFields.length) {
   warn(`Missing required Project fields: ${missingFields.join(", ")}`);
   warn("Fix options:");
-  warn("1) Create those fields manually in Project Settings");
-  warn("2) Or set projects-map.json.default.projectNumber=0 and let sync auto-create a fresh Project (if acceptable)");
+  warn("1) Run `npm run cards:project-fields-apply -- --yes` to create/rename them on this Project");
+  warn("2) Or create those fields manually in Project Settings");
+  warn("3) Or set projects-map.json.default.projectNumber=0 and let sync auto-create a fresh Project (if acceptable)");
 } else {
   ok("All required Project fields exist.");
 }

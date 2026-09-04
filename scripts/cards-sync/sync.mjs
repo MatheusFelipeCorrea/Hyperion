@@ -2306,4 +2306,12 @@ export {
   canonicalizeLinearState,
   inverseStatusMap,
   getLabelId,
+  getProject,
+  getFieldByName,
+  addSingleSelectField,
+  addTextField,
+  addNumberField,
+  addDateField,
+  addIterationField,
+  REQUIRED_FIELDS,
 };
