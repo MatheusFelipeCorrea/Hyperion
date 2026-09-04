@@ -58,7 +58,11 @@ export async function runForwardSyncLinear(repoConfig, management) {
     const response = await fetch(endpoint, {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${apiToken}`,
+        // Raw token, no "Bearer " prefix — Linear's personal API key
+        // convention, not OAuth. doctor.mjs's healthcheck already used
+        // this; this file used to send Bearer, so the healthcheck could
+        // report the connection healthy while the real sync 401'd.
+        Authorization: apiToken,
         "Content-Type": "application/json",
         Accept: "application/json",
       },
@@ -332,7 +336,11 @@ export async function runReverseSyncLinear(repoConfig, management) {
     const response = await fetch(endpoint, {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${apiToken}`,
+        // Raw token, no "Bearer " prefix — Linear's personal API key
+        // convention, not OAuth. doctor.mjs's healthcheck already used
+        // this; this file used to send Bearer, so the healthcheck could
+        // report the connection healthy while the real sync 401'd.
+        Authorization: apiToken,
         "Content-Type": "application/json",
         Accept: "application/json",
       },
