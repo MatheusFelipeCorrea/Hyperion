@@ -394,6 +394,14 @@ node scripts/cards-sync/watch.mjs
 # (no board API call; just the status: frontmatter you already commit)
 npm run cards:metrics
 npm run cards:metrics -- --json
+
+# Sync operation log — reads sync-history.jsonl back (forward-sync runs +
+# PR board-guard checks): counts by event type, ok/fail, most recent events.
+# Distinct from cards:metrics, which is about card status over time, not
+# sync runs themselves.
+npm run cards:history
+npm run cards:history -- --json
+npm run cards:history -- --limit 5
 ```
 
 ## GitHub automation

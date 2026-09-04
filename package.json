@@ -58,6 +58,7 @@
     "cards:migrate-layout": "node scripts/cards-sync/migrate-layout.mjs",
     "cards:project-fields-apply": "node scripts/cards-sync/project-fields-apply.mjs",
     "cards:metrics": "node scripts/cards-sync/metrics.mjs",
+    "cards:history": "node scripts/cards-sync/history.mjs",
     "cards:test": "node --test scripts/cards-sync/*.test.mjs scripts/cards-sync/backends/*.test.mjs",
     "hyperion:test": "node --test scripts/hyperion/*.test.mjs",
     "test": "npm run hyperion:test && npm run cards:test",

@@ -69,6 +69,7 @@ const CARDS_COMMANDS = {
   init: { script: "init.mjs", desc: "cards:init" },
   watch: { script: "watch.mjs", desc: "cards:watch" },
   metrics: { script: "metrics.mjs", desc: "cards:metrics" },
+  history: { script: "history.mjs", desc: "cards:history" },
 };
 
 export function resolveCommand(argv) {
