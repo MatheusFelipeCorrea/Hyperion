@@ -85,6 +85,16 @@ git clone https://github.com/MatheusFelipeCorrea/Hyperion.git
 
 ### Preferido — pasta `Hyperion/` no produto (sem poluir a raiz)
 
+**Um comando** (se você já tem um clone do Hyperion à mão): dentro do clone,
+
+```bash
+node scripts/hyperion/create-hyperion.mjs /caminho/para/seu-produto --yes
+```
+
+Isso copia o kit inteiro para `seu-produto/Hyperion/` (pulando `.git`, `node_modules` e saídas de runtime como `plans/`/`audits/results/`), roda `npm install` dentro de `Hyperion/`, e grava os shims na raiz do produto — os passos 1–4 abaixo, automatizados. Sem `--yes` ele só mostra o preview (dry-run). `--repo owner/name` busca o kit direto do GitHub em vez de usar o clone local.
+
+Manual, passo a passo (o que o comando acima faz por você):
+
 1. Clone/ZIP → pasta chamada **`Hyperion`**.
 2. Coloque-a em `seu-produto/Hyperion/` (kit inteiro: `.github`, `scripts`, `Dockerfile`, …).
 3. Instale as dependências do kit — dentro de `Hyperion/`:
