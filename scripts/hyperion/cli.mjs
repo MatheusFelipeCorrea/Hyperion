@@ -71,6 +71,7 @@ const CARDS_COMMANDS = {
   watch: { script: "watch.mjs", desc: "cards:watch" },
   metrics: { script: "metrics.mjs", desc: "cards:metrics" },
   history: { script: "history.mjs", desc: "cards:history" },
+  notify: { script: "notify.mjs", desc: "cards:notify" },
 };
 
 export function resolveCommand(argv) {

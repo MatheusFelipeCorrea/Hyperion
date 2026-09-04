@@ -285,6 +285,13 @@ jobs:
           GITHUB_REPOSITORY: \${{ github.repository }}
           DRY_RUN: \${{ github.event.inputs.dry_run || 'false' }}
         run: node scripts/cards-sync/sync.mjs --reverse
+
+      - name: Notify (Slack/Discord)
+        if: always()
+        env:
+          SLACK_WEBHOOK_URL: \${{ secrets.SLACK_WEBHOOK_URL }}
+          DISCORD_WEBHOOK_URL: \${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: node scripts/cards-sync/notify.mjs
 `;
 }
 

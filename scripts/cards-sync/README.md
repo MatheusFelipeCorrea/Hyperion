@@ -402,6 +402,13 @@ npm run cards:metrics -- --json
 npm run cards:history
 npm run cards:history -- --json
 npm run cards:history -- --limit 5
+
+# Slack/Discord notification for a sync result — opt-in, no-ops silently
+# if neither webhook env var is set. hyperion-sync-cards.yml already runs
+# this after every sync attempt (if: always()).
+SLACK_WEBHOOK_URL="https://hooks.slack.com/services/..." npm run cards:notify
+DISCORD_WEBHOOK_URL="https://discord.com/api/webhooks/..." npm run cards:notify
+npm run cards:notify -- --message "Custom text"   # skip reading sync-history.jsonl
 ```
 
 ## GitHub automation
