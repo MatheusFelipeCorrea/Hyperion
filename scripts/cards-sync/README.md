@@ -258,6 +258,11 @@ This removes GitHub defaults + orphan labels, keeps Dependabot labels (`dependen
 
 `cards:init -- --yes` runs label reset automatically before sync.
 
+**Other backends:**
+- **GitLab** — `cards:labels-reset` works the same way, over GitLab's Labels REST API (`GITLAB_PROJECT_ID` + `GITLAB_TOKEN`, optional `GITLAB_URL`). GitLab projects ship with no default labels, so there's no GitHub-defaults special case — any non-catalog, non-Dependabot label is still treated as an orphan.
+- **Azure DevOps** — nothing to reset. `System.Tags` is free-text with no color/description/catalog concept in the REST API at all, so there's no metadata-drift or orphan-cleanup problem this tool solves there. `cards:labels-reset` explains this and exits cleanly if the backend is Azure.
+- **Linear** — nothing to reset either, but for a different reason: forward sync resolves `card.categories` to Linear `IssueLabel`s directly, creating any that don't exist on the team yet (get-or-create, same spirit as `CREATE_MISSING_LABELS` for GitHub/GitLab) — see `linearResolveLabelIds` in `scripts/cards-sync/backends/linear.mjs`. Reverse sync reads the real labels back the same way GitHub/GitLab do. `cards:labels-reset` explains this and exits cleanly if the backend is Linear.
+
 **Project views:** on create/sync, Hyperion configures tabs in order: **Board** → **Tabela** → **Roadmap** (user can customize filters/grouping in the UI afterward).
 
 **Status columns (board):** workflow columns come from `status-columns.{locale}.json` (via `statusColumnsFile` in `projects-map.json`). Each entry has `key` (canonical English status), `color` (GitHub enum: GRAY, BLUE, GREEN, …), and `description` shown in Project field settings. Names on the board are localized through `optionMapByLocale.status`. Forward sync updates missing columns and refreshes color/description when metadata drifts.
