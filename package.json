@@ -35,6 +35,7 @@
     "hyperion:review-verify": "node scripts/hyperion/review-verify.mjs",
     "hyperion:spec-review-verify": "node scripts/hyperion/spec-review-verify.mjs",
     "hyperion:audit-verify": "node scripts/hyperion/audit-verify.mjs",
+    "hyperion:audit-diff": "node scripts/hyperion/audit-diff.mjs",
     "hyperion:plan-verify": "node scripts/hyperion/plan-verify.mjs",
     "hyperion:release-verify": "node scripts/hyperion/release-verify.mjs",
     "hyperion:init": "node scripts/hyperion/init.mjs",

@@ -71,6 +71,11 @@ After last dimension, write `results/_summary/audit-run-{date}.md`:
 If exit ≠ 0 → the summary is missing a required section (or the Reports section has
 no table row / link) — fix before reporting completion.
 
+If a previous `/audit-run` summary already exists under `results/_summary/`, offer to run
+`npm run hyperion:audit-diff` and fold its per-dimension better/worse/new/removed comparison
+into the Executive Summary — that's the "did this round actually improve things" signal a
+single summary alone can't show.
+
 ## Memory capture
 
 If `memory.auto_capture: true` in project.yml, append cross-cutting themes via `memory-capture` skill.

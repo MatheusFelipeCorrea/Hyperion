@@ -48,6 +48,7 @@ export const COMMANDS = {
   telemetry: { script: "telemetry.mjs", desc: "Local opt-in agent-gate usage summary" },
   "spec-review-verify": { script: "spec-review-verify.mjs", desc: "Gate /spec-review artifact" },
   "audit-verify": { script: "audit-verify.mjs", desc: "Gate /audit-run summary" },
+  "audit-diff": { script: "audit-diff.mjs", desc: "Compare two /audit-run rounds dimension by dimension" },
   "plan-verify": { script: "plan-verify.mjs", desc: "Gate /implement plan" },
   "release-verify": { script: "release-verify.mjs", desc: "Gate /release artifact" },
   "install-shims": { script: "install-product-shims.mjs", desc: "Install product npm shims" },
