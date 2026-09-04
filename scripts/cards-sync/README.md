@@ -287,28 +287,35 @@ Default semantic palette:
 
 ### End-to-end test (opt-in)
 
-`scripts/cards-sync/e2e/e2e-forward-sync.mjs` closes the gap the unit tests can't: it runs the **real** `sync.mjs` forward sync against a **disposable** GitHub repo, then asserts the resulting Issue(s) actually exist with the right title/labels/body — and deletes what it created afterward (`try`/`finally`, runs even on assertion failure).
+Two scripts close the gap the unit tests can't — both drive the **real** `sync.mjs` against a **disposable** GitHub repo:
 
-This is **opt-in only** and never runs automatically:
-- It is not part of `npm test` / `npm run cards:test` (it doesn't match the `scripts/cards-sync/*.test.mjs` glob — it lives in `scripts/cards-sync/e2e/`).
-- Its GitHub Actions workflow, `.github/workflows/hyperion-e2e-cards.yml`, is triggered **only** by `workflow_dispatch` — never `push`/`pull_request` — so it can't run against a contributor's PR or a push to this repo.
+- `scripts/cards-sync/e2e/e2e-forward-sync.mjs` — runs a real forward sync, then asserts the resulting Issue(s) actually exist with the right title/labels/body.
+- `scripts/cards-sync/e2e/e2e-reverse-sync.mjs` — runs a real forward sync to create one issue, edits that issue's title and labels **directly via the GitHub API** (simulating someone editing it on the board), deletes the local card file, then runs a real reverse sync and asserts the *recreated* local file picked up the board's title and label. Scoped to title/label roundtrip only — the fixture is Issues-only (no GitHub Project board, same as the forward test), so there's no real board-driven Status field to verify without faking the thing the test is supposed to prove.
+
+Both delete everything they created afterward (`try`/`finally`, runs even on assertion failure), and are **opt-in only** — neither ever runs automatically:
+- Neither is part of `npm test` / `npm run cards:test` (they don't match the `scripts/cards-sync/*.test.mjs` glob — they live in `scripts/cards-sync/e2e/`).
+- Their GitHub Actions workflow, `.github/workflows/hyperion-e2e-cards.yml`, is triggered **only** by `workflow_dispatch` — never `push`/`pull_request` — so it can't run against a contributor's PR or a push to this repo. The workflow has one job per script (`e2e-forward-sync`, `e2e-reverse-sync`), both using the same `E2E_TARGET_REPO`/`E2E_GITHUB_TOKEN`.
 
 **One-time maintainer setup:**
-1. Create a separate, disposable GitHub repo you own (e.g. `your-user/hyperion-e2e-sandbox`) — never this repo. It just needs to exist; the test creates and deletes its own issues/labels in it.
+1. Create a separate, disposable GitHub repo you own (e.g. `your-user/hyperion-e2e-sandbox`) — never this repo. It just needs to exist; the tests create and delete their own issues/labels in it.
 2. In this repo's Settings → Secrets and variables → Actions, add:
    - Variable **`E2E_TARGET_REPO`** = `your-user/hyperion-e2e-sandbox`
    - Secret **`E2E_GITHUB_TOKEN`** = a PAT scoped to that disposable repo with `Issues: Read and write` + `Contents: Read` (a fine-grained PAT limited to that one repo is safest).
 3. Trigger it: Actions → **Hyperion — E2E Cards Sync (opt-in)** → Run workflow.
 
-Run it locally instead of via Actions:
+Run either locally instead of via Actions:
 
 ```bash
 E2E_TARGET_REPO="your-user/hyperion-e2e-sandbox" \
 E2E_GITHUB_TOKEN="ghp_xxx" \
   node scripts/cards-sync/e2e/e2e-forward-sync.mjs
+
+E2E_TARGET_REPO="your-user/hyperion-e2e-sandbox" \
+E2E_GITHUB_TOKEN="ghp_xxx" \
+  node scripts/cards-sync/e2e/e2e-reverse-sync.mjs
 ```
 
-Without `E2E_TARGET_REPO` / a token, the script fails fast with a clear error instead of crashing — and it also refuses to run if `E2E_TARGET_REPO` resolves to the same repo the script is running from.
+Without `E2E_TARGET_REPO` / a token, each script fails fast with a clear error instead of crashing — and each also refuses to run if `E2E_TARGET_REPO` resolves to the same repo the script is running from.
 
 ## Commands
 

@@ -1,10 +1,10 @@
 name: Hyperion — E2E Cards Sync (opt-in)
 
-# OPT-IN ONLY. This workflow performs a REAL forward sync — it creates and
-# deletes real GitHub issues (+ one throwaway label) against a DISPOSABLE
-# test repo, to verify scripts/cards-sync/sync.mjs actually works end-to-end
-# (sync.test.mjs / lib.test.mjs are unit tests only — they mock fetch and
-# never touch a real GitHub API).
+# OPT-IN ONLY. This workflow performs REAL forward + reverse syncs — it
+# creates, edits, and deletes real GitHub issues (+ throwaway labels) against
+# a DISPOSABLE test repo, to verify scripts/cards-sync/sync.mjs actually
+# works end-to-end in both directions (sync.test.mjs / lib.test.mjs are unit
+# tests only — they mock fetch and never touch a real GitHub API).
 #
 # Deliberately triggered ONLY by workflow_dispatch — never push/pull_request —
 # so it can never run automatically against a contributor's PR or a push to
@@ -56,3 +56,21 @@ jobs:
           # which is scoped to THIS repo's production sync. Keep them separate.
           E2E_GITHUB_TOKEN: ${{ secrets.E2E_GITHUB_TOKEN }}
         run: node scripts/cards-sync/e2e/e2e-forward-sync.mjs
+
+  e2e-reverse-sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+
+      - name: Run E2E reverse-sync test (disposable repo only)
+        env:
+          E2E_TARGET_REPO: ${{ vars.E2E_TARGET_REPO }}
+          E2E_GITHUB_TOKEN: ${{ secrets.E2E_GITHUB_TOKEN }}
+        run: node scripts/cards-sync/e2e/e2e-reverse-sync.mjs
