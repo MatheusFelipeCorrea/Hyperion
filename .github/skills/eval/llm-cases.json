@@ -3,30 +3,40 @@
     "id": "card-refiner-summary",
     "golden": "card-refiner-summary.txt",
     "mustContain": ["Concluído", "Pendente"],
-    "mustMatch": ["^## .+Resumo"]
+    "mustMatch": ["^## .+Resumo"],
+    "skill": ".github/skills/planning/card-refiner/SKILL.md",
+    "skillHash": "03b8853bba3b10d508826230b0551c4dac5bd69dc121a444b5f05cbac556078c"
   },
   {
     "id": "integration-bridge-github",
     "golden": "integration-bridge-github.txt",
     "mustContain": ["projects-map.json", "management.backend"],
-    "mustMatch": ["GitHub"]
+    "mustMatch": ["GitHub"],
+    "skill": ".github/skills/setup/integration-bridge/SKILL.md",
+    "skillHash": "1e8bb2f81ea5ae7e6f29e9ae391404d5604ba7f5c0e2779f9cbcef01d5e9214e"
   },
   {
     "id": "adr-generator-status",
     "golden": "adr-generator-status.txt",
     "mustContain": ["## Status", "## Decision", "## Options Considered"],
-    "mustMatch": ["^# ADR-\\d+"]
+    "mustMatch": ["^# ADR-\\d+"],
+    "skill": ".github/skills/docs/adr-generator/SKILL.md",
+    "skillHash": "67c73d4a39d7a3b34cb7b578ec8db2a9ec70e8382196ba10bdab67d6e7c9635f"
   },
   {
     "id": "changelog-generator-entry",
     "golden": "changelog-generator-entry.txt",
     "mustContain": ["Funcionalidades", "Correções", "Quebras de compatibilidade"],
-    "mustMatch": ["^## \\[.+\\] - \\d{4}-\\d{2}-\\d{2}"]
+    "mustMatch": ["^## \\[.+\\] - \\d{4}-\\d{2}-\\d{2}"],
+    "skill": ".github/skills/docs/changelog-generator/SKILL.md",
+    "skillHash": "95252b1e3bd526df46e99f6e488e1a1112af33d0c07e63d65e164e6c17a11e43"
   },
   {
     "id": "security-audit-finding",
     "golden": "security-audit-finding.txt",
     "mustContain": ["SEC-1-01", "Severity", "Mitigation"],
-    "mustMatch": ["\\w+[/\\\\][\\w./\\\\-]+:\\d+"]
+    "mustMatch": ["\\w+[/\\\\][\\w./\\\\-]+:\\d+"],
+    "skill": ".github/skills/quality/security-audit/SKILL.md",
+    "skillHash": "cafb4984f232b24fc5bc6fa0d058f5cc1ca4d44759b5625d003758c02e3d6a6e"
   }
 ]
