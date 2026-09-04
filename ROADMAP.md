@@ -4,30 +4,15 @@ Onde o Hyperion está indo — não uma promessa de data, uma pista de prioridad
 
 Atualizado a cada rodada de auditoria que muda a direção — não a cada PR.
 
-## Agora
+## Fechado nesta rodada (set/2026)
 
-O que está ativamente em progresso ou é a próxima aposta clara:
+Todo item que este arquivo listava em Agora/Próximo/Mais pra frente foi implementado — 30 commits em `feat/agora-lane-items`, PR #80. Destaques: dry-run-by-default em todo cards-sync (`migrate-layout.mjs` alinhado), teste isolado de hierarquia pai-filho nos 4 backends, E2E cobrindo reverse-sync, `hyperion:project-fields-apply`, `hyperion:audit-diff`, servidor MCP próprio (doctor + project-verify, sem dependência de SDK), `hyperion:create` (scaffold local), `cards:history`, notificador Slack/Discord, `labels-reset.mjs` estendido (GitLab + correção real do Linear), license-checker, guia de "como adicionar um backend novo", suporte a Windsurf/Zed, teste de paridade `commands.yml`↔filesystem, 4 skills novos de cobertura de SDLC, telemetria opt-in, concorrência limitada no sync, e 2 ADRs (split de `sync.mjs`/`lib.mjs` e GitHub App vs PAT — avaliados e adiados por decisão registrada, não esquecidos).
 
-- **Fechar o padrão dry-run-by-default no resto do cards-sync.** `watch.mjs` e o `workflow_dispatch` manual de `hyperion-sync-cards.yml` já pedem confirmação antes de escrever no board real. `migrate-layout.mjs` ainda roda live sem `--yes` — mesmo padrão, falta alinhar.
-- **Cobertura de teste pra hierarquia pai-filho nos 4 backends.** Azure/GitLab/Linear acabaram de ganhar paridade com o Jira (`buildEdges` + linking próprio de cada API) — nenhum dos 4 tem teste isolado pra essa lógica ainda, só o fluxo completo.
-- **E2E cobrindo reverse-sync**, não só forward — é o caminho que os 4 backends não-GitHub citam como obrigatório, e o mais arriscado (escreve no próprio repo).
+Ver `[Unreleased]` do [CHANGELOG.md](./CHANGELOG.md) pra lista completa com hashes de commit.
 
-## Próximo
+## Agora / Próximo / Mais pra frente
 
-Ideias com escopo claro, esperando uma janela de trabalho:
-
-- **`hyperion:project-fields-apply`** — criar/renomear os 8 campos exigidos no GitHub Project via `gh api`, tirando o maior passo manual do primeiro `/setup`.
-- **Pre-flight de conectividade pra Azure/GitLab/Linear no `doctor.mjs`** — hoje só GitHub/Jira têm checagem antes do sync de verdade.
-- **`hyperion:audit-diff`** — comparar uma rodada de `/audit-run` com a anterior, dimensão por dimensão. `.github/audits/results/` já acumula os relatórios; falta o diff.
-- **Servidor MCP próprio do Hyperion** — expor `doctor`/`sync`/`cards` como MCP tools, reduzindo a dependência de pacotes MCP de terceiros (3 dos 4 hoje documentados são comunitários de mantenedor único).
-
-## Mais pra frente
-
-Reais, mas sem prazo — dependem de mais tração ou de uma decisão que ainda não foi tomada:
-
-- Cobertura de ciclo de vida em skills novos (feature flags, métricas de engenharia, compliance, contrato de API).
-- GitHub App como alternativa ao PAT pro cards-sync (rotação de credencial mais durável pra times).
-- Telemetria opt-in, 100% local, de uso de skills/agentes — sem isso, decisão de onde investir no catálogo continua sendo intuição.
+Vazio de propósito — esta rodada zerou o backlog anterior. As próximas prioridades saem da próxima auditoria (`/audit-run`), não de reciclar o que já foi feito. `npm run hyperion:audit-diff` vai comparar essa futura rodada com a anterior quando ela existir.
 
 ## O que não está no roadmap (de propósito)
 
