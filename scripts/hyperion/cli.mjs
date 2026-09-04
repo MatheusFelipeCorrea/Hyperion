@@ -50,6 +50,7 @@ export const COMMANDS = {
   "audit-verify": { script: "audit-verify.mjs", desc: "Gate /audit-run summary" },
   "audit-diff": { script: "audit-diff.mjs", desc: "Compare two /audit-run rounds dimension by dimension" },
   create: { script: "create-hyperion.mjs", desc: "Scaffold a new product with a nested Hyperion kit" },
+  "mcp-server": { script: "mcp-server.mjs", desc: "MCP stdio server: doctor + project-verify tools (read-only)" },
   "plan-verify": { script: "plan-verify.mjs", desc: "Gate /implement plan" },
   "release-verify": { script: "release-verify.mjs", desc: "Gate /release artifact" },
   "install-shims": { script: "install-product-shims.mjs", desc: "Install product npm shims" },

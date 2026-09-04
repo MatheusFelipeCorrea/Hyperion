@@ -1,5 +1,10 @@
 {
   "mcpServers": {
+    "hyperion": {
+      "command": "node",
+      "args": ["scripts/hyperion/mcp-server.mjs"],
+      "_comment": "First-party, read-only: doctor + project-verify tools. No package to install — see .github/mcp/README.md."
+    },
     "jira": {
       "command": "npx",
       "args": ["-y", "mcp-atlassian"],
