@@ -577,6 +577,11 @@ hyperion-security:
         pip install pip-audit
         pip-audit || pip-audit -r requirements.txt
       fi
+    - |
+      if [ -f package.json ]; then
+        npx --yes license-checker@25.0.1 --excludePrivatePackages --summary \
+          --failOn "GPL-1.0;GPL-2.0;GPL-3.0;AGPL-1.0;AGPL-3.0;LGPL-2.0;LGPL-2.1;LGPL-3.0;UNLICENSED"
+      fi
   allow_failure: false
 `;
 }
