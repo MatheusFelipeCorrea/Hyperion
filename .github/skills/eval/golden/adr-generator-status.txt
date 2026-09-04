@@ -1,0 +1,42 @@
+# ADR-014: Use PostgreSQL for the inventory service
+
+## Status
+
+Accepted
+
+## Date
+
+2026-01-15
+
+## Context
+
+The new inventory service needs a persistence layer. The team has strong
+operational experience with PostgreSQL but none with MongoDB. Inventory
+data is relational (products, warehouses, stock levels) and benefits from
+strong consistency guarantees.
+
+## Decision
+
+Use PostgreSQL as the persistence layer for the inventory service.
+
+## Options Considered
+
+### Option A: PostgreSQL
+- Pros: Strong consistency, relational fit for inventory data, existing team expertise, mature tooling
+- Cons: Schema migrations require more upfront design than a schemaless store
+
+### Option B: MongoDB
+- Pros: Flexible schema, easy to evolve document shape without migrations
+- Cons: No prior operational experience on the team, weaker fit for relational inventory data, would add a new database to operate
+
+## Consequences
+
+### Positive
+- Team can operate the new service with existing PostgreSQL knowledge
+- Strong consistency avoids a class of stock-count bugs under concurrent writes
+
+### Negative
+- Schema changes need migrations, slower than a schemaless store for early iteration
+
+### Risks
+- None identified beyond standard relational schema evolution risk
