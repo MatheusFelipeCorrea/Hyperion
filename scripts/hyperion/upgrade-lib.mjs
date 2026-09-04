@@ -54,6 +54,7 @@ export const PRESERVE_PREFIXES = [
   ".github/stories/",
   ".github/tasks/",
   ".github/_examples/",
+  ".github/audits/results/",
 ];
 
 const KIT_SCRIPT_PREFIXES = ["hyperion:", "cards:", "docs:", "skills:"];
