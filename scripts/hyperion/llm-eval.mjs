@@ -158,9 +158,17 @@ async function main() {
       const drifted = checkSkillDrift(c, root);
       if (drifted === false) {
         stale++;
-        console.error(
-          `WARN ${c.id}: ${c.skill} changed since this golden was last verified — the fixture may no longer represent what the skill produces. Not a hard failure; consider re-verifying (manually or with HYPERION_LLM_EVAL_LIVE=1) and updating skillHash in llm-cases.json.`
-        );
+        const message = `${c.skill} changed since this golden was last verified — the fixture may no longer represent what the skill produces. Not a hard failure; consider re-verifying (manually or with HYPERION_LLM_EVAL_LIVE=1) and updating skillHash in llm-cases.json.`;
+        console.error(`WARN ${c.id}: ${message}`);
+        // A plain console.error WARN is easy to miss in a green CI run — a
+        // job can pass with dozens of log lines nobody reads. GitHub
+        // Actions' ::warning:: workflow command surfaces this as an actual
+        // annotation on the PR (checks tab + files-changed view), so drift
+        // stays visible without turning this into the hard failure the
+        // non-live mode deliberately avoids being.
+        if (process.env.GITHUB_ACTIONS === "true") {
+          console.log(`::warning file=${c.skill},title=llm-eval skill drift (${c.id})::${message}`);
+        }
       }
       console.log(`OK ${c.id} (fixture schema check${drifted === false ? ", skill drifted — see WARN" : ""})`);
       continue;
