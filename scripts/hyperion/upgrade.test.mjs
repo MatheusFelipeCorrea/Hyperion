@@ -19,6 +19,7 @@ import {
   summarizePlan,
   recordUpgradeChangelog,
   MANAGED_FILES,
+  UPGRADE_BACKUP_DIR,
 } from "./upgrade-lib.mjs";
 import { sameCommit, resolveOrigin, DEFAULT_ORIGIN } from "./upgrade-fetch.mjs";
 
@@ -180,6 +181,76 @@ describe("upgrade-lib", () => {
       const meta = JSON.parse(readFileSync(join(client, ".github", "hyperion-kit.json"), "utf8"));
       assert.ok(meta.upgraded_at);
       assert.match(readFileSync(join(client, "CHANGELOG.md"), "utf8"), /Hyperion kit upgrade/);
+    } finally {
+      rmSync(kit, { recursive: true, force: true });
+      rmSync(client, { recursive: true, force: true });
+    }
+  });
+
+  it("backs up a locally-modified managed file before overwriting it, and never backs up a brand-new add", async () => {
+    const kit = mkdtempSync(join(tmpdir(), "kit-"));
+    const client = mkdtempSync(join(tmpdir(), "client-"));
+    try {
+      makeKit(kit);
+      makeClient(client);
+      // makeClient already ships doctor.mjs with different content than
+      // makeKit's ("v = 1" vs "v = 2") — the real-world "adopter modified a
+      // shipped file" scenario this backup exists to protect.
+      const plan = await buildUpgradePlan(kit, client);
+      const { backedUp } = await applyUpgradePlan(kit, client, plan, { yes: true });
+
+      const doctorBackup = backedUp.find((b) => b.rel === "scripts/hyperion/doctor.mjs");
+      assert.ok(doctorBackup, "the modified doctor.mjs must be recorded as backed up");
+      assert.equal(
+        readFileSync(join(client, doctorBackup.backup), "utf8"),
+        "export const v = 1;\n",
+        "the backup must hold the client's PRE-overwrite content, not the kit's"
+      );
+      assert.equal(
+        readFileSync(join(client, "scripts", "hyperion", "doctor.mjs"), "utf8"),
+        "export const v = 2;\n",
+        "the live file still gets the kit's new content — this is backup, not preserve"
+      );
+      assert.ok(
+        doctorBackup.backup.startsWith(`${UPGRADE_BACKUP_DIR}/`),
+        "backup path must live under the gitignored backup dir"
+      );
+
+      // .github/skills/setup/x/SKILL.md is a first-time "add" for this
+      // client (doesn't exist yet) — nothing to lose, so no backup entry.
+      const skillBackup = backedUp.find((b) => b.rel === ".github/skills/setup/x/SKILL.md");
+      assert.equal(skillBackup, undefined, "a first-time add must never be backed up");
+    } finally {
+      rmSync(kit, { recursive: true, force: true });
+      rmSync(client, { recursive: true, force: true });
+    }
+  });
+
+  it("never backs up or touches a custom file the adopter added under a managed dir", async () => {
+    const kit = mkdtempSync(join(tmpdir(), "kit-"));
+    const client = mkdtempSync(join(tmpdir(), "client-"));
+    try {
+      makeKit(kit);
+      makeClient(client);
+      mkdirSync(join(client, ".github", "skills", "custom", "my-skill"), { recursive: true });
+      writeFileSync(
+        join(client, ".github", "skills", "custom", "my-skill", "SKILL.md"),
+        "# our own custom skill\n"
+      );
+
+      const plan = await buildUpgradePlan(kit, client);
+      assert.ok(
+        !plan.some((p) => p.rel === ".github/skills/custom/my-skill/SKILL.md"),
+        "a skill that doesn't exist in the kit's own tree must never appear in the plan"
+      );
+
+      const { backedUp } = await applyUpgradePlan(kit, client, plan, { yes: true });
+      assert.ok(!backedUp.some((b) => b.rel.includes("custom/my-skill")));
+      assert.equal(
+        readFileSync(join(client, ".github", "skills", "custom", "my-skill", "SKILL.md"), "utf8"),
+        "# our own custom skill\n",
+        "the adopter's own skill file must survive the upgrade untouched"
+      );
     } finally {
       rmSync(kit, { recursive: true, force: true });
       rmSync(client, { recursive: true, force: true });

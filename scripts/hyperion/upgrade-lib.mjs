@@ -256,6 +256,27 @@ export function mergeGitignore(targetContent, kitContent) {
   return `${base ? `${base}\n\n` : ""}${GITIGNORE_MARKER_START}\n${kitBlock}\n${GITIGNORE_MARKER_END}\n`;
 }
 
+/** Where an "update" action's pre-overwrite copy is stashed — never committed (see .gitignore). */
+export const UPGRADE_BACKUP_DIR = ".hyperion-upgrade-backup";
+
+/**
+ * `collectManagedRels` only lists paths that exist in the KIT's own tree, so
+ * a brand-new file an adopter adds under a managed dir (e.g. a custom skill
+ * folder) is never touched. But an EXISTING kit file the adopter has locally
+ * modified (e.g. edited a shipped SKILL.md) shows up as action "update" and
+ * would otherwise be silently overwritten with the kit's stock version,
+ * losing that edit with no trace. Stash the pre-overwrite content here first
+ * so an overwritten customization is recoverable, not destroyed.
+ */
+async function backupBeforeOverwrite(targetRoot, rel, runStamp) {
+  const to = path.join(targetRoot, ...rel.split("/"));
+  if (!(await pathExists(to))) return null;
+  const backupPath = path.join(targetRoot, UPGRADE_BACKUP_DIR, runStamp, ...rel.split("/"));
+  await fs.mkdir(path.dirname(backupPath), { recursive: true });
+  await fs.copyFile(to, backupPath);
+  return path.posix.join(UPGRADE_BACKUP_DIR, runStamp, rel);
+}
+
 export async function applyUpgradePlan(
   kitRoot,
   targetRoot,
@@ -263,10 +284,18 @@ export async function applyUpgradePlan(
   { yes = false, remoteMeta = null, sourceLabel = null } = {}
 ) {
   const applied = [];
-  if (!yes) return applied;
+  const backedUp = [];
+  if (!yes) return { applied, backedUp };
+
+  const runStamp = new Date().toISOString().replace(/[:.]/g, "-");
 
   for (const item of items) {
     if (item.action !== "add" && item.action !== "update") continue;
+
+    if (item.action === "update") {
+      const backupRel = await backupBeforeOverwrite(targetRoot, item.rel, runStamp);
+      if (backupRel) backedUp.push({ rel: item.rel, backup: backupRel });
+    }
 
     if (item.rel === "package.json") {
       const kit = JSON.parse(await fs.readFile(path.join(kitRoot, "package.json"), "utf8"));
@@ -333,7 +362,7 @@ export async function applyUpgradePlan(
 
   await recordUpgradeChangelog(targetRoot, meta, applied.length);
 
-  return applied;
+  return { applied, backedUp };
 }
 
 /**
