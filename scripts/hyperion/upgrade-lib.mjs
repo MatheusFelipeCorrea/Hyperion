@@ -32,8 +32,6 @@ export const MANAGED_FILES = [
   "CLAUDE.md",
   ".env.example",
   ".cursor/rules/hyperion.mdc",
-  ".windsurfrules",
-  ".rules",
   "Dockerfile",
   "bin/hyperion",
   "bin/hyperion.cmd",
