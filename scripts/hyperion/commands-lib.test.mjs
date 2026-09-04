@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -9,6 +9,7 @@ import {
   buildSkillIndex,
   buildSkillsSection,
   buildAgentsSection,
+  loadCommands,
   normalizeEol,
   replaceMarkedSection,
   replaceTextSection,
@@ -28,6 +29,55 @@ describe("parseCommandsYaml", () => {
     assert.ok(commands.some((c) => c.phrase === "/execute" && c.type === "agent"));
     assert.ok(commands.some((c) => c.phrase === "/implement" && c.skill === "implementation-plan"));
     assert.ok(npmShortcuts.length >= 5);
+  });
+});
+
+describe("commands.yml / filesystem parity", () => {
+  // The same class of bug the package.json <-> cli.mjs COMMANDS parity test
+  // (cli.test.mjs) catches: a hand-maintained registry drifting from what
+  // actually exists on disk. skillPath() in commands-lib.mjs silently falls
+  // back to a glob-pattern STRING (`.github/skills/**/${skill}/SKILL.md`)
+  // for an unknown skill name instead of erroring — so a typo in
+  // commands.yml would render a broken-looking path in CLAUDE.md/hyperion.mdc
+  // forever without this test ever failing.
+  it("every non-agent, skill-backed command resolves to a real SKILL.md (no wildcard fallback)", () => {
+    const { commands } = loadCommands();
+    const skillIndex = buildSkillIndex();
+    const unresolved = [];
+
+    for (const cmd of commands) {
+      if (cmd.type === "agent" || !cmd.skill) continue;
+      if (!skillIndex.has(cmd.skill)) unresolved.push(`${cmd.phrase} -> skill "${cmd.skill}"`);
+    }
+
+    assert.deepEqual(unresolved, []);
+  });
+
+  it("every agent-type command's .agent.md file actually exists", () => {
+    const { commands } = loadCommands();
+    const missing = [];
+
+    for (const cmd of commands) {
+      if (cmd.type !== "agent") continue;
+      const agentPath = join(repoRoot, ".github/agents", `${cmd.skill}.agent.md`);
+      if (!existsSync(agentPath)) missing.push(`${cmd.phrase} -> ${agentPath}`);
+    }
+
+    assert.deepEqual(missing, []);
+  });
+
+  it("every command's npm shortcut resolves to a real package.json script", () => {
+    const { commands } = loadCommands();
+    const pkg = JSON.parse(readFileSync(join(repoRoot, "package.json"), "utf8"));
+    const missing = [];
+
+    for (const cmd of commands) {
+      if (!cmd.npm) continue;
+      const scriptName = cmd.npm.split(" ")[0]; // strip " -- --yes" style args
+      if (!pkg.scripts[scriptName]) missing.push(`${cmd.phrase} -> npm run ${scriptName}`);
+    }
+
+    assert.deepEqual(missing, []);
   });
 });
 
