@@ -495,8 +495,57 @@ function buildIssueBody(card, linkContext = null) {
 // GitHub GraphQL
 // ---------------------------------------------------------------------------
 
+/**
+ * POST with retry on GitHub's rate limiting. Every GraphQL call in this
+ * file — queries and mutations (createIssue/updateIssue included) — goes
+ * through this one function, so this is the single place a systematic
+ * backoff belongs; before this, a single 429/secondary-rate-limit response
+ * on any call (createIssue/updateIssue had no try/catch of their own)
+ * threw immediately and aborted the whole concurrent mapWithConcurrency
+ * batch it was part of.
+ *
+ * Only retries responses that actually look like rate limiting (a
+ * `Retry-After` header, or an error message mentioning "rate limit" —
+ * GitHub's real wording for both primary and secondary limits) — any other
+ * error (auth failure, validation error, bad query) still throws on the
+ * first attempt, unchanged from before.
+ *
+ * Exported + parameterized (fetchFn, sleepFn) so it's unit-testable without
+ * a real network call or a real multi-second wait.
+ */
+export async function githubGraphqlWithRetry(
+  fetchFn,
+  url,
+  requestInit,
+  { maxAttempts = 4, sleepFn = (ms) => new Promise((resolve) => setTimeout(resolve, ms)) } = {}
+) {
+  for (let attempt = 1; ; attempt++) {
+    const response = await fetchFn(url, requestInit);
+    const payload = await response.json();
+
+    const retryAfterHeader = response.headers?.get?.("retry-after");
+    const errorMessages = Array.isArray(payload?.errors)
+      ? payload.errors.map((e) => String(e?.message || e?.type || ""))
+      : [];
+    const looksRateLimited = Boolean(retryAfterHeader) || errorMessages.some((m) => /rate limit/i.test(m));
+
+    if (response.ok && !payload.errors) {
+      return payload.data;
+    }
+
+    if (looksRateLimited && attempt < maxAttempts) {
+      const waitMs = retryAfterHeader ? Number(retryAfterHeader) * 1000 : 2 ** (attempt - 1) * 1000;
+      await sleepFn(waitMs);
+      continue;
+    }
+
+    const details = JSON.stringify(payload.errors || payload, null, 2);
+    throw new Error(`GraphQL failed: ${details}`);
+  }
+}
+
 async function graphql(query, variables = {}, authToken = token) {
-  const response = await fetch("https://api.github.com/graphql", {
+  return githubGraphqlWithRetry(fetch, "https://api.github.com/graphql", {
     method: "POST",
     headers: {
       Authorization: `Bearer ${authToken}`,
@@ -505,13 +554,6 @@ async function graphql(query, variables = {}, authToken = token) {
     },
     body: JSON.stringify({ query, variables }),
   });
-
-  const payload = await response.json();
-  if (!response.ok || payload.errors) {
-    const details = JSON.stringify(payload.errors || payload, null, 2);
-    throw new Error(`GraphQL failed: ${details}`);
-  }
-  return payload.data;
 }
 
 async function getRepositoryNodeId(owner, name) {
