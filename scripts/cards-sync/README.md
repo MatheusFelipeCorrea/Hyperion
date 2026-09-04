@@ -95,7 +95,7 @@ Maintainers testing the kit itself: `--include-samples` (optional, not for norma
 
 **Layout rule:** folder name under `features|stories|tasks` = the **`parent` card_id**. Changing `parent` means **moving** the file. Recursive discovery already syncs nested paths.
 
-Migrate legacy flat files: `npm run cards:migrate-layout` (add `--dry-run` to preview). Validate warns on flat leftovers; `cards:validate --strict-layout` fails them.
+Migrate legacy flat files: `npm run cards:migrate-layout` (preview by default) then `npm run cards:migrate-layout -- --yes` to move files for real. Validate warns on flat leftovers; `cards:validate --strict-layout` fails them.
 
 ## Field mapping
 

@@ -95,7 +95,7 @@ When you **change `parent`**, **move** the file to the new parent folder (same `
 
 If the product uses nested adoption (`kit.root: Hyperion`), all of the paths above live under `Hyperion/.github/cards/…` — read `kit.root` from `.github/project.yml` first.
 
-Use `npm run cards:migrate-layout` to relocate legacy flat cards. Prefer `resolveCardRelativePath` convention documented in `scripts/cards-sync/README.md`.
+Use `npm run cards:migrate-layout -- --yes` to relocate legacy flat cards (dry-run preview by default without `--yes`). Prefer `resolveCardRelativePath` convention documented in `scripts/cards-sync/README.md`.
 
 ### Artifact 2: Consolidated README (for human reading)
 
