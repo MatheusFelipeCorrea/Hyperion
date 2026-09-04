@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { azureLinkWorkItems } from "./azure.mjs";
 import { gitlabLinkIssues } from "./gitlab.mjs";
 import { linearSetParent } from "./linear.mjs";
+import { jiraLinkIssues } from "./jira.mjs";
 
 function stubRequest(response = {}) {
   const calls = [];
@@ -58,4 +59,17 @@ test("linearSetParent sends an issueUpdate mutation with parentId set to the par
   assert.match(query, /issueUpdate/);
   assert.match(query, /parent\s*\{\s*id\s*\}/);
   assert.deepEqual(variables, { id: "child-uuid", input: { parentId: "parent-uuid" } });
+});
+
+test("jiraLinkIssues POSTs a Relates issueLink with inward/outward keys", async () => {
+  const jiraRequestFn = stubRequest();
+  await jiraLinkIssues(jiraRequestFn, "PROJ-1", "PROJ-2");
+
+  assert.equal(jiraRequestFn.calls.length, 1);
+  const [endpoint, method, body] = jiraRequestFn.calls[0];
+  assert.equal(endpoint, "/rest/api/2/issueLink");
+  assert.equal(method, "POST");
+  assert.equal(body.type.name, "Relates");
+  assert.equal(body.inwardIssue.key, "PROJ-1");
+  assert.equal(body.outwardIssue.key, "PROJ-2");
 });
