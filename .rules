@@ -1,0 +1,115 @@
+# 🌟 Hyperion — Zed Rules
+
+You have access to a full AI development kit in `.github/`. Use it.
+
+## Context Loading
+
+Before any task, read:
+- `.github/project.yml` — project config (stack, apps, conventions)
+- `.github/memory/PROJECT.md` — what this project is
+- `.github/memory/DOMAIN.md` — business domain
+- `.github/memory/DECISIONS.md` — decisions already made
+
+## Available Skills
+
+<!-- HYPERION:SKILLS:START -->
+Skills live in `.github/skills/` organized by category:
+
+- **planning/** — acceptance-spec, api-contract-guide, card-refiner, feature-flag-manager, hypothesis-forge, project-architect, refactor-guide, sprint-retro
+- **setup/** — cards-sync-setup, hyperion-ops, integration-bridge, memory-capture, pipeline-architect, project-discovery, project-startup, repo-migration
+- **quality/** — architecture-audit, code-review, compliance-audit, dependency-health, devops-audit, eng-metrics, full-audit, po-audit, pr-review, security-audit, tech-debt-tracker, testing-strategy, ux-audit
+- **docs/** — adr-generator, changelog-generator, plantuml-generator, readme-updater, release-manager
+
+When the user asks for any of these capabilities, read the corresponding `SKILL.md` and follow its instructions exactly.
+<!-- HYPERION:SKILLS:END -->
+
+## Agents
+
+<!-- HYPERION:AGENTS:START -->
+- `.github/agents/audit-runner.agent.md` — orchestrated 6-dimension audit (`/audit-run`)
+- `.github/agents/implementation-executor.agent.md` — execute approved plan phases (`/execute`)
+- `.github/agents/implementation-plan.agent.md` — phased implementation plan (`/implement`)
+- `.github/agents/mentoring.agent.md` — for teaching/explaining (`/mentor`)
+- `.github/agents/migration.agent.md` — adapt Hyperion to existing repo (`/migrate`)
+- `.github/agents/pr-reviewer.agent.md` — review open PR diff + tests (`/pr-review`)
+- `.github/agents/release.agent.md` — changelog, version, tag (`/release`)
+- `.github/agents/spec-review.agent.md` — gate card/spec before coding (`/spec-review`)
+
+See `.github/agents/README.md` for catalog and recommended flow.
+<!-- HYPERION:AGENTS:END -->
+
+## Command shortcuts (run skills — prefer over asking user to use npm)
+
+**You should run terminal commands** via hyperion-ops when the user wants sync/doctor/setup. Full reference: `.github/docs/reference/comandos-rapidos.md`.
+
+| User says | Skill / action |
+|-----------|----------------|
+<!-- HYPERION:COMMANDS:START -->
+| `/help` or "lista comandos Hyperion" | `npm run hyperion:help` + summarize |
+| `/setup` or "configura o Hyperion" | `project-startup` |
+| `/doctor` or "doctor do Hyperion" | `hyperion-ops` → `npm run hyperion:doctor` |
+| `/sync` or "sincroniza os cards" | `hyperion-ops` → `npm run hyperion:sync` |
+| `/discover` or "descobre esse projeto" | `project-discovery` |
+| `/migrate` | `migration` agent |
+| `/refine` or "refina em cards" | `card-refiner` |
+| `/explore` | `hypothesis-forge` |
+| `/spec` | `acceptance-spec` |
+| `/architect` | `project-architect` |
+| `/adr` | `adr-generator` |
+| `/audit` or "auditoria completa" | `full-audit` |
+| `/security` | `security-audit` |
+| `/deps` | `dependency-health` |
+| `/architecture` | `architecture-audit` |
+| `/devops` | `devops-audit` |
+| `/po` | `po-audit` |
+| `/ux` | `ux-audit` |
+| `/review` | `code-review` |
+| `/pr-review` | `pr-reviewer` agent |
+| `/implement` | `implementation-plan` agent |
+| `/execute` | `implementation-executor` agent |
+| `/spec-review` | `spec-review` agent |
+| `/audit-run` | `audit-runner` agent |
+| `/release` | `release` agent |
+| `/mentor` | `mentoring` agent |
+| `/refactor` | `refactor-guide` |
+| `/feature-flags` | `feature-flag-manager` |
+| `/api-contract` | `api-contract-guide` |
+| `/retro` | `sprint-retro` |
+| `/test-plan` | `testing-strategy` |
+| `/tech-debt` | `tech-debt-tracker` |
+| `/eng-metrics` | `eng-metrics` |
+| `/compliance` | `compliance-audit` |
+| `/changelog` | `changelog-generator` |
+| `/connect` | `integration-bridge` |
+| `/cards-setup` | `cards-sync-setup` |
+| `/readme` | `readme-updater` |
+| `/diagram` | `plantuml-generator` |
+| `/pipeline` | `pipeline-architect` |
+<!-- HYPERION:COMMANDS:END -->
+
+## Key Principles
+
+1. Always check `project.yml` before making assumptions about stack or conventions
+2. Use memory files as persistent context across sessions
+3. Blueprints and exemplars are **optional** — if missing, use codebase discovery (see `.github/docs/reference/methodology-cheatsheet.md`)
+4. When generating cards, follow YAML frontmatter format from card-refiner
+5. Audit reports go to `.github/audits/results/` — never edit source code during audits
+6. ADRs go to `.github/docs/adr/`
+7. **Never scatter generated files** — use the output map in `.github/docs/meta/onde-ficam-os-outputs.md`:
+   - Cards (sync source) → `.github/cards/`
+   - Specs → `.github/plans/specs/`
+   - Implementation plans → `.github/plans/implementations/`
+   - Discoveries → `.github/memory/discoveries/`
+   - Retros → `.github/docs/retros/`
+   - Read `project.yml` → `outputs` when paths are customized
+
+## Card evolution (move status, edit fields)
+
+When the user asks to change a card in conversation (e.g. "move EXAMPLE-STORY-001 to Done"):
+
+1. Find the file under `.github/cards/` by `card_id`
+2. Edit frontmatter in place (`status`, `priority`, etc.) — never duplicate the card
+3. Run `npm run hyperion:sync` (via hyperion-ops — do not ask user to run npm)
+4. Explicit `status` in frontmatter updates the GitHub Project Status column on sync (Jira/other: description metadata only today)
+
+Read `.github/skills/planning/card-refiner/SKILL.md` section "Card evolution during conversation" for status aliases and full workflow.

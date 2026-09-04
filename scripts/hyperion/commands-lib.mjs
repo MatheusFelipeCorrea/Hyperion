@@ -359,4 +359,20 @@ export const RUNTIME_TARGETS = [
     buildRows: (commands) => buildCopilotRows(commands),
     syncCatalog: true,
   },
+  {
+    // Windsurf's classic, still-supported root rules file (the newer
+    // .windsurf/rules/*.md directory format also exists, but a single
+    // file matches this kit's convention for every other runtime target).
+    path: join(repoRoot, ".windsurfrules"),
+    buildRows: (commands) => buildCursorRows(commands),
+    syncCatalog: true,
+  },
+  {
+    // Zed's own top-priority rules filename (it also reads CLAUDE.md and
+    // .github/copilot-instructions.md, both already generated above, but
+    // `.rules` sits first in Zed's own lookup order).
+    path: join(repoRoot, ".rules"),
+    buildRows: (commands) => buildCursorRows(commands),
+    syncCatalog: true,
+  },
 ];

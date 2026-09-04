@@ -123,6 +123,22 @@ Full command map: \`${kitName}/CLAUDE.md\` and \`${kitName}/.github/commands.yml
     "Cursor rules shim"
   );
 
+  const genericRulesShim = `# Hyperion
+
+The Hyperion agents/skills kit lives in \`./${kitName}/\`.
+
+Before planning or coding with Hyperion commands:
+1. Read \`.github/project.yml\` (note \`kit.root: ${kitName}\`).
+2. Open skills under \`${kitName}/.github/skills/**/SKILL.md\`.
+3. Write cards under \`${kitName}/.github/cards/\` (nested by parent card_id).
+4. Do not copy kit files into the product root — keep artifacts inside \`${kitName}/\`.
+
+Full command map: \`${kitName}/CLAUDE.md\` and \`${kitName}/.github/commands.yml\`.
+`;
+
+  await writeIfMissing(path.join(workspaceRoot, ".windsurfrules"), genericRulesShim, "Windsurf rules shim");
+  await writeIfMissing(path.join(workspaceRoot, ".rules"), genericRulesShim, "Zed rules shim");
+
   const paths = resolveHyperionPaths(workspaceRoot);
   ok(`Resolver layout=${paths.layout} cardsPrefix=${paths.cardsPrefix}`);
   log("", "Next: open chat in the product repo → /setup or /migrate");
