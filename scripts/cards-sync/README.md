@@ -518,22 +518,9 @@ Reverse sync (`--reverse`) is implemented for **GitHub, Jira, Azure DevOps, GitL
 
 Doctor remote checks cover **GitHub, Jira, Azure, GitLab, and Linear**.
 
-### Adding a new backend (e.g. Trello, ClickUp)
-
-The 4 non-GitHub backends (`scripts/cards-sync/backends/{jira,azure,gitlab,linear}.mjs`) all follow the same shape now — Azure/GitLab/Linear only reached parity with Jira's hierarchy linking this round, so the pattern below is genuinely the same across all four, not just "close enough":
-
-1. **New file**: `scripts/cards-sync/backends/<name>.mjs`, exporting `runForwardSync<Name>(repoConfig, management)` and `runReverseSync<Name>(repoConfig, management)`.
-2. **Reuse, don't reimplement**, from `../lib.mjs`: `parseCardFile`, `buildEdges`, `buildIssueTitle`, `buildRemoteDescriptionFromCard`, `parseCardIdFromIssueBody`, `parseSourceFileFromIssueBody`, `parseSyncMetadataFromDescription`, `remoteIssueToCardMarkdown`, `resolveHyperionStatusFromRemote`, `remoteBoardSyncAt`. And from `../sync.mjs`: `log`, `dryRun`, `cardsRoot`, `workspaceRoot`, `cardsPrefix`, `listMarkdownFiles`, `applyKitSampleFilter`, `applyReverseCardFileUpdate`, `countReverseWrite`.
-3. **Idempotency**: every remote item's body/description must embed the `CARD_ID:` sync marker (see `buildRemoteDescriptionFromCard`'s output) — forward sync finds-or-creates by searching for it, exactly like the 4 existing backends.
-4. **Own request helper**: a small function (e.g. `<name>Request(endpoint, method, body)` or a GraphQL equivalent) closing over the API base URL/token from `management`. Raw `fetch`, not a vendor SDK — matches every backend in this kit (and the first-party MCP server).
-5. **Parent-child linking**: write it as a **standalone exported function taking the request helper as its first parameter** — `async function <name>LinkIssues(requestFn, childId, parentId)` — not a closure over a local variable. That's what makes it unit-testable with a stub instead of mocking `global.fetch`; see `backends/linking.test.mjs` for the pattern all 4 existing backends use, and add your new one there too.
-6. **Reverse sync shape**: for each remote item with a `CARD_ID:` marker, parse `SOURCE_FILE`/`CARD_ID`, derive `hyperionStatus` via `resolveHyperionStatusFromRemote(remoteStatus, statusMap, repoConfig)`, build `converted` via `remoteIssueToCardMarkdown({ title, description, labels, statusOverride })`, then call `applyReverseCardFileUpdate({ sourceFile, cardId, remoteUpdates, converted, logLabel })` — it handles both the patch-existing-file and create-new-file cases for you.
-7. **Wire it into `sync.mjs`**: add a `backend === "<name>"` branch next to the existing 4 in both `runForwardSync()` (around the `if (backend === "gitlab")` block) and `runReverseSync()` (the mirroring block further down) — import your two new functions at the top of `sync.mjs`.
-8. **`doctor.mjs`**: add a connectivity check block (env vars required, one real read-only API call to confirm they work) — copy the shape of the Azure/GitLab/Linear blocks, they're all the same length.
-9. **`labels-reset.mjs`**: only relevant if the backend has a real label/tag catalog with color+description (GitLab does; Azure's Tags don't — see the comment in that file for why Azure is skipped there).
-10. Configure connection + field mapping for real usage via the `integration-bridge` skill once the adapter exists.
-
-Card categories/labels, status mapping (`status_map`), and the `CARD_ID`/`SOURCE_FILE` sync markers are backend-agnostic — you're translating Hyperion's card model to the new API's shape, not inventing new conventions.
+If you want to integrate another backend, the intended path is:
+- configure connection + field mapping via the `integration-bridge` skill
+- then implement a new adapter in `scripts/cards-sync/backends/` (roadmap)
 
 ### Labels i18n
 
