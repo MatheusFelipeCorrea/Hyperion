@@ -103,7 +103,11 @@ async function runPipeline() {
     } else {
       log("Syncing all cards (LIVE)...");
     }
-    await runNodeScript("sync.mjs", extraEnv);
+    // CARDS_SYNC_YES skips sync.mjs's own interactive confirmation — the
+    // user already made that call once, explicitly, via CARDS_WATCH_LIVE.
+    // Re-prompting on every debounced file change would defeat the point
+    // of an unattended watcher.
+    await runNodeScript("sync.mjs", { ...extraEnv, CARDS_SYNC_YES: "true" });
 
     log("Done.");
   } catch (error) {

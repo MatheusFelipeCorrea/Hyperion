@@ -4,9 +4,12 @@ on:
   workflow_dispatch:
     inputs:
       dry_run:
-        description: "Run without persisting changes"
+        # Defaults to true on purpose: a manual "Run workflow" click that
+        # forgets to touch this dropdown must never write to the live
+        # board by accident.
+        description: "Run without persisting changes (set to false for a real sync)"
         required: false
-        default: "false"
+        default: "true"
       sync_direction:
         description: "pull-forward | forward-only | reverse"
         required: false
@@ -72,3 +75,12 @@ jobs:
           GITHUB_REPOSITORY: ${{ github.repository }}
           DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
         run: node scripts/cards-sync/sync.mjs --reverse
+
+      - name: Notify (Slack/Discord)
+        # Runs even if a step above failed. No-ops silently if neither
+        # webhook secret is configured (see scripts/cards-sync/notify.mjs).
+        if: always()
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: node scripts/cards-sync/notify.mjs

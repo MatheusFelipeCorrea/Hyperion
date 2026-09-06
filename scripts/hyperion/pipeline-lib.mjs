@@ -216,9 +216,9 @@ on:
   workflow_dispatch:
     inputs:
       dry_run:
-        description: "Run without persisting changes"
+        description: "Run without persisting changes (set to false for a real sync)"
         required: false
-        default: "false"
+        default: "true"
       sync_direction:
         description: "pull-forward | forward-only | reverse"
         required: false
@@ -285,6 +285,13 @@ jobs:
           GITHUB_REPOSITORY: \${{ github.repository }}
           DRY_RUN: \${{ github.event.inputs.dry_run || 'false' }}
         run: node scripts/cards-sync/sync.mjs --reverse
+
+      - name: Notify (Slack/Discord)
+        if: always()
+        env:
+          SLACK_WEBHOOK_URL: \${{ secrets.SLACK_WEBHOOK_URL }}
+          DISCORD_WEBHOOK_URL: \${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: node scripts/cards-sync/notify.mjs
 `;
 }
 
@@ -576,6 +583,11 @@ hyperion-security:
       if [ -f requirements.txt ] || [ -f pyproject.toml ]; then
         pip install pip-audit
         pip-audit || pip-audit -r requirements.txt
+      fi
+    - |
+      if [ -f package.json ]; then
+        npx --yes license-checker@25.0.1 --excludePrivatePackages --summary \
+          --failOn "GPL-1.0;GPL-2.0;GPL-3.0;AGPL-1.0;AGPL-3.0;LGPL-2.0;LGPL-2.1;LGPL-3.0;UNLICENSED"
       fi
   allow_failure: false
 `;

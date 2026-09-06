@@ -95,7 +95,7 @@ Maintainers testing the kit itself: `--include-samples` (optional, not for norma
 
 **Layout rule:** folder name under `features|stories|tasks` = the **`parent` card_id**. Changing `parent` means **moving** the file. Recursive discovery already syncs nested paths.
 
-Migrate legacy flat files: `npm run cards:migrate-layout` (add `--dry-run` to preview). Validate warns on flat leftovers; `cards:validate --strict-layout` fails them.
+Migrate legacy flat files: `npm run cards:migrate-layout` (preview by default) then `npm run cards:migrate-layout -- --yes` to move files for real. Validate warns on flat leftovers; `cards:validate --strict-layout` fails them.
 
 ## Field mapping
 
@@ -258,6 +258,11 @@ This removes GitHub defaults + orphan labels, keeps Dependabot labels (`dependen
 
 `cards:init -- --yes` runs label reset automatically before sync.
 
+**Other backends:**
+- **GitLab** — `cards:labels-reset` works the same way, over GitLab's Labels REST API (`GITLAB_PROJECT_ID` + `GITLAB_TOKEN`, optional `GITLAB_URL`). GitLab projects ship with no default labels, so there's no GitHub-defaults special case — any non-catalog, non-Dependabot label is still treated as an orphan.
+- **Azure DevOps** — nothing to reset. `System.Tags` is free-text with no color/description/catalog concept in the REST API at all, so there's no metadata-drift or orphan-cleanup problem this tool solves there. `cards:labels-reset` explains this and exits cleanly if the backend is Azure.
+- **Linear** — nothing to reset either, but for a different reason: forward sync resolves `card.categories` to Linear `IssueLabel`s directly, creating any that don't exist on the team yet (get-or-create, same spirit as `CREATE_MISSING_LABELS` for GitHub/GitLab) — see `linearResolveLabelIds` in `scripts/cards-sync/backends/linear.mjs`. Reverse sync reads the real labels back the same way GitHub/GitLab do. `cards:labels-reset` explains this and exits cleanly if the backend is Linear.
+
 **Project views:** on create/sync, Hyperion configures tabs in order: **Board** → **Tabela** → **Roadmap** (user can customize filters/grouping in the UI afterward).
 
 **Status columns (board):** workflow columns come from `status-columns.{locale}.json` (via `statusColumnsFile` in `projects-map.json`). Each entry has `key` (canonical English status), `color` (GitHub enum: GRAY, BLUE, GREEN, …), and `description` shown in Project field settings. Names on the board are localized through `optionMapByLocale.status`. Forward sync updates missing columns and refreshes color/description when metadata drifts.
@@ -278,6 +283,15 @@ Default semantic palette:
 
 **Sprint field:** auto-created as GitHub **Iteration** (`Sprint` / `Número da Sprint`). Cards may keep `sprint: null`; define sprint dates in Project Settings. Configure defaults in `projects-map.json` → `sprintField` (`durationDays`, optional `seedIterations`).
 
+**Fix fields on an existing Project:** forward sync only creates the 8 required fields (Status, Type, Priority, Sprint, Story Points, Reporter, Parent, Due Date) when it auto-creates a brand-new Project. If you already have a Project and `cards:doctor` reports missing/misnamed fields, fix that Project in place instead of recreating it:
+
+```bash
+npm run cards:project-fields-apply             # preview (dry-run by default)
+npm run cards:project-fields-apply -- --yes    # create missing fields, rename ones under an alias
+```
+
+Requires `projects-map.json` to already have a `projectNumber` set — it fixes fields on an existing Project, it doesn't auto-create one (use `cards:sync` for that).
+
 **Issue body enrichment (GitHub forward sync):** after create/update, sync rewrites the issue body with:
 - Clickable **Parent** and **Sub-issues** links (`[CARD_ID (#n)](url)`)
 - Optional section emoji headers (`## Resumo` → `## 📋 Resumo`) if not already present
@@ -287,28 +301,35 @@ Default semantic palette:
 
 ### End-to-end test (opt-in)
 
-`scripts/cards-sync/e2e/e2e-forward-sync.mjs` closes the gap the unit tests can't: it runs the **real** `sync.mjs` forward sync against a **disposable** GitHub repo, then asserts the resulting Issue(s) actually exist with the right title/labels/body — and deletes what it created afterward (`try`/`finally`, runs even on assertion failure).
+Two scripts close the gap the unit tests can't — both drive the **real** `sync.mjs` against a **disposable** GitHub repo:
 
-This is **opt-in only** and never runs automatically:
-- It is not part of `npm test` / `npm run cards:test` (it doesn't match the `scripts/cards-sync/*.test.mjs` glob — it lives in `scripts/cards-sync/e2e/`).
-- Its GitHub Actions workflow, `.github/workflows/hyperion-e2e-cards.yml`, is triggered **only** by `workflow_dispatch` — never `push`/`pull_request` — so it can't run against a contributor's PR or a push to this repo.
+- `scripts/cards-sync/e2e/e2e-forward-sync.mjs` — runs a real forward sync, then asserts the resulting Issue(s) actually exist with the right title/labels/body.
+- `scripts/cards-sync/e2e/e2e-reverse-sync.mjs` — runs a real forward sync to create one issue, edits that issue's title and labels **directly via the GitHub API** (simulating someone editing it on the board), deletes the local card file, then runs a real reverse sync and asserts the *recreated* local file picked up the board's title and label. Scoped to title/label roundtrip only — the fixture is Issues-only (no GitHub Project board, same as the forward test), so there's no real board-driven Status field to verify without faking the thing the test is supposed to prove.
+
+Both delete everything they created afterward (`try`/`finally`, runs even on assertion failure), and are **opt-in only** — neither ever runs automatically:
+- Neither is part of `npm test` / `npm run cards:test` (they don't match the `scripts/cards-sync/*.test.mjs` glob — they live in `scripts/cards-sync/e2e/`).
+- Their GitHub Actions workflow, `.github/workflows/hyperion-e2e-cards.yml`, is triggered **only** by `workflow_dispatch` — never `push`/`pull_request` — so it can't run against a contributor's PR or a push to this repo. The workflow has one job per script (`e2e-forward-sync`, `e2e-reverse-sync`), both using the same `E2E_TARGET_REPO`/`E2E_GITHUB_TOKEN`.
 
 **One-time maintainer setup:**
-1. Create a separate, disposable GitHub repo you own (e.g. `your-user/hyperion-e2e-sandbox`) — never this repo. It just needs to exist; the test creates and deletes its own issues/labels in it.
+1. Create a separate, disposable GitHub repo you own (e.g. `your-user/hyperion-e2e-sandbox`) — never this repo. It just needs to exist; the tests create and delete their own issues/labels in it.
 2. In this repo's Settings → Secrets and variables → Actions, add:
    - Variable **`E2E_TARGET_REPO`** = `your-user/hyperion-e2e-sandbox`
    - Secret **`E2E_GITHUB_TOKEN`** = a PAT scoped to that disposable repo with `Issues: Read and write` + `Contents: Read` (a fine-grained PAT limited to that one repo is safest).
 3. Trigger it: Actions → **Hyperion — E2E Cards Sync (opt-in)** → Run workflow.
 
-Run it locally instead of via Actions:
+Run either locally instead of via Actions:
 
 ```bash
 E2E_TARGET_REPO="your-user/hyperion-e2e-sandbox" \
 E2E_GITHUB_TOKEN="ghp_xxx" \
   node scripts/cards-sync/e2e/e2e-forward-sync.mjs
+
+E2E_TARGET_REPO="your-user/hyperion-e2e-sandbox" \
+E2E_GITHUB_TOKEN="ghp_xxx" \
+  node scripts/cards-sync/e2e/e2e-reverse-sync.mjs
 ```
 
-Without `E2E_TARGET_REPO` / a token, the script fails fast with a clear error instead of crashing — and it also refuses to run if `E2E_TARGET_REPO` resolves to the same repo the script is running from.
+Without `E2E_TARGET_REPO` / a token, each script fails fast with a clear error instead of crashing — and each also refuses to run if `E2E_TARGET_REPO` resolves to the same repo the script is running from.
 
 ## Commands
 
@@ -326,6 +347,9 @@ node scripts/cards-sync/sync.mjs --dry-run
 
 # Forward sync (Markdown -> GitHub)
 node scripts/cards-sync/sync.mjs
+# At an interactive terminal this asks you to type "yes" first — it's a
+# real write to your live board. Skip the prompt with --yes or
+# CARDS_SYNC_YES=true (CI never prompts either way — no TTY there).
 
 # Incremental sync (your cards — not kit samples in `_examples/`)
 node scripts/cards-sync/sync.mjs --only PROJ-STORY-001,PROJ-EPIC-001
@@ -365,6 +389,26 @@ node --test scripts/cards-sync/*.test.mjs
 # Watch mode — incremental validate + sync on file changes
 node scripts/cards-sync/watch.mjs
 # or: npm run cards:watch
+
+# Flow metrics — WIP by status + average cycle time, mined from git log
+# (no board API call; just the status: frontmatter you already commit)
+npm run cards:metrics
+npm run cards:metrics -- --json
+
+# Sync operation log — reads sync-history.jsonl back (forward-sync runs +
+# PR board-guard checks): counts by event type, ok/fail, most recent events.
+# Distinct from cards:metrics, which is about card status over time, not
+# sync runs themselves.
+npm run cards:history
+npm run cards:history -- --json
+npm run cards:history -- --limit 5
+
+# Slack/Discord notification for a sync result — opt-in, no-ops silently
+# if neither webhook env var is set. hyperion-sync-cards.yml already runs
+# this after every sync attempt (if: always()).
+SLACK_WEBHOOK_URL="https://hooks.slack.com/services/..." npm run cards:notify
+DISCORD_WEBHOOK_URL="https://discord.com/api/webhooks/..." npm run cards:notify
+npm run cards:notify -- --message "Custom text"   # skip reading sync-history.jsonl
 ```
 
 ## GitHub automation
@@ -391,6 +435,28 @@ Mark **Hyperion — Cards PR Board Guard** as a required status check in GitHub 
 
 Disable auto-discovery: set `"autoDiscoverProject": false` in `projects-map.json`.
 
+### Running the PR board guard outside GitHub Actions
+
+The guard itself (`pr-board-guard.mjs`) doesn't hard-depend on GitHub Actions — the two env vars that matter for CI wiring already have generic names:
+
+| Env var | GitHub Actions equivalent | What to set it to elsewhere |
+|---------|---------------------------|------------------------------|
+| `CARDS_GUARD_BASE_REF` | (auto: `GITHUB_BASE_SHA`) | The target/base branch SHA of the merge request — e.g. GitLab CI's `CI_MERGE_REQUEST_DIFF_BASE_SHA`, Azure Pipelines' `System.PullRequest.TargetBranch` resolved to a SHA |
+| `CARDS_SYNC_BACKEND` | (defaults to `github`) | `jira`, `azure-devops`, `linear`, or `gitlab` — same value used everywhere else in this README |
+
+```bash
+# GitLab CI (.gitlab-ci.yml), only block/blocked syntax shown
+board-guard:
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+  script:
+    - node scripts/cards-sync/pr-board-guard.mjs
+  variables:
+    CARDS_GUARD_BASE_REF: $CI_MERGE_REQUEST_DIFF_BASE_SHA
+```
+
+What's GitHub-specific: `report-pr-guard-check.mjs` (posts a GitHub Check Run via the REST API) and the ready-made `hyperion-cards-pr-check.yml`/`hyperion-cards-pr-recheck.yml` workflows. On another CI platform, skip that script and just let the guard's own exit code fail the pipeline job directly — you lose the separate check-run annotation, not the guard itself.
+
 ## IDE → Board status update
 
 When you edit a local card and change `status` in frontmatter:
@@ -411,6 +477,8 @@ On GitHub, explicit `status` in frontmatter always applies. Safe mode only appli
 | PROJECT_OWNER | Optional | Override project owner |
 | PROJECT_NUMBER | Optional | Override project number |
 | DRY_RUN | Optional | "true" to simulate |
+| CARDS_SYNC_CONCURRENCY | Optional | Max cards processed in flight at once per sync phase (default `4`). Lower it if a large board's first sync trips GitHub's secondary rate limits; `1` reproduces the old fully-sequential behavior. |
+| CARDS_SYNC_YES | Optional | "true" to skip the interactive "type yes" confirmation before a live (non-dry-run) sync at a terminal — same effect as `--yes`. Never needed in CI (no TTY, never prompts). |
 | SYNC_DIRECTION | Optional | "forward" or "reverse" |
 | CREATE_MISSING_LABELS | Optional | "true" (default) to auto-create labels |
 | CARDS_SYNC_BACKEND | Optional | `github` (default), `jira`, `azure-devops`, `linear`, `gitlab` |

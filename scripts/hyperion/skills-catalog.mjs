@@ -81,10 +81,10 @@ function render(locale, meta, commands, skillIndex) {
   lines.push("");
   lines.push('<p align="center">');
   lines.push(
-    '  <img src="https://img.shields.io/badge/skills-30-F5D76E?style=for-the-badge&labelColor=0B1220" alt="30 skills">'
+    `  <img src="https://img.shields.io/badge/skills-${skills.length}-F5D76E?style=for-the-badge&labelColor=0B1220" alt="${skills.length} skills">`
   );
   lines.push(
-    '  <img src="https://img.shields.io/badge/agents-8-F5D76E?style=for-the-badge&labelColor=0B1220" alt="8 agents">'
+    `  <img src="https://img.shields.io/badge/agents-${AGENTS.length}-F5D76E?style=for-the-badge&labelColor=0B1220" alt="${AGENTS.length} agents">`
   );
   if (isPt) {
     lines.push(

@@ -85,6 +85,16 @@ git clone https://github.com/MatheusFelipeCorrea/Hyperion.git
 
 ### Preferido — pasta `Hyperion/` no produto (sem poluir a raiz)
 
+**Um comando** (se você já tem um clone do Hyperion à mão): dentro do clone,
+
+```bash
+node scripts/hyperion/create-hyperion.mjs /caminho/para/seu-produto --yes
+```
+
+Isso copia o kit inteiro para `seu-produto/Hyperion/` (pulando `.git`, `node_modules` e saídas de runtime como `plans/`/`audits/results/`), roda `npm install` dentro de `Hyperion/`, e grava os shims na raiz do produto — os passos 1–4 abaixo, automatizados. Sem `--yes` ele só mostra o preview (dry-run). `--repo owner/name` busca o kit direto do GitHub em vez de usar o clone local.
+
+Manual, passo a passo (o que o comando acima faz por você):
+
 1. Clone/ZIP → pasta chamada **`Hyperion`**.
 2. Coloque-a em `seu-produto/Hyperion/` (kit inteiro: `.github`, `scripts`, `Dockerfile`, …).
 3. Instale as dependências do kit — dentro de `Hyperion/`:
@@ -119,6 +129,8 @@ Copie para a **raiz do seu repositório** (não o `.git` do Hyperion):
 | `bin/` + `Dockerfile` (sem Node) | `projects-map` de outro time |
 | `.env.example`, `CLAUDE.md`, `.cursor/rules/`, `.github/copilot-instructions.md` conforme a IDE | Artefatos gerados (`plans/`, audit results) |
 | — | **`CODEOWNERS`, `.github/FUNDING.yml`, `LICENSE`, `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `SECURITY.md`, `SUPPORT.md`, `.github/ISSUE_TEMPLATE/`, `.github/PULL_REQUEST_TEMPLATE.md`** — arquivos do repositório do próprio kit Hyperion, não do seu produto. Se você clonou o repo inteiro (em vez de copiar seletivo), troque ou remova esses. |
+
+Não confie só na memória pra essa lista — depois de copiar, rode `npm run hyperion:adopt-check` (ou `hyperion adopt-check` via CLI/Docker): ele varre esses arquivos e falha se algum ainda carregar a identidade do próprio Hyperion (username do mantenedor, "Hyperion Contributors" no LICENSE, etc.).
 
 Atualizar um repo que já tem o kit: `npm run hyperion:upgrade` (na pasta do kit / com `kit.root`).
 

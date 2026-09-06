@@ -36,3 +36,9 @@ and a set of `mustContain`/`mustMatch` rules the fixture must satisfy.
 Adding a case: add an entry to `llm-cases.json`, a golden fixture in
 `golden/`, and — if you want live mode to cover it too — a prompt in
 `prompts/` with the same `id`.
+
+Currently covers 5 skill contracts across 4 categories: `card-refiner` and
+`integration-bridge` (planning/setup), `adr-generator` and
+`changelog-generator` (docs), `security-audit` (quality, finding-ID format).
+Each checks one literal, documented contract element (a template heading, an
+ID format, a required field) — not prose quality.

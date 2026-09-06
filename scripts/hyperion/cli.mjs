@@ -44,8 +44,13 @@ export const COMMANDS = {
   "skills-validate": { script: "skills-validate.mjs", desc: "Validate skill frontmatter" },
   "llm-eval": { script: "llm-eval.mjs", desc: "LLM eval fixtures" },
   "distribution-purity-check": { script: "distribution-purity-check.mjs", desc: "No binding to this repo" },
+  "adopt-check": { script: "adopt-check.mjs", desc: "No leftover Hyperion identity in your repo" },
+  telemetry: { script: "telemetry.mjs", desc: "Local opt-in agent-gate usage summary" },
   "spec-review-verify": { script: "spec-review-verify.mjs", desc: "Gate /spec-review artifact" },
   "audit-verify": { script: "audit-verify.mjs", desc: "Gate /audit-run summary" },
+  "audit-diff": { script: "audit-diff.mjs", desc: "Compare two /audit-run rounds dimension by dimension" },
+  create: { script: "create-hyperion.mjs", desc: "Scaffold a new product with a nested Hyperion kit" },
+  "mcp-server": { script: "mcp-server.mjs", desc: "MCP stdio server: doctor + project-verify tools (read-only)" },
   "plan-verify": { script: "plan-verify.mjs", desc: "Gate /implement plan" },
   "release-verify": { script: "release-verify.mjs", desc: "Gate /release artifact" },
   "install-shims": { script: "install-product-shims.mjs", desc: "Install product npm shims" },
@@ -66,6 +71,9 @@ const CARDS_COMMANDS = {
   validate: { script: "validate.mjs", desc: "cards:validate" },
   init: { script: "init.mjs", desc: "cards:init" },
   watch: { script: "watch.mjs", desc: "cards:watch" },
+  metrics: { script: "metrics.mjs", desc: "cards:metrics" },
+  history: { script: "history.mjs", desc: "cards:history" },
+  notify: { script: "notify.mjs", desc: "cards:notify" },
 };
 
 export function resolveCommand(argv) {

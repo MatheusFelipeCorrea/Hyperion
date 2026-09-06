@@ -55,6 +55,30 @@ export function resolveGitLabStatusAction(statusMap, hyperionStatus) {
   return { state_event: "reopen", label: mapped, mapped };
 }
 
+/**
+ * Parent-child hierarchy: plain GitLab Issues have no native Epic-style
+ * hierarchy on the Free tier, so the closest real equivalent is an issue
+ * link (relates_to) between child and parent, mirroring the
+ * buildEdges()-driven linking already done for Jira.
+ *
+ * Standalone + exported (not a closure over runForwardSyncGitLab's local
+ * projectId/gitlabRequest) specifically so it's unit-testable with a stub
+ * request function.
+ *
+ * @param {(endpoint: string, method?: string, body?: unknown) => Promise<unknown>} gitlabRequest
+ */
+export async function gitlabLinkIssues(gitlabRequest, projectId, childIid, parentIid) {
+  await gitlabRequest(
+    `/api/v4/projects/${encodeURIComponent(projectId)}/issues/${encodeURIComponent(childIid)}/links`,
+    "POST",
+    {
+      target_project_id: projectId,
+      target_issue_iid: parentIid,
+      link_type: "relates_to",
+    }
+  );
+}
+
 export async function runForwardSyncGitLab(repoConfig, management) {
   if (!management.gitlabProjectId || !management.gitlabToken) {
     throw new Error("GitLab backend requires GITLAB_PROJECT_ID and GITLAB_TOKEN (env or config).");
@@ -121,21 +145,6 @@ export async function runForwardSyncGitLab(repoConfig, management) {
     });
   }
 
-  // Parent-child hierarchy: plain GitLab Issues have no native Epic-style
-  // hierarchy on the Free tier, so the closest real equivalent is an issue
-  // link (relates_to) between child and parent, mirroring the
-  // buildEdges()-driven linking already done for Jira.
-  async function gitlabLinkIssues(childIid, parentIid) {
-    await gitlabRequest(
-      `/api/v4/projects/${encodeURIComponent(projectId)}/issues/${encodeURIComponent(childIid)}/links`,
-      "POST",
-      {
-        target_project_id: projectId,
-        target_issue_iid: parentIid,
-        link_type: "relates_to",
-      }
-    );
-  }
 
   async function gitlabApplyStatus(iid, card) {
     const action = resolveGitLabStatusAction(statusMap, card.status);
@@ -223,7 +232,7 @@ export async function runForwardSyncGitLab(repoConfig, management) {
       const childIid = issueIidByCardId.get(edge.childCardId);
       if (!parentIid || !childIid) continue;
       try {
-        await gitlabLinkIssues(childIid, parentIid);
+        await gitlabLinkIssues(gitlabRequest, projectId, childIid, parentIid);
         actions.push({ action: "LINKED", parent: parentIid, child: childIid });
       } catch (error) {
         actions.push({ action: "LINK_FAILED", parent: parentIid, child: childIid, reason: error.message });

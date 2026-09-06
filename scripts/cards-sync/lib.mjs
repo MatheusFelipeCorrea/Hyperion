@@ -1449,6 +1449,31 @@ export function frontmatterUpdatesFromConvertedMarkdown(converted) {
   };
 }
 
+/**
+ * Run `worker` over `items` with at most `limit` in flight at once — a
+ * fixed-size pool of workers pulling from a shared index, not
+ * Promise.all(items.map(...)) (unbounded) or a plain for-of (concurrency
+ * 1). Used to bound how many concurrent GitHub API calls a large board
+ * triggers per sync phase, instead of firing every card's request at once.
+ * `worker` errors propagate per-item — same behavior a for-of loop with a
+ * try/catch inside would have, just not serialized.
+ */
+export async function mapWithConcurrency(items, limit, worker) {
+  const results = new Array(items.length);
+  const boundedLimit = Math.max(1, Math.min(limit, items.length || 1));
+  let nextIndex = 0;
+
+  async function runWorker() {
+    while (nextIndex < items.length) {
+      const i = nextIndex++;
+      results[i] = await worker(items[i], i);
+    }
+  }
+
+  await Promise.all(Array.from({ length: boundedLimit }, runWorker));
+  return results;
+}
+
 export async function loadStatusColumnsCatalog({ cardsRoot, repoConfig, projectLocale = null }) {
   const locale = repoConfig.locale || projectLocale || "en";
   const file = resolveStatusColumnFilePath(cardsRoot, repoConfig, locale);

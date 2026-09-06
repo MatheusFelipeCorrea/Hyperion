@@ -31,6 +31,24 @@ function linearCardSearchMarker(card) {
   return `CARD_ID: ${card.cardId}`;
 }
 
+/**
+ * Parent-child hierarchy: Linear has real sub-issues, unlike GitLab Free —
+ * setting parentId on the child is a first-class relationship, not just a
+ * link, mirroring the buildEdges()-driven linking already done for Jira.
+ *
+ * Standalone + exported (not a closure over runForwardSyncLinear's local
+ * linearGraphql) specifically so it's unit-testable with a stub GraphQL
+ * function.
+ *
+ * @param {(query: string, variables?: object) => Promise<unknown>} linearGraphql
+ */
+export async function linearSetParent(linearGraphql, childIssueId, parentIssueId) {
+  const query = `mutation($id: String!, $input: IssueUpdateInput!) {
+    issueUpdate(id: $id, input: $input) { success issue { id parent { id } } }
+  }`;
+  await linearGraphql(query, { id: childIssueId, input: { parentId: parentIssueId } });
+}
+
 export async function runForwardSyncLinear(repoConfig, management) {
   if (!management.linearTeamId || !management.linearApiToken) {
     throw new Error("Linear backend requires LINEAR_TEAM_ID and LINEAR_API_TOKEN (env or config).");
@@ -57,6 +75,55 @@ export async function runForwardSyncLinear(repoConfig, management) {
       throw new Error(`Linear GraphQL failed: ${details}`);
     }
     return payload.data;
+  }
+
+  let linearLabelsCache = null;
+  async function linearGetTeamLabels() {
+    if (linearLabelsCache) return linearLabelsCache;
+    const query = `query($teamId: String!) {
+      team(id: $teamId) {
+        labels(first: 200) { nodes { id name } }
+      }
+    }`;
+    const data = await linearGraphql(query, { teamId });
+    linearLabelsCache = data?.team?.labels?.nodes || [];
+    return linearLabelsCache;
+  }
+
+  async function linearCreateLabel(name) {
+    const query = `mutation($input: IssueLabelCreateInput!) {
+      issueLabelCreate(input: $input) { success issueLabel { id name } }
+    }`;
+    const data = await linearGraphql(query, { input: { teamId, name } });
+    const created = data?.issueLabelCreate?.issueLabel;
+    if (created) linearLabelsCache = [...(linearLabelsCache || []), created];
+    return created?.id || null;
+  }
+
+  /** Resolve card.categories to Linear label IDs, creating any that don't
+   * exist on the team yet — mirrors labels-reset.mjs's GitHub/GitLab
+   * "ensure" behavior, just inline since Linear has no orphan-cleanup
+   * concern (labels are team-scoped and reused across issues, not synced
+   * from a per-repo catalog). */
+  async function linearResolveLabelIds(categoryNames) {
+    if (!Array.isArray(categoryNames) || !categoryNames.length) return [];
+    const labels = await linearGetTeamLabels();
+    const ids = [];
+    for (const name of categoryNames) {
+      const target = normalizeText(name);
+      const existing = labels.find((l) => normalizeText(l.name) === target);
+      if (existing) {
+        ids.push(existing.id);
+        continue;
+      }
+      try {
+        const createdId = await linearCreateLabel(name);
+        if (createdId) ids.push(createdId);
+      } catch (error) {
+        log(`  WARN: could not create Linear label "${name}": ${error.message}`);
+      }
+    }
+    return ids;
   }
 
   const searchMarker = (cardId) => `CARD_ID: ${cardId}`;
@@ -97,10 +164,12 @@ export async function runForwardSyncLinear(repoConfig, management) {
       }
     }`;
 
+    const labelIds = await linearResolveLabelIds(card.categories);
     const input = {
       teamId,
       title: buildIssueTitle(card),
       description: buildRemoteDescriptionFromCard(card),
+      ...(labelIds.length ? { labelIds } : {}),
     };
 
     const data = await linearGraphql(query, { input });
@@ -115,22 +184,14 @@ export async function runForwardSyncLinear(repoConfig, management) {
       }
     }`;
 
+    const labelIds = await linearResolveLabelIds(card.categories);
     const input = {
       title: buildIssueTitle(card),
       description: buildRemoteDescriptionFromCard(card),
+      ...(labelIds.length ? { labelIds } : {}),
     };
 
     await linearGraphql(query, { id: issueId, input });
-  }
-
-  // Parent-child hierarchy: Linear has real sub-issues, unlike GitLab Free —
-  // setting parentId on the child is a first-class relationship, not just a
-  // link, mirroring the buildEdges()-driven linking already done for Jira.
-  async function linearSetParent(childIssueId, parentIssueId) {
-    const query = `mutation($id: String!, $input: IssueUpdateInput!) {
-      issueUpdate(id: $id, input: $input) { success issue { id parent { id } } }
-    }`;
-    await linearGraphql(query, { id: childIssueId, input: { parentId: parentIssueId } });
   }
 
   let linearStatesCache = null;
@@ -245,7 +306,7 @@ export async function runForwardSyncLinear(repoConfig, management) {
       const childId = issueIdByCardId.get(edge.childCardId);
       if (!parentId || !childId) continue;
       try {
-        await linearSetParent(childId, parentId);
+        await linearSetParent(linearGraphql, childId, parentId);
         actions.push({ action: "LINKED", parent: parentId, child: childId });
       } catch (error) {
         actions.push({ action: "LINK_FAILED", parent: parentId, child: childId, reason: error.message });
@@ -297,7 +358,10 @@ export async function runReverseSyncLinear(repoConfig, management) {
       team(id: $teamId) {
         issues(first: 50, after: $after, filter: { description: { containsIgnoreCase: "CARD_ID:" } }) {
           pageInfo { hasNextPage endCursor }
-          nodes { id title description state { name } updatedAt }
+          nodes {
+            id title description state { name } updatedAt
+            labels(first: 50) { nodes { name } }
+          }
         }
       }
     }`;
@@ -331,11 +395,12 @@ export async function runReverseSyncLinear(repoConfig, management) {
 
     const remoteStatus = issue.state?.name || null;
     const hyperionStatus = resolveHyperionStatusFromRemote(remoteStatus, statusMap, repoConfig);
+    const labels = (issue.labels?.nodes || []).map((l) => l.name).filter(Boolean);
 
     const converted = remoteIssueToCardMarkdown({
       title: issue.title,
       description,
-      labels: [],
+      labels,
       statusOverride: hyperionStatus,
     });
 

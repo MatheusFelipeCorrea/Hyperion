@@ -15,9 +15,9 @@ Before any task, read:
 <!-- HYPERION:SKILLS:START -->
 Skills live in `.github/skills/` organized by category:
 
-- **planning/** — acceptance-spec, card-refiner, hypothesis-forge, project-architect, refactor-guide, sprint-retro
+- **planning/** — acceptance-spec, api-contract-guide, card-refiner, feature-flag-manager, hypothesis-forge, project-architect, refactor-guide, sprint-retro
 - **setup/** — cards-sync-setup, hyperion-ops, integration-bridge, memory-capture, pipeline-architect, project-discovery, project-startup, repo-migration
-- **quality/** — architecture-audit, code-review, dependency-health, devops-audit, full-audit, po-audit, pr-review, security-audit, tech-debt-tracker, testing-strategy, ux-audit
+- **quality/** — architecture-audit, code-review, compliance-audit, dependency-health, devops-audit, eng-metrics, full-audit, po-audit, pr-review, security-audit, tech-debt-tracker, testing-strategy, ux-audit
 - **docs/** — adr-generator, changelog-generator, plantuml-generator, readme-updater, release-manager
 
 When the user asks for any of these capabilities, read the corresponding `SKILL.md` and follow its instructions exactly.
@@ -72,9 +72,13 @@ See `.github/agents/README.md` for catalog and recommended flow.
 | /release | .github/agents/release.agent.md |
 | /mentor | .github/agents/mentoring.agent.md |
 | /refactor | `.github/skills/planning/refactor-guide/SKILL.md` |
+| /feature-flags | `.github/skills/planning/feature-flag-manager/SKILL.md` |
+| /api-contract | `.github/skills/planning/api-contract-guide/SKILL.md` |
 | /retro | `.github/skills/planning/sprint-retro/SKILL.md` |
 | /test-plan | `.github/skills/quality/testing-strategy/SKILL.md` |
 | /tech-debt | `.github/skills/quality/tech-debt-tracker/SKILL.md` |
+| /eng-metrics | `.github/skills/quality/eng-metrics/SKILL.md` |
+| /compliance | `.github/skills/quality/compliance-audit/SKILL.md` |
 | /changelog | `.github/skills/docs/changelog-generator/SKILL.md` |
 | /connect | `.github/skills/setup/integration-bridge/SKILL.md` |
 | /cards-setup | `.github/skills/setup/cards-sync-setup/SKILL.md` |

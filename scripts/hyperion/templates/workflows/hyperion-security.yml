@@ -43,6 +43,23 @@ jobs:
             pip-audit -r requirements.txt 2>/dev/null || pip-audit
           fi
 
+      - name: Check Node dependency licenses
+        if: hashFiles('package-lock.json') != '' || hashFiles('package.json') != ''
+        env:
+          HYPERION_AUDIT_SOFT: ${{ vars.HYPERION_AUDIT_SOFT }}
+        run: |
+          set -e
+          # Copyleft licenses (GPL/AGPL/LGPL family) and UNLICENSED are the
+          # default failOn set — reasonable for a kit/product meant to stay
+          # freely redistributable. Adjust the --failOn list if your project
+          # has a different license policy.
+          FAIL_ON="GPL-1.0;GPL-2.0;GPL-3.0;AGPL-1.0;AGPL-3.0;LGPL-2.0;LGPL-2.1;LGPL-3.0;UNLICENSED"
+          if [ "${HYPERION_AUDIT_SOFT}" = "1" ]; then
+            npx --yes license-checker@25.0.1 --excludePrivatePackages --summary --failOn "$FAIL_ON" || true
+          else
+            npx --yes license-checker@25.0.1 --excludePrivatePackages --summary --failOn "$FAIL_ON"
+          fi
+
       - name: Check for secrets
         uses: trufflesecurity/trufflehog@v3.97.1
         with:

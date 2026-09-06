@@ -10,5 +10,23 @@
     "golden": "integration-bridge-github.txt",
     "mustContain": ["projects-map.json", "management.backend"],
     "mustMatch": ["GitHub"]
+  },
+  {
+    "id": "adr-generator-status",
+    "golden": "adr-generator-status.txt",
+    "mustContain": ["## Status", "## Decision", "## Options Considered"],
+    "mustMatch": ["^# ADR-\\d+"]
+  },
+  {
+    "id": "changelog-generator-entry",
+    "golden": "changelog-generator-entry.txt",
+    "mustContain": ["Funcionalidades", "Correções", "Quebras de compatibilidade"],
+    "mustMatch": ["^## \\[.+\\] - \\d{4}-\\d{2}-\\d{2}"]
+  },
+  {
+    "id": "security-audit-finding",
+    "golden": "security-audit-finding.txt",
+    "mustContain": ["SEC-1-01", "Severity", "Mitigation"],
+    "mustMatch": ["\\w+[/\\\\][\\w./\\\\-]+:\\d+"]
   }
 ]

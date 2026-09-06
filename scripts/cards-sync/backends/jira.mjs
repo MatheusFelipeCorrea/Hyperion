@@ -142,13 +142,20 @@ async function jiraApplyStatusTransition(management, issueKey, targetStatus, rep
   return { applied: true, transition: match.name, to: match.to?.name || null };
 }
 
-async function jiraLinkIssues(management, inwardKey, outwardKey) {
+/**
+ * Standalone + exported (not a closure over runForwardSyncJira's
+ * `management`) specifically so it's unit-testable with a stub request
+ * function — same shape as azureLinkWorkItems/gitlabLinkIssues/linearSetParent.
+ *
+ * @param {(endpoint: string, method?: string, body?: unknown) => Promise<unknown>} jiraRequestFn
+ */
+export async function jiraLinkIssues(jiraRequestFn, inwardKey, outwardKey) {
   const body = {
     type: { name: "Relates" },
     inwardIssue: { key: inwardKey },
     outwardIssue: { key: outwardKey },
   };
-  await jiraRequest(management, "/rest/api/2/issueLink", "POST", body);
+  await jiraRequestFn("/rest/api/2/issueLink", "POST", body);
 }
 
 export async function runForwardSyncJira(repoConfig, management) {
@@ -237,7 +244,7 @@ export async function runForwardSyncJira(repoConfig, management) {
     const childKey = issueByCardId.get(edge.childCardId);
     if (!parentKey || !childKey) continue;
     try {
-      await jiraLinkIssues(management, parentKey, childKey);
+      await jiraLinkIssues((endpoint, method, body) => jiraRequest(management, endpoint, method, body), parentKey, childKey);
       actions.push({ action: "LINKED", parent: parentKey, child: childKey });
     } catch (error) {
       actions.push({ action: "LINK_FAILED", parent: parentKey, child: childKey, reason: error.message });

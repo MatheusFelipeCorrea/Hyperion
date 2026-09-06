@@ -12,6 +12,7 @@
 import { readFileSync, existsSync, readdirSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { recordEvent } from "./telemetry-lib.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const root = join(__dirname, "../..");
@@ -124,6 +125,7 @@ function main() {
     console.error(`\nplan-verify FAILED (${failed})`);
     process.exit(1);
   }
+  recordEvent(root, "agent-gate", "plan-verify");
   console.log("plan-verify OK");
 }
 

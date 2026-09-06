@@ -3,6 +3,7 @@ import { execSync } from "node:child_process";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
+import readline from "node:readline/promises";
 import {
   parseOnlyFilter,
   expandCardIdsWithParents,
@@ -54,6 +55,7 @@ import {
   resolveHyperionStatusFromRemote,
   canonicalizeLinearState,
   frontmatterUpdatesFromConvertedMarkdown,
+  mapWithConcurrency,
 } from "./lib.mjs";
 import { resolveHyperionPaths } from "../hyperion/paths.mjs";
 import {
@@ -140,6 +142,12 @@ const tokenSource = process.env.PROJECT_SYNC_TOKEN
 
 let createMissingLabels =
   String(process.env.CREATE_MISSING_LABELS || "true").toLowerCase() === "true";
+
+// How many cards to process in flight at once, per sync phase (create/update
+// issue, body-link enrichment, Project add+fields). Sequential (1) was the
+// only option before; this stays conservative by default to avoid tripping
+// GitHub's secondary rate limits on a large board's first sync.
+const syncConcurrency = Math.max(1, Number(process.env.CARDS_SYNC_CONCURRENCY) || 4);
 
 export function log(message) {
   console.log(`[cards-sync] ${message}`);
@@ -1633,7 +1641,7 @@ async function runForwardSync() {
   const preloadedIssueMap = token ? await loadIssueMapByCardId(repoOwner, repoName) : new Map();
   const repositoryId = dryRun ? null : await getRepositoryNodeId(repoOwner, repoName);
 
-  for (const card of cardsToSync) {
+  await mapWithConcurrency(cardsToSync, syncConcurrency, async (card) => {
     const issueTitle = buildIssueTitle(card);
     const issueBody = buildIssueBody(card);
 
@@ -1643,7 +1651,7 @@ async function runForwardSync() {
       actions.push({ action: existing ? "UPDATE" : "CREATE", cardId: card.cardId, title: issueTitle });
       issueByCardId.set(card.cardId, existing || { id: `DRY-${card.cardId}`, number: 0 });
       issueExistedByCardId.set(card.cardId, Boolean(existing));
-      continue;
+      return;
     }
 
     const issue = existing
@@ -1667,7 +1675,7 @@ async function runForwardSync() {
         actions.push({ action: "LABELS_FAILED", cardId: card.cardId, reason: e.message });
       }
     }
-  }
+  });
 
   if (!dryRun && issueByCardId.size) {
     try {
@@ -1680,9 +1688,9 @@ async function runForwardSync() {
     }
 
     const linkContext = { issueByCardId, owner: repoOwner, name: repoName };
-    for (const card of cardsToSync) {
+    await mapWithConcurrency(cardsToSync, syncConcurrency, async (card) => {
       const issue = issueByCardId.get(card.cardId);
-      if (!issue?.id) continue;
+      if (!issue?.id) return;
       try {
         const enrichedBody = buildIssueBody(card, linkContext);
         await updateIssue(issue.id, buildIssueTitle(card), enrichedBody);
@@ -1690,7 +1698,7 @@ async function runForwardSync() {
       } catch (e) {
         actions.push({ action: "BODY_ENRICH_FAILED", cardId: card.cardId, reason: e.message });
       }
-    }
+    });
   }
 
   // Link sub-issues
@@ -1763,9 +1771,9 @@ async function runForwardSync() {
     const fParent = resolveProjectField(project, "parent", fieldMap);
     const fDueDate = resolveProjectField(project, "dueDate", fieldMap);
 
-    for (const card of cardsToSync) {
+    await mapWithConcurrency(cardsToSync, syncConcurrency, async (card) => {
       const issue = issueByCardId.get(card.cardId);
-      if (!issue) continue;
+      if (!issue) return;
 
       let itemId;
       try {
@@ -1776,7 +1784,7 @@ async function runForwardSync() {
         }
       } catch (e) {
         actions.push({ action: "PROJECT_ADD_FAILED", cardId: card.cardId, reason: e.message });
-        continue;
+        return;
       }
 
       try {
@@ -1806,7 +1814,7 @@ async function runForwardSync() {
       } catch (e) {
         actions.push({ action: "FIELD_UPDATE_FAILED", cardId: card.cardId, reason: e.message });
       }
-    }
+    });
   }
 
   // Print summary
@@ -2190,7 +2198,49 @@ async function runReverseSync() {
 // Main
 // ---------------------------------------------------------------------------
 
+/**
+ * Whether to interrupt a live (non-dry-run) sync with a confirmation prompt
+ * before writing anything. Only fires for a human at an interactive
+ * terminal — CI (ci-sync.mjs, hyperion-sync-cards.yml) has no TTY, so this
+ * is always false there regardless of dry-run state, and watch.mjs's live
+ * mode passes CARDS_SYNC_YES itself (the user already opted in once, at
+ * the watcher level, by setting CARDS_WATCH_LIVE).
+ */
+export function shouldPromptBeforeLiveSync({
+  dryRun: isDryRun,
+  isTTY,
+  argv = process.argv,
+  env = process.env,
+} = {}) {
+  if (isDryRun) return false;
+  if (!isTTY) return false;
+  if (argv.includes("--yes")) return false;
+  if (String(env.CARDS_SYNC_YES || "").toLowerCase() === "true") return false;
+  return true;
+}
+
+async function confirmLiveSync() {
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    const answer = await rl.question(
+      `[cards-sync] This will write to your LIVE board (no --dry-run). Type "yes" to continue: `
+    );
+    return answer.trim().toLowerCase() === "yes";
+  } finally {
+    rl.close();
+  }
+}
+
 async function main() {
+  if (shouldPromptBeforeLiveSync({ dryRun, isTTY: process.stdin.isTTY })) {
+    const confirmed = await confirmLiveSync();
+    if (!confirmed) {
+      log("Aborted — nothing written. Pass --yes (or CARDS_SYNC_YES=true) to skip this prompt.");
+      process.exitCode = 1;
+      return;
+    }
+  }
+
   if (syncDirection === "reverse") {
     await runReverseSync();
   } else {
@@ -2256,4 +2306,12 @@ export {
   canonicalizeLinearState,
   inverseStatusMap,
   getLabelId,
+  getProject,
+  getFieldByName,
+  addSingleSelectField,
+  addTextField,
+  addNumberField,
+  addDateField,
+  addIterationField,
+  REQUIRED_FIELDS,
 };

@@ -93,7 +93,7 @@ After apply, recommend product CI improvements (read-only suggestions):
 | File | Purpose |
 |------|---------|
 | `hyperion-sync-cards.yml` | Sync `.github/cards/` → GitHub/Jira |
-| `hyperion-security.yml` | npm/pip audit + secret scan |
+| `hyperion-security.yml` | npm/pip audit + license check + secret scan |
 | `hyperion-validate.yml` | Kit checks (docs, skills, cards tests) |
 | `hyperion-product-ci.yml` | Minimal lint/test/build when none exists |
 

@@ -3,6 +3,32 @@
 Starter configs for adopters connecting cards-sync backends via MCP.
 Copy the snippet for your IDE and replace env placeholders.
 
+## First-party: Hyperion itself (read-only)
+
+Unlike the backend connectors below, `scripts/hyperion/mcp-server.mjs` isn't a
+board integration — it exposes the kit's own **read-only** commands
+(`doctor`, `project-verify`) as MCP tools, so any MCP-capable client (Claude
+Desktop, Cursor, etc.) can run them directly instead of shelling out. No
+third-party package, no new dependency — it implements the MCP stdio
+JSON-RPC transport by hand, the same way this kit's other protocol clients
+(GitHub/Jira/Linear/GitLab) are raw `fetch` calls instead of vendor SDKs.
+
+```json
+{
+  "mcpServers": {
+    "hyperion": {
+      "command": "node",
+      "args": ["scripts/hyperion/mcp-server.mjs"]
+    }
+  }
+}
+```
+
+Tools exposed: `hyperion_doctor` (kit + cards-sync health check — may make
+real read-only GitHub API calls via your `gh` session/token, never writes),
+`hyperion_project_verify` (validates `project.yml` against its schema,
+no network calls). Neither tool mutates anything.
+
 ## Cursor (`.cursor/mcp.json`)
 
 See [servers.example.json](./servers.example.json) — copy to your product repo as `.cursor/mcp.json`.

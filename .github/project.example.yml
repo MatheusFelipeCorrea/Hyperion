@@ -104,3 +104,10 @@ commands:
 memory:
   auto_capture: true
   decisions_file: .github/memory/DECISIONS.md
+
+# Local, opt-in usage telemetry for the 6 agent gates (phase/review/audit/
+# plan/spec-review/release-verify) — off by default. Never leaves this
+# machine: appended to a gitignored .github/plans/telemetry/usage.jsonl.
+# Summary: npm run hyperion:telemetry
+telemetry:
+  enabled: false

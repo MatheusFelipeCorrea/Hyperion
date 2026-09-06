@@ -1,0 +1,10 @@
+## [1.2.0] - 2026-01-15
+
+### Quebras de compatibilidade
+- Endpoint `/v1/users` removido, use `/v2/users` ([aaa9999](../../commit/aaa9999))
+
+### Funcionalidades
+- Adiciona fluxo de redefinição de senha ([abc1234](../../commit/abc1234))
+
+### Correções
+- Corrige crash ao lidar com array de labels vazio no sync ([def5678](../../commit/def5678))
