@@ -10,6 +10,8 @@
   <img src="https://img.shields.io/badge/6_comandos-primeira_semana-2563EB?style=flat-square&labelColor=0B1220" alt="6">
 </p>
 
+**Português** · **English:** [GETTING-STARTED.en.md](./GETTING-STARTED.en.md)
+
 Do zero (ou repo legado) ao primeiro release. **Não precisa saber o que é um “agent”.** No primeiro dia, pare nos **6 comandos** — o resto é para depois.
 
 ### O que o Hyperion faz (em uma frase)
@@ -20,7 +22,7 @@ Você copia o kit para o **seu** repo → fala com a IA no chat (`/setup`, `/ref
 |------|------------------|
 | 🧭 Ligar o kit | `/setup` · `/migrate` · `/doctor` |
 | 📋 Planejar | `/refine` · `/spec` · `/explore` |
-| ⚡ Entregar | `/implement` · `/execute` · `/pr-review` |
+| ⚡ Entregar | `/implement` · `/execute` · `/pr` · `/pr-review` |
 | 🔍 Qualidade | `/audit` · `/deps` |
 | 📚 Docs / release | `/diagram` · `/release` |
 
@@ -150,6 +152,17 @@ O agente detecta stack, CI, testes e escreve `project.yml` com bloco `commands:`
 
 > **`/setup`** — ou *"Configura o Hyperion neste repo"*
 
+### Idioma do repo
+
+O `/setup` e o `/migrate` perguntam em qual idioma o time trabalha e sugerem um a partir do README e dos commits. Pelo terminal:
+
+```bash
+npm run hyperion:detect-language
+npm run hyperion:setup -- --locale pt-BR --languages pt-BR,en
+```
+
+`locale` é o idioma principal (cards, docs, mensagens do CI). Com mais de um em `languages`, PRs, comentários e releases saem em todos. Regras: [language-policy.md](./.github/docs/meta/language-policy.md).
+
 ### Detectar comandos do repo (avançado / terminal)
 
 ```bash
@@ -185,6 +198,7 @@ Cards em `.github/cards/` — GitHub completo; Jira/Azure/GitLab/Linear com `--r
 | Gate de spec (opcional na 1ª vez) | **`/spec-review`** |
 | Plano em fases | **`/implement`** |
 | Executar fase (+ testes do repo) | **`/execute`** |
+| Abrir o PR (idioma do repo) | **`/pr`** |
 | Revisar PR | **`/pr-review`** |
 
 Testes usam `commands.test` do **seu** `project.yml` — não hardcoded.
@@ -208,7 +222,7 @@ Testes usam `commands.test` do **seu** `project.yml` — não hardcoded.
 
 ```text
 /migrate ou /setup → /refine → /spec → /spec-review → /implement → /execute
-  → /pr-review → /audit-run → /deps → /release
+  → /pr → /pr-review → /audit-run → /deps → /release
 ```
 
 ![Jornada Hyperion](./.github/docs/assets/hyperion-journey-full.png)
@@ -233,6 +247,7 @@ Testes usam `commands.test` do **seu** `project.yml` — não hardcoded.
 | Repo legado confuso | **`/migrate`** |
 | Testes falham no executor | Edite `commands.test` em `project.yml` |
 | Regras Cursor | `npm run hyperion:cursor` |
+| Saída no idioma errado | Ajuste `locale` / `languages` no `project.yml` (`npm run hyperion:doctor` mostra o valor atual) |
 | Não sei o que escrever no chat | **`/help`** ou [armadilhas-comuns.md](./.github/docs/troubleshooting/armadilhas-comuns.md) |
 
 ---

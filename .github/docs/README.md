@@ -25,8 +25,8 @@
 
 | Doc | O que responde |
 |-----|----------------|
-| [README.md](../../README.md) | O que é, áreas, skills, comandos |
-| [GETTING-STARTED.md](../../GETTING-STARTED.md) | Glossário + primeiros passos |
+| [README.md](../../README.md) | O que é, áreas, skills, comandos · [EN](../../README.en.md) |
+| [GETTING-STARTED.md](../../GETTING-STARTED.md) | Glossário + primeiros passos · [EN](../../GETTING-STARTED.en.md) |
 | [trilha-de-aprendizado.md](./onboarding/trilha-de-aprendizado.md) | Ordem de estudo 🟢→🔵 · [EN](./onboarding/learning-path-en.md) |
 
 ## 2. Usar no dia a dia
@@ -54,6 +54,9 @@
 | [definition-of-done.md](./meta/definition-of-done.md) | Gates `*-verify` |
 | [onde-ficam-os-outputs.md](./meta/onde-ficam-os-outputs.md) | Onde a IA grava arquivos |
 | [skills-output-map.md](./reference/skills-output-map.md) | Mapa skill → pasta |
+| [language-policy.md](./meta/language-policy.md) | Idioma do repo, multilíngue, o que fica em inglês · [EN](./meta/language-policy-en.md) |
+
+Docs com versão em outro idioma ficam listados em [translations.json](./translations.json) — o `npm run docs:check` falha se um par sumir ou deixar de linkar o outro.
 
 ---
 
