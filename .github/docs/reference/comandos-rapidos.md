@@ -58,7 +58,7 @@ Se você usa Cursor, Copilot ou Claude Code, **não precisa rodar npm**. Diga:
 | **`/spec-review`** | Gate de spec/card antes de codar |
 | **`/audit-run`** | Auditoria orquestrada (6 dimensões) |
 | **`/release`** | Changelog, versão e tag |
-| **`/diagram`** ou *"Pacote completo de diagramas"* | 11 tipos UML em `.github/diagrams/` |
+| **`/diagram`** ou *"Pacote completo de diagramas"* | 12 tipos (UML + pipeline CI/CD) em `.github/diagrams/` |
 | **`/spec`** | Spec BDD + flowchart opcional por story |
 | **`/help`** ou *"Lista comandos Hyperion"* | Mostra atalhos |
 
@@ -131,7 +131,7 @@ Skill `plantuml-generator` — gera **fontes** `.puml` / `.mmd` (PNG é export m
 
 | Diga isto | Resultado |
 |-----------|-----------|
-| **`/diagram`** + *"Pacote completo"* | 11 diagramas na ordem recomendada (aprovação entre cada um) |
+| **`/diagram`** + *"Pacote completo"* | 12 diagramas na ordem recomendada (aprovação entre cada um) |
 | *"Diagrama de sequência do login"* | `Sequencia/sequencia-login.puml` |
 | *"Modelo ER do banco"* | `Modelo de Dados/modelo-dados.puml` |
 | *"Estados do pedido"* | `Estado/estado-pedido.puml` |

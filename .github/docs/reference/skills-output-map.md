@@ -53,7 +53,7 @@ Override: read `project.yml` → `outputs` and `docs.*` first; fall back to path
 | Skill | Primary output | Path |
 |-------|----------------|------|
 | **adr-generator** | ADR | `.github/docs/adr/ADR-{NNN}-{slug}.md` |
-| **plantuml-generator** | Full diagram set (11 types) | `.github/diagrams/{category}/` — see [diagrams/README.md](../../diagrams/README.md) |
+| **plantuml-generator** | Full diagram set (12 types, incl. CI/CD Pipeline via `hyperion:pipeline-diagram`) | `.github/diagrams/{category}/` — see [diagrams/README.md](../../diagrams/README.md) |
 | **readme-updater** | Updated README(s) | In place at detected README/docs files (root + apps) |
 | **changelog-generator** | Changelog | `CHANGELOG.md` (repo root) |
 | **release-manager** | Release checklist | `.github/plans/releases/release-{version}-checklist.md` + `CHANGELOG.md` |
