@@ -5,6 +5,7 @@ import fs from "node:fs/promises";
 import { readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import path from "node:path";
+import { resolveLanguages, t } from "../hyperion/i18n.mjs";
 import { resolveHyperionPaths } from "../hyperion/paths.mjs";
 import { BOARD_OWNED_FRONTMATTER } from "./reconcile.mjs";
 
@@ -310,37 +311,40 @@ export async function checkDirectionalBoardAlignment(
  * Print drift help for CI / PR contexts.
  * @param {"pr"|"main-pre-forward"|"post-forward"} context
  */
-export function printBoardDriftHelp(changedFiles, backend, context = "main-pre-forward", log = console.log, externalDrifts = []) {
-  const label = boardLabel(backend);
+export function printBoardDriftHelp(changedFiles, backend, context = "main-pre-forward", log = console.log, externalDrifts = [], lang = null) {
+  const root = resolveHyperionPaths(process.cwd()).workspaceRoot;
+  const language = lang || resolveLanguages(root).primary;
+  const m = (key, vars) => t(key, vars, language, { root });
+  const board = boardLabel(backend);
 
   log("");
-  log("=== BOARD DRIFT DETECTED ===");
+  log(m("guard.drift.header"));
 
   if (context === "pr") {
-    log(`The ${label} has external changes not reflected in this PR branch.`);
-    log("(Forward-pending card edits in this PR are allowed — only board moves block merge.)");
+    log(m("guard.drift.prChanges", { board }));
+    log(m("guard.drift.prAllowed"));
     log("");
-    log("Merge is blocked until you pull board state into this branch:");
+    log(m("guard.drift.prBlocked"));
     log("  npm run cards:reverse");
     log("  git add .github/cards/");
-    log('  git commit -m "chore(cards): pull board state into PR"');
+    log(`  git commit -m "chore(cards): ${m("guard.drift.prCommit")}"`);
     log("  git push");
   } else if (context === "post-forward") {
-    log(`After forward sync, the ${label} still differs from committed cards.`);
-    log("This may indicate a partial sync, API lag, or concurrent board edits.");
+    log(m("guard.drift.postDiffers", { board }));
+    log(m("guard.drift.postCause"));
   } else {
-    log(`The ${label} has external changes not in this commit.`);
-    log("(Intentional card edits waiting for forward sync are allowed.)");
+    log(m("guard.drift.mainChanges", { board }));
+    log(m("guard.drift.mainAllowed"));
     log("");
-    log("If the board moved independently, run locally:");
+    log(m("guard.drift.mainRun"));
     log("  npm run cards:reverse");
     log("  git add .github/cards/");
-    log('  git commit -m "chore(cards): pull board state before sync"');
+    log(`  git commit -m "chore(cards): ${m("guard.drift.mainCommit")}"`);
   }
 
   if (externalDrifts.length) {
     log("");
-    log("External drift (board changed, branch did not):");
+    log(m("guard.drift.external"));
     for (const entry of externalDrifts) {
       for (const f of entry.fields) {
         log(`  - ${entry.file} → ${f.field}: branch=${f.head ?? "null"} board=${f.board ?? "null"}`);
@@ -348,7 +352,7 @@ export function printBoardDriftHelp(changedFiles, backend, context = "main-pre-f
     }
   } else {
     log("");
-    log("Changed card files after reverse pull:");
+    log(m("guard.drift.changed"));
     for (const f of changedFiles) log(`  - ${f}`);
   }
   log("");

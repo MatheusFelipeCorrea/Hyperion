@@ -10,11 +10,13 @@
  *   node coverage-gate.mjs --dir . --metric lines --min 80 [--mode block|warn]
  *                          [--file coverage/lcov.info] [--ignore "lib/generated/**,*.g.dart"] [--label api]
  *                          [--summary-out file.md] [--diff-base <sha> --diff-min 80 [--diff-mode warn|block]]
+ *                          [--lang pt-BR,en]   (primary first; extras as <details> in the summary)
  */
 import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
+import { multiRender, normalizeTag, t } from "./i18n.mjs";
 
 export const METRICS = ["lines", "statements", "branches", "functions"];
 
@@ -364,17 +366,21 @@ export function evaluateCoverage({ dir = process.cwd(), file = null, metric = "l
   }
   const value = pct(report.totals[used]);
   const ok = value !== null && value + 1e-9 >= min;
-  return { ok, status: ok ? "pass" : "fail", metric: used, value, min, report, file: found, ...(note ? { note } : {}) };
+  const noteVars = note ? { metric, format: report.format, used } : null;
+  return { ok, status: ok ? "pass" : "fail", metric: used, value, min, report, file: found, ...(note ? { note, noteVars } : {}) };
 }
+
+const catalogRoot = () => process.env.GITHUB_WORKSPACE || null;
+const msg = (key, vars, lang) => t(key, vars, lang, { root: catalogRoot() });
 
 function fmtPct(v) {
   return v === null || v === undefined ? "—" : `${v.toFixed(2)}%`;
 }
 
-export function renderSummary(result, { label = "", mode = "block" } = {}) {
-  const head = `### Coverage${label ? ` — ${label}` : ""}`;
+export function renderSummary(result, { label = "", mode = "block", lang = "en" } = {}) {
+  const head = `### ${msg("coverage.heading", {}, lang)}${label ? ` — ${label}` : ""}`;
   if (result.status === "missing") {
-    return `${head}\n\n❌ No coverage report found (mode: ${mode}).\n`;
+    return `${head}\n\n❌ ${msg("coverage.missing", { mode }, lang)}\n`;
   }
   const rows = METRICS.filter((m) => result.report.totals[m]).map((m) => {
     const c = result.report.totals[m];
@@ -386,12 +392,12 @@ export function renderSummary(result, { label = "", mode = "block" } = {}) {
   return [
     head,
     "",
-    `${icon} **${result.metric}** ${fmtPct(result.value)} (min ${result.min}%, mode: ${mode}) — ${result.report.format}, ${path.basename(result.file)}`,
+    `${icon} ${msg("coverage.result", { metric: result.metric, value: fmtPct(result.value), min: result.min, mode, format: result.report.format, file: path.basename(result.file) }, lang)}`,
     "",
-    "| metric | coverage | covered/total |",
+    msg("coverage.tableHeader", {}, lang),
     "|---|---|---|",
     ...rows,
-    result.note ? `\n_${result.note}_` : "",
+    result.note ? `\n_${result.noteVars ? msg("coverage.metricFallback", result.noteVars, lang) : result.note}_` : "",
     "",
   ].join("\n");
 }
@@ -410,6 +416,7 @@ export function parseArgs(argv) {
     diffMin: null,
     diffMode: null,
     diffFile: null,
+    langs: ["en"],
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -426,7 +433,9 @@ export function parseArgs(argv) {
     else if (a === "--diff-min") out.diffMin = Number(next());
     else if (a === "--diff-mode") out.diffMode = next();
     else if (a === "--diff-file") out.diffFile = next();
+    else if (a === "--lang") out.langs = String(next() || "").split(",").map(normalizeTag).filter(Boolean);
   }
+  if (!out.langs.length) out.langs = ["en"];
   if (!METRICS.includes(out.metric)) out.metric = "lines";
   if (!Number.isFinite(out.min)) out.min = 0;
   if (out.mode !== "warn") out.mode = "block";
@@ -442,36 +451,41 @@ if (isMain) {
   const args = parseArgs(process.argv.slice(2));
   const dir = path.resolve(args.dir);
   const level = (mode) => (mode === "warn" ? "warning" : "error");
-  const title = `Coverage gate${args.label ? ` (${args.label})` : ""}`;
+  const lang = args.langs[0];
+  const gateTitle = msg("coverage.gateTitle", {}, lang);
+  const title = `${gateTitle}${args.label ? ` (${args.label})` : ""}`;
   let failed = false;
   let result;
   try {
     result = evaluateCoverage({ dir, file: args.file, metric: args.metric, min: args.min, ignore: args.ignore });
   } catch (e) {
-    console.error(`::error title=Coverage gate::${e.message}`);
+    console.error(`::error title=${gateTitle}::${e.message}`);
     process.exit(args.mode === "warn" ? 0 : 1);
   }
-  let summary = renderSummary(result, args);
+  const sections = [(l) => renderSummary(result, { ...args, lang: l })];
 
   if (args.diffBase && args.diffMin !== null && !/^0+$/.test(args.diffBase)) {
     const { diffCoverageFromGit, renderDiffSummary } = await import("./diff-coverage.mjs");
     try {
       const diff = diffCoverageFromGit({ dir, base: args.diffBase, file: args.diffFile, min: args.diffMin, ignore: args.ignore });
       if (diff.missing) {
-        summary += "\n#### Changed lines\n\nNo line-level report (lcov, Cobertura, Go cover, coverage-final.json) — diff coverage skipped.\n";
-        console.log(`::warning title=${title}::diff coverage needs a line-level report`);
+        sections.push((l) => `\n#### ${msg("coverage.diff.heading", {}, l)}\n\n${msg("coverage.diff.noReport", {}, l)}\n`);
+        console.log(`::warning title=${title}::${msg("coverage.annot.diffNeedsLines", {}, lang)}`);
       } else {
-        summary += `\n${renderDiffSummary(diff, { mode: args.diffMode })}`;
+        sections.push((l) => `\n${renderDiffSummary(diff, { mode: args.diffMode, lang: l, root: catalogRoot() })}`);
         if (!diff.ok) {
-          console.log(`::${level(args.diffMode)} title=${title}::changed lines ${diff.pct.toFixed(2)}% < ${args.diffMin}%`);
+          console.log(`::${level(args.diffMode)} title=${title}::${msg("coverage.annot.diffBelow", { pct: diff.pct.toFixed(2), min: args.diffMin }, lang)}`);
           if (args.diffMode === "block") failed = true;
         }
       }
     } catch (e) {
-      console.log(`::warning title=${title}::diff coverage skipped — ${e.message.split("\n")[0]}`);
+      console.log(`::warning title=${title}::${msg("coverage.annot.diffSkipped", { reason: e.message.split("\n")[0] }, lang)}`);
     }
   }
 
+  const summary = args.langs.length > 1
+    ? multiRender((l) => sections.map((s) => s(l)).join(""), args.langs)
+    : sections.map((s) => s(lang)).join("");
   console.log(summary);
   for (const target of [process.env.GITHUB_STEP_SUMMARY, args.summaryOut]) {
     if (!target) continue;
@@ -482,10 +496,10 @@ if (isMain) {
     }
   }
   if (result.status === "missing") {
-    console.log(`::${level(args.mode)} title=${title}::No coverage report found under ${args.dir}`);
+    console.log(`::${level(args.mode)} title=${title}::${msg("coverage.annot.missing", { dir: args.dir }, lang)}`);
     if (args.mode === "block") failed = true;
   } else if (!result.ok) {
-    console.log(`::${level(args.mode)} title=${title}::${result.metric} ${fmtPct(result.value)} < ${result.min}%`);
+    console.log(`::${level(args.mode)} title=${title}::${msg("coverage.annot.below", { metric: result.metric, value: fmtPct(result.value), min: result.min }, lang)}`);
     if (args.mode === "block") failed = true;
   }
   process.exit(failed ? 1 : 0);

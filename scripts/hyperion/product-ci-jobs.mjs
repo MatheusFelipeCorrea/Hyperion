@@ -5,9 +5,13 @@
  * builds, docs checks, failure notifications).
  */
 import { CHECKOUT, checkout, job, q, slug, step } from "./ci-yaml.mjs";
+import { translator } from "./i18n.mjs";
 import { gateCommand, SERVICE_CATALOG } from "./pipeline-gates.mjs";
 
 export const WORKFLOW_PATH = ".github/workflows/hyperion-product-ci.yml";
+
+/** Messages in the repo language (plan.i18n from project.yml; en when unset). Job/step names stay English. */
+export const ciText = (plan) => translator(plan.i18n, { root: plan.i18nRoot || null });
 const GITLEAKS_VERSION = "8.21.2";
 const SAME_REPO_PR = "github.event.pull_request.head.repo.full_name == github.repository";
 
@@ -259,6 +263,7 @@ export function secretsJob(plan) {
 export function prHygieneJob(plan) {
   const { branchName, title, cardLink, size } = plan.prChecks;
   if ([branchName, title, cardLink, size].every((c) => c.mode === "off")) return null;
+  const tr = ciText(plan);
   const env = {
     PR_TITLE: "${{ github.event.pull_request.title }}",
     PR_BRANCH: "${{ github.head_ref }}",
@@ -274,7 +279,7 @@ export function prHygieneJob(plan) {
         run: [
           'case "$PR_BRANCH" in dependabot/*|renovate/*) exit 0 ;; esac',
           'if [[ ! "$PR_BRANCH" =~ $PATTERN ]]; then',
-          '  echo "::error title=Branch name::\'$PR_BRANCH\' does not match $PATTERN"',
+          `  echo "::error title=Branch name::${tr.shell("ci.branchName.error", { branch: "$PR_BRANCH", pattern: "$PATTERN" })}"`,
           "  exit 1",
           "fi",
         ].join("\n"),
@@ -289,7 +294,7 @@ export function prHygieneJob(plan) {
         env: { PR_TITLE: env.PR_TITLE, PATTERN: q(title.pattern) },
         run: [
           'if [[ ! "$PR_TITLE" =~ $PATTERN ]]; then',
-          '  echo "::error title=PR title::\'$PR_TITLE\' does not match $PATTERN (re-run after editing the title)"',
+          `  echo "::error title=PR title::${tr.shell("ci.prTitle.error", { title: "$PR_TITLE", pattern: "$PATTERN" })}"`,
           "  exit 1",
           "fi",
         ].join("\n"),
@@ -304,7 +309,7 @@ export function prHygieneJob(plan) {
         env: { ...env, PATTERN: q(cardLink.pattern) },
         run: [
           'if ! printf \'%s\\n%s\\n%s\\n\' "$PR_BRANCH" "$PR_TITLE" "$PR_BODY" | grep -Eq "$PATTERN"; then',
-          '  echo "::error title=Card link::no CARD_ID matching $PATTERN in branch, title or body"',
+          `  echo "::error title=Card link::${tr.shell("ci.cardLink.error", { pattern: "$PATTERN" })}"`,
           "  exit 1",
           "fi",
         ].join("\n"),
@@ -319,9 +324,9 @@ export function prHygieneJob(plan) {
         env: { ADDED: "${{ github.event.pull_request.additions }}", REMOVED: "${{ github.event.pull_request.deletions }}", MAX: String(size.max) },
         run: [
           "total=$((ADDED + REMOVED))",
-          'echo "Changed lines: $total (max $MAX)"',
+          `echo "${tr.shell("ci.prSize.info", { total: "$total", max: "$MAX" })}"`,
           'if [ "$total" -gt "$MAX" ]; then',
-          '  echo "::error title=PR size::$total changed lines > $MAX — consider splitting the PR"',
+          `  echo "::error title=PR size::${tr.shell("ci.prSize.error", { total: "$total", max: "$MAX" })}"`,
           "  exit 1",
           "fi",
         ].join("\n"),
@@ -640,8 +645,17 @@ export function notifyJob(plan, needs) {
   const n = plan.notify;
   if (n.on === "off" || (!n.slack && !n.discord) || !needs.length) return null;
   const when = n.on === "always" ? "always()" : "failure()";
-  const env = { STATUS: "${{ contains(needs.*.result, 'failure') && 'failed' || 'passed' }}" };
-  const lines = ['msg="Hyperion CI ${STATUS} on ${GITHUB_REPOSITORY}@${GITHUB_REF_NAME} (${GITHUB_SHA::7}) — ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"'];
+  const tr = ciText(plan);
+  const exprStr = (s) => `'${s.replace(/'/g, "''")}'`;
+  const env = { STATUS: `\${{ contains(needs.*.result, 'failure') && ${exprStr(tr.t("ci.notify.failed"))} || ${exprStr(tr.t("ci.notify.passed"))} }}` };
+  const msg = tr.shell("ci.notify.message", {
+    status: "${STATUS}",
+    repo: "${GITHUB_REPOSITORY}",
+    ref: "${GITHUB_REF_NAME}",
+    sha: "${GITHUB_SHA::7}",
+    url: "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}",
+  });
+  const lines = [`msg="${msg}"`];
   if (n.slack) {
     env.SLACK_WEBHOOK_URL = "${{ secrets.SLACK_WEBHOOK_URL }}";
     lines.push('if [ -n "$SLACK_WEBHOOK_URL" ]; then curl -sS -X POST -H "Content-Type: application/json" --data "$(jq -n --arg t "$msg" \'{text:$t}\')" "$SLACK_WEBHOOK_URL"; fi');

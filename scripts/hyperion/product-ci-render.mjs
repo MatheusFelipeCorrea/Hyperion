@@ -11,12 +11,14 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { CHECKOUT, checkout, job, kitScript, q, slug, step } from "./ci-yaml.mjs";
+import { languagesFor, resolveLanguages } from "./i18n.mjs";
 import { gateCommand, resolveGatePlan, scanRepoForGates } from "./pipeline-gates.mjs";
 import {
   a11yJob,
   affectedGate,
   bundleSizeJob,
   changesJob,
+  ciText,
   dependencyReviewJob,
   dockerJob,
   dockerPublishJob,
@@ -34,7 +36,7 @@ import {
 
 export const GATES_HASH_MARKER = "# hyperion:gates-hash";
 
-function auditFixCheckScript(app, fixCmd, verifyCmd) {
+function auditFixCheckScript(app, fixCmd, verifyCmd, tr) {
   return [
     "set +e",
     fixCmd,
@@ -47,20 +49,20 @@ function auditFixCheckScript(app, fixCmd, verifyCmd) {
     "status=$?",
     'git -C "$GITHUB_WORKSPACE" checkout -- .',
     "if [ $status -eq 0 ]; then",
-    `  echo "::warning title=Audit fix (${app.name})::'${fixCmd}' resolves advisories and ${verifyCmd ? "tests still pass" : "is untested"} — run it locally and commit."`,
+    `  echo "::warning title=Audit fix (${app.name})::${tr.shell(verifyCmd ? "ci.auditFix.ok" : "ci.auditFix.untested", { command: fixCmd })}"`,
     "else",
-    `  echo "::warning title=Audit fix (${app.name})::'${fixCmd}' breaks tests — upgrade manually."`,
+    `  echo "::warning title=Audit fix (${app.name})::${tr.shell("ci.auditFix.breaks", { command: fixCmd })}"`,
     "fi",
   ].join("\n");
 }
 
-function retryScript(cmd, retries, label) {
+function retryScript(cmd, retries, label, tr) {
   if (!retries) return cmd;
   return [
     "attempt=1",
     `until ${cmd}; do`,
     `  if [ "$attempt" -gt ${retries} ]; then exit 1; fi`,
-    `  echo "::warning title=Flaky test retry (${label})::attempt $attempt failed, retrying"`,
+    `  echo "::warning title=Flaky test retry (${label})::${tr.shell("ci.retry.attempt", { attempt: "$attempt" })}"`,
     "  attempt=$((attempt + 1))",
     "done",
   ].join("\n");
@@ -73,6 +75,7 @@ const andIf = (...conds) => {
 
 function appJob(app, plan, ctx) {
   const d = app.decisions;
+  const tr = ciText(plan);
   const notes = [];
   const note = (msg) => notes.push(`(${app.name}): ${msg}`);
   const cmd = (g) => gateCommand(app, g, d);
@@ -148,13 +151,13 @@ function appJob(app, plan, ctx) {
       step({
         name: "Test + coverage",
         if: andIf(primary),
-        run: retryScript(coverageCmd, d.retry, app.name),
+        run: retryScript(coverageCmd, d.retry, app.name, tr),
         shell: retryShell,
         mode: testMode,
       })
     );
     if (primary && testCmd && d.test !== "off") {
-      steps.push(step({ name: "Test", if: andIf(`!(${primary})`), run: retryScript(testCmd, d.retry, app.name), shell: retryShell, mode: d.test }));
+      steps.push(step({ name: "Test", if: andIf(`!(${primary})`), run: retryScript(testCmd, d.retry, app.name, tr), shell: retryShell, mode: d.test }));
     }
     const args = [
       "--dir .",
@@ -168,6 +171,8 @@ function appJob(app, plan, ctx) {
     if (d.coverage.ignore.length) args.push(`--ignore ${q(d.coverage.ignore.join(","))}`);
     if (diff) args.push('--diff-base "${{ github.event.pull_request.base.sha }}"', `--diff-min ${diff.min}`, `--diff-mode ${diff.mode}`);
     if (summaryOut) args.push(`--summary-out "${summaryOut}"`);
+    const commentLangs = languagesFor(tr.settings, "comments");
+    if (commentLangs.join(",") !== "en") args.push(`--lang ${commentLangs.join(",")}`);
     steps.push(
       step({
         name: `Coverage gate (${d.coverage.metric} >= ${d.coverage.min}%${diff ? `, diff >= ${diff.min}%` : ""})`,
@@ -188,7 +193,7 @@ function appJob(app, plan, ctx) {
       );
     }
   } else if (d.test !== "off" && testCmd) {
-    steps.push(step({ name: "Test", run: retryScript(testCmd, d.retry, app.name), shell: retryShell, mode: d.test }));
+    steps.push(step({ name: "Test", run: retryScript(testCmd, d.retry, app.name, tr), shell: retryShell, mode: d.test }));
   }
 
   if (plan.artifacts && (coverageCmd || testCmd)) {
@@ -235,7 +240,7 @@ function appJob(app, plan, ctx) {
         if: andIf("!cancelled()", "github.event_name != 'schedule'", primary),
         continueOnError: true,
         shell: nonLinux ? "bash" : undefined,
-        run: auditFixCheckScript(app, fixCmd, testCmd),
+        run: auditFixCheckScript(app, fixCmd, testCmd, tr),
       })
     );
   }
@@ -256,12 +261,16 @@ function appJob(app, plan, ctx) {
   });
 }
 
-function auditFixPrJob(app, ctx) {
+function auditFixPrJob(app, plan, ctx) {
   const d = app.decisions;
   const fixCmd = app.commands?.audit_fix || app.gates?.audit?.fix;
   if (d.audit.mode === "off" || d.audit.fix !== "pr" || !fixCmd) return null;
   const testCmd = gateCommand(app, "test", d);
   const branch = `chore/audit-fix-${slug(app.name)}`;
+  const tr = ciText(plan);
+  const subject = `chore(deps): ${tr.shell("ci.auditPr.subject", { app: app.name })}`;
+  const body = tr.multi("pr", (lang) => tr.tIn(lang, "ci.auditPr.body"));
+  const bodyShell = body.trimEnd().replace(/[\\"`$]/g, (c) => `\\${c}`);
   return job({
     id: `audit-fix-${slug(app.name)}`,
     name: `${app.name} — audit fix PR`,
@@ -283,9 +292,9 @@ function auditFixPrJob(app, ctx) {
           'git config user.name "github-actions[bot]"',
           'git config user.email "41898282+github-actions[bot]@users.noreply.github.com"',
           'git checkout -B "$BRANCH"',
-          `git commit -am "chore(deps): audit fix (${app.name})"`,
+          `git commit -am "${subject}"`,
           'git push --force origin "$BRANCH"',
-          `gh pr view "$BRANCH" --json number >/dev/null 2>&1 || gh pr create --base "$BASE" --head "$BRANCH" --title "chore(deps): audit fix (${app.name})" --body "Automated by Hyperion product CI (ci.gates audit.fix: pr). Tests passed with the fix applied."`,
+          `gh pr view "$BRANCH" --json number >/dev/null 2>&1 || gh pr create --base "$BASE" --head "$BRANCH" --title "${subject}" --body "${bodyShell}"`,
         ].join("\n"),
       }),
     ],
@@ -444,8 +453,11 @@ const APP_HASH_FIELDS = ["name", "path", "stack", "decisions", "commands", "gate
 
 /** Stable hash of every decision that shapes the workflow (for refresh drift). */
 export function gatesHash(plan) {
-  const { apps, ...rest } = plan;
+  const { apps, i18n, i18nRoot, ...rest } = plan;
   const shape = { ...rest, apps: apps.map((a) => Object.fromEntries(APP_HASH_FIELDS.map((k) => [k, a[k] ?? null]))) };
+  if (i18n && (i18n.primary !== "en" || i18n.languages.length > 1)) {
+    shape.languages = { languages: i18n.languages, multilingual: i18n.multilingual };
+  }
   return crypto.createHash("sha256").update(JSON.stringify(shape)).digest("hex").slice(0, 16);
 }
 
@@ -481,7 +493,7 @@ export function renderProductCiFromGates({ scan, plan, kitRootRel = "", defaultB
     changesJob(plan),
     ...appJobs,
     ...plan.apps.map((a) => styleFixJob(a, plan)),
-    ...plan.apps.map((a) => auditFixPrJob(a, ctx)),
+    ...plan.apps.map((a) => auditFixPrJob(a, plan, ctx)),
     dockerJob(plan, scan.repo),
     composeJob(plan, plan.apps),
     ...e2eJobs(plan, scan.repo, plan.apps, ctx),
@@ -536,6 +548,9 @@ export function renderProductCiFromGates({ scan, plan, kitRootRel = "", defaultB
 export function renderProductCiForRepo(root, { gates, kitRootRel = "", defaultBranch = "main" } = {}) {
   const scan = scanRepoForGates(root, { kitRootRel });
   const plan = resolveGatePlan(scan, gates);
+  const { primary, languages, multilingual } = resolveLanguages(root);
+  plan.i18n = { primary, languages, multilingual };
+  plan.i18nRoot = root;
   const readScripts = (dir) => {
     try {
       return JSON.parse(fs.readFileSync(path.join(root, dir, "package.json"), "utf8")).scripts || {};

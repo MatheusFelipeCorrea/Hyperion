@@ -6,14 +6,18 @@
  * .github/workflows/*.yml — Hyperion-generated or not.
  *
  * CLI: [--source all|gates|workflows] [--format both|mermaid|puml] [--write] [--out dir]
- *      [--no-steps] [--preset minimal|balanced|strict] [--gates-file draft.yml]
+ *      [--no-steps] [--preset minimal|balanced|strict] [--gates-file draft.yml] [--lang <tag>]
  * Without --write prints Markdown (```mermaid / ```plantuml blocks) to stdout.
+ * Labels and legend follow `locale` in project.yml (--lang overrides); job/step names stay as written.
  */
 import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
 import { load } from "js-yaml";
+import { normalizeTag, resolveLanguages, t } from "./i18n.mjs";
+
+const label = (key, { lang = "en", root = null } = {}) => t(`diagram.${key}`, {}, lang, { root });
 
 const SETUP_STEP = /^(Checkout|Setup |Enable corepack|Install (dependencies|CI tools|golangci|cargo|uv|Poetry|Pipenv)|Rust (components|\d)|Login to|Image name|Metadata|Paths filter|Prepare \.env|Default markdownlint config|Pub get)/i;
 
@@ -47,29 +51,29 @@ function triggersOf(on) {
 }
 
 /** Short tags describing when a job runs, read from its `if:`. */
-export function whenTags(cond) {
+export function whenTags(cond, opts = {}) {
   const c = String(cond || "");
-  const tags = [];
+  const keys = [];
   const affected = /event_name\s*!=\s*'pull_request'\s*\|\|\s*needs\.changes\.outputs/.test(c);
-  if (affected) tags.push("on PR: only if this app changed");
+  if (affected) keys.push("affected");
   else {
-    if (/event_name\s*==\s*'pull_request'/.test(c)) tags.push("PR only");
-    if (/event_name\s*!=\s*'pull_request'/.test(c)) tags.push("not on PR");
-    if (/needs\.changes\.outputs/.test(c)) tags.push("if changed");
+    if (/event_name\s*==\s*'pull_request'/.test(c)) keys.push("prOnly");
+    if (/event_name\s*!=\s*'pull_request'/.test(c)) keys.push("notOnPr");
+    if (/needs\.changes\.outputs/.test(c)) keys.push("ifChanged");
   }
-  if (/event_name\s*==\s*'push'/.test(c)) tags.push("push only");
-  if (/event_name\s*==\s*'schedule'/.test(c)) tags.push("schedule");
-  if (/refs\/tags\//.test(c)) tags.push("tags");
-  if (/\bfailure\(\)/.test(c)) tags.push("on failure");
-  else if (/\balways\(\)/.test(c)) tags.push("always");
-  return tags;
+  if (/event_name\s*==\s*'push'/.test(c)) keys.push("pushOnly");
+  if (/event_name\s*==\s*'schedule'/.test(c)) keys.push("schedule");
+  if (/refs\/tags\//.test(c)) keys.push("tags");
+  if (/\bfailure\(\)/.test(c)) keys.push("onFailure");
+  else if (/\balways\(\)/.test(c)) keys.push("always");
+  return keys.map((k) => label(`when.${k}`, opts));
 }
 
 /**
  * @param {object} doc parsed workflow
  * @returns {{ title: string, file: string|null, triggers: {name:string,detail:string}[], jobs: object[] }}
  */
-export function graphFromWorkflow(doc, { file = null, title = null } = {}) {
+export function graphFromWorkflow(doc, { file = null, title = null, lang = "en", root = null } = {}) {
   const jobsObj = doc?.jobs && typeof doc.jobs === "object" ? doc.jobs : {};
   const jobs = Object.entries(jobsObj).map(([id, j]) => {
     const steps = (j?.steps || [])
@@ -91,7 +95,7 @@ export function graphFromWorkflow(doc, { file = null, title = null } = {}) {
       id,
       name: plainExpr(j?.name || id),
       needs: listify(j?.needs),
-      when: whenTags(j?.if),
+      when: whenTags(j?.if, { lang, root }),
       warn: j?.["continue-on-error"] === true,
       publish: j?.permissions?.packages === "write" || j?.permissions?.["id-token"] === "write" || /deploy|publish|release/i.test(id),
       notify: /notif/i.test(id),
@@ -116,13 +120,14 @@ function jobClass(j) {
   return "block";
 }
 
-function jobLines(j, { steps = true, perLine = 3 } = {}) {
+function jobLines(j, { steps = true, perLine = 3, lang = "en", root = null } = {}) {
+  const opts = { lang, root };
   const meta = [
     j.when.length ? j.when.join(" · ") : null,
-    j.matrix.length ? `matrix ${j.matrix.join("; ")}` : null,
-    j.services.length ? `services: ${j.services.join(", ")}` : null,
+    j.matrix.length ? `${label("job.matrix", opts)} ${j.matrix.join("; ")}` : null,
+    j.services.length ? `${label("job.services", opts)}: ${j.services.join(", ")}` : null,
     j.runsOn ? `runs-on: ${j.runsOn}` : null,
-    j.warn ? "warn (never fails the run)" : null,
+    j.warn ? label("job.warn", opts) : null,
   ].filter(Boolean);
   const stepLines = [];
   if (steps) {
@@ -142,19 +147,25 @@ const MERMAID_CLASSES = [
   "  classDef notify fill:#F5F5F5,stroke:#616161,color:#212121",
 ];
 
-const LEGEND = "red = block (fails the run) · amber dashed = warn · purple = publish/deploy · gray = notify · ⚠ = warn step";
+const LEGEND_KEYS = ["block", "warn", "publish", "notify", "warnStep"];
+
+/** Legend entries in the requested language. */
+export function legendParts(opts = {}) {
+  return LEGEND_KEYS.map((k) => label(`legend.${k}`, opts));
+}
 
 /** Mermaid flowchart of one workflow graph. */
-export function toMermaid(graph, { steps = true, direction = "LR" } = {}) {
+export function toMermaid(graph, { steps = true, direction = "LR", lang = "en", root = null } = {}) {
+  const opts = { lang, root };
   const out = ["---", `title: ${mmd(graph.title)}`, "---", `flowchart ${direction}`];
-  out.push(`  %% ${LEGEND}`);
-  const trig = graph.triggers.map((t) => mmd(t.detail ? `${t.name}: ${t.detail}` : t.name));
-  out.push(`  triggers(["<b>Triggers</b><br/>${trig.join("<br/>") || "—"}"]):::trigger`);
+  out.push(`  %% ${legendParts(opts).join(" · ")}`);
+  const trig = graph.triggers.map((tr) => mmd(tr.detail ? `${tr.name}: ${tr.detail}` : tr.name));
+  out.push(`  triggers(["<b>${mmd(label("triggers", opts))}</b><br/>${trig.join("<br/>") || "—"}"]):::trigger`);
   const ids = new Set(graph.jobs.map((j) => j.id));
   for (const j of graph.jobs) {
-    const { meta, stepLines } = jobLines(j, { steps });
-    const label = [`<b>${mmd(j.name)}</b>`, ...meta.map((m) => `<i>${mmd(m)}</i>`), ...stepLines.map(mmd)].join("<br/>");
-    out.push(`  j_${toId(j.id)}["${label}"]:::${jobClass(j)}`);
+    const { meta, stepLines } = jobLines(j, { steps, ...opts });
+    const text = [`<b>${mmd(j.name)}</b>`, ...meta.map((m) => `<i>${mmd(m)}</i>`), ...stepLines.map(mmd)].join("<br/>");
+    out.push(`  j_${toId(j.id)}["${text}"]:::${jobClass(j)}`);
   }
   for (const j of graph.jobs) {
     const needs = j.needs.filter((n) => ids.has(n));
@@ -165,19 +176,25 @@ export function toMermaid(graph, { steps = true, direction = "LR" } = {}) {
   return out.join("\n");
 }
 
-// ASCII only: plantuml.jar reads sources in the platform charset (cp1252 on Windows) unless -charset is passed.
-const puml = (s) =>
-  String(s)
-    .replace(/"/g, "'")
-    .replace(/→/g, "->")
-    .replace(/[—–]/g, "-")
-    .replace(/ ⚠/g, " (warn)")
-    .replace(/⚠/g, "(warn)")
-    .replace(/ · /g, ", ")
-    .replace(/[^\x20-\x7E]/g, "?");
+// ASCII only: plantuml.jar reads sources in the platform charset (cp1252 on Windows) unless -charset is passed,
+// so other characters (accents in translated labels) become &#NNNN; entities.
+export const puml = (s) =>
+  Array.from(
+    String(s)
+      .replace(/"/g, "'")
+      .replace(/→/g, "->")
+      .replace(/[—–]/g, "-")
+      .replace(/ ⚠/g, " (warn)")
+      .replace(/⚠/g, "(warn)")
+      .replace(/ · /g, ", ")
+      .replace(/[\x00-\x1F\x7F]/g, " "),
+  )
+    .map((ch) => (ch.codePointAt(0) > 0x7e ? `&#${ch.codePointAt(0)};` : ch))
+    .join("");
 
 /** PlantUML (component-style) diagram of one workflow graph. */
-export function toPlantUml(graph, { steps = true } = {}) {
+export function toPlantUml(graph, { steps = true, lang = "en", root = null } = {}) {
+  const opts = { lang, root };
   const out = [
     "@startuml",
     `title ${puml(graph.title)}`,
@@ -206,11 +223,11 @@ export function toPlantUml(graph, { steps = true } = {}) {
     "}",
     "hide stereotype",
   ];
-  const trig = graph.triggers.map((t) => puml(t.detail ? `${t.name}: ${t.detail}` : t.name));
-  out.push(`card "**Triggers**\\n----\\n${trig.join("\\n") || "-"}" as triggers`);
+  const trig = graph.triggers.map((tr) => puml(tr.detail ? `${tr.name}: ${tr.detail}` : tr.name));
+  out.push(`card "**${puml(label("triggers", opts))}**\\n----\\n${trig.join("\\n") || "-"}" as triggers`);
   const ids = new Set(graph.jobs.map((j) => j.id));
   for (const j of graph.jobs) {
-    const { meta, stepLines } = jobLines(j, { steps, perLine: 1 });
+    const { meta, stepLines } = jobLines(j, { steps, perLine: 1, ...opts });
     const body = [...meta.map((m) => `//${puml(m)}//`), ...(stepLines.length ? ["----", ...stepLines.map(puml)] : [])];
     out.push(`rectangle "**${puml(j.name)}**${body.length ? `\\n${body.join("\\n")}` : ""}" <<${jobClass(j)}>> as j_${toId(j.id)}`);
   }
@@ -219,13 +236,13 @@ export function toPlantUml(graph, { steps = true } = {}) {
     if (!needs.length) out.push(`triggers --> j_${toId(j.id)}`);
     for (const n of needs) out.push(`j_${toId(n)} --> j_${toId(j.id)}`);
   }
-  out.push("legend right", ...LEGEND.split(" · ").map(puml), "endlegend", "@enduml");
+  out.push("legend right", ...legendParts(opts).map(puml), "endlegend", "@enduml");
   return out.join("\n");
 }
 
 /** One diagram with every workflow as a subgraph (job names only). */
-export function overviewMermaid(graphs) {
-  const out = ["---", "title: CI/CD overview", "---", "flowchart LR", `  %% ${LEGEND}`];
+export function overviewMermaid(graphs, opts = {}) {
+  const out = ["---", `title: ${mmd(label("overview", opts))}`, "---", "flowchart LR", `  %% ${legendParts(opts).join(" · ")}`];
   graphs.forEach((g, gi) => {
     const p = `w${gi}_`;
     out.push(`  subgraph ${p}wf["${mmd(path.basename(g.file || g.title))}"]`);
@@ -243,8 +260,8 @@ export function overviewMermaid(graphs) {
   return out.join("\n");
 }
 
-export function overviewPlantUml(graphs) {
-  const out = ["@startuml", "title CI/CD overview", "left to right direction", "skinparam shadowing false", "skinparam defaultFontName Arial", "skinparam roundcorner 8"];
+export function overviewPlantUml(graphs, opts = {}) {
+  const out = ["@startuml", `title ${puml(label("overview", opts))}`, "left to right direction", "skinparam shadowing false", "skinparam defaultFontName Arial", "skinparam roundcorner 8"];
   graphs.forEach((g, gi) => {
     const p = `w${gi}_`;
     out.push(`package "${puml(path.basename(g.file || g.title))}" {`);
@@ -264,7 +281,7 @@ export function overviewPlantUml(graphs) {
 }
 
 /** Every workflow under .github/workflows (parse errors reported, not thrown). */
-export function readWorkflowGraphs(root) {
+export function readWorkflowGraphs(root, { lang = "en" } = {}) {
   const dir = path.join(root, ".github", "workflows");
   if (!fs.existsSync(dir)) return { graphs: [], errors: [] };
   const graphs = [];
@@ -273,7 +290,7 @@ export function readWorkflowGraphs(root) {
     const rel = `.github/workflows/${name}`;
     try {
       const doc = load(fs.readFileSync(path.join(dir, name), "utf8"));
-      if (doc?.jobs) graphs.push(graphFromWorkflow(doc, { file: rel, title: doc.name ? `${doc.name} (${name})` : name }));
+      if (doc?.jobs) graphs.push(graphFromWorkflow(doc, { file: rel, title: doc.name ? `${doc.name} (${name})` : name, lang, root }));
     } catch (e) {
       errors.push(`${rel}: ${e.message.split("\n")[0]}`);
     }
@@ -282,7 +299,7 @@ export function readWorkflowGraphs(root) {
 }
 
 /** Diagram of what ci.gates renders (null when there are no gates). */
-export async function gatesGraph(root, { gates, kitRootRel = "", defaultBranch = "main" }) {
+export async function gatesGraph(root, { gates, kitRootRel = "", defaultBranch = "main", lang = "en" }) {
   if (!gates) return null;
   const { renderProductCiForRepo, readGatesHash, gatesHash } = await import("./product-ci-render.mjs");
   const { plan, content } = renderProductCiForRepo(root, { gates, kitRootRel, defaultBranch });
@@ -294,7 +311,7 @@ export async function gatesGraph(root, { gates, kitRootRel = "", defaultBranch =
     }
   })();
   return {
-    graph: graphFromWorkflowText(content, { file: "ci.gates", title: "ci.gates → hyperion-product-ci.yml" }),
+    graph: graphFromWorkflowText(content, { file: "ci.gates", title: "ci.gates → hyperion-product-ci.yml", lang, root }),
     upToDate: Boolean(current) && readGatesHash(current) === gatesHash(plan),
   };
 }
@@ -303,20 +320,21 @@ export async function gatesGraph(root, { gates, kitRootRel = "", defaultBranch =
  * Build every requested diagram.
  * @returns {Promise<{ diagrams: {slug:string,title:string,mermaid?:string,puml?:string}[], notes: string[] }>}
  */
-export async function buildPipelineDiagrams(root, { source = "all", format = "both", steps = true, gates = null, kitRootRel = "", defaultBranch = "main" } = {}) {
+export async function buildPipelineDiagrams(root, { source = "all", format = "both", steps = true, gates = null, kitRootRel = "", defaultBranch = "main", lang = "en" } = {}) {
   const diagrams = [];
   const notes = [];
+  const opts = { lang, root };
   const emit = (slug, title, graph) =>
     diagrams.push({
       slug,
       title,
-      ...(format !== "puml" ? { mermaid: toMermaid(graph, { steps }) } : {}),
-      ...(format !== "mermaid" ? { puml: toPlantUml(graph, { steps }) } : {}),
+      ...(format !== "puml" ? { mermaid: toMermaid(graph, { steps, ...opts }) } : {}),
+      ...(format !== "mermaid" ? { puml: toPlantUml(graph, { steps, ...opts }) } : {}),
     });
 
   let skipProductCi = false;
   if (source !== "workflows") {
-    const g = await gatesGraph(root, { gates, kitRootRel, defaultBranch });
+    const g = await gatesGraph(root, { gates, kitRootRel, defaultBranch, lang });
     if (g) {
       emit("pipeline-gates", g.graph.title, g.graph);
       skipProductCi = g.upToDate;
@@ -326,7 +344,7 @@ export async function buildPipelineDiagrams(root, { source = "all", format = "bo
     }
   }
   if (source !== "gates") {
-    const { graphs, errors } = readWorkflowGraphs(root);
+    const { graphs, errors } = readWorkflowGraphs(root, { lang });
     for (const e of errors) notes.push(`Skipped (YAML error) ${e}`);
     const shown = graphs.filter((g) => !(skipProductCi && g.file?.endsWith("hyperion-product-ci.yml")));
     if (skipProductCi) notes.push("hyperion-product-ci.yml matches ci.gates — drawn once as pipeline-gates.");
@@ -334,24 +352,32 @@ export async function buildPipelineDiagrams(root, { source = "all", format = "bo
     if (graphs.length > 1) {
       diagrams.push({
         slug: "pipeline-overview",
-        title: "CI/CD overview (all workflows)",
-        ...(format !== "puml" ? { mermaid: overviewMermaid(graphs) } : {}),
-        ...(format !== "mermaid" ? { puml: overviewPlantUml(graphs) } : {}),
+        title: label("overviewAll", opts),
+        ...(format !== "puml" ? { mermaid: overviewMermaid(graphs, opts) } : {}),
+        ...(format !== "mermaid" ? { puml: overviewPlantUml(graphs, opts) } : {}),
       });
     }
     if (!graphs.length && !errors.length) notes.push("No workflows under .github/workflows.");
   }
-  return { diagrams, notes };
+  return { diagrams, notes, lang };
 }
 
 /** Markdown with ```mermaid blocks (GitHub renders them) and links to the .puml sources. */
-export function diagramsMarkdown({ diagrams, notes }, { withPuml = false } = {}) {
-  const out = ["# Pipeline diagrams", "", "Generated by `npm run hyperion:pipeline-diagram` — re-run after changing ci.gates or workflows.", "", `Legend: ${LEGEND}.`, ""];
+export function diagramsMarkdown({ diagrams, notes, lang = "en" }, { withPuml = false, root = null } = {}) {
+  const opts = { lang, root };
+  const out = [
+    `# ${label("readme.title", opts)}`,
+    "",
+    label("readme.generated", opts),
+    "",
+    `${label("readme.legend", opts)}: ${legendParts(opts).join(" · ")}.`,
+    "",
+  ];
   for (const n of notes) out.push(`> ${n}`, "");
   for (const d of diagrams) {
     out.push(`## ${d.title}`, "");
     if (d.mermaid) out.push("```mermaid", d.mermaid, "```", "");
-    if (d.puml) out.push(withPuml ? ["```plantuml", d.puml, "```"].join("\n") : `PlantUML source: [${d.slug}.puml](${d.slug}.puml)`, "");
+    if (d.puml) out.push(withPuml ? ["```plantuml", d.puml, "```"].join("\n") : `${label("readme.pumlSource", opts)}: [${d.slug}.puml](${d.slug}.puml)`, "");
   }
   return out.join("\n");
 }
@@ -381,7 +407,7 @@ async function main() {
   const source = flag("--source") || "all";
   const format = flag("--format") || "both";
   if (!["all", "gates", "workflows"].includes(source) || !["both", "mermaid", "puml"].includes(format)) {
-    console.error("Usage: pipeline-diagram [--source all|gates|workflows] [--format both|mermaid|puml] [--write] [--out dir] [--no-steps] [--preset name] [--gates-file draft.yml]");
+    console.error("Usage: pipeline-diagram [--source all|gates|workflows] [--format both|mermaid|puml] [--write] [--out dir] [--no-steps] [--preset name] [--gates-file draft.yml] [--lang <tag>]");
     process.exit(2);
   }
   const projectText = (() => {
@@ -414,10 +440,11 @@ async function main() {
     gates,
     kitRootRel: paths.kitRootRel || "",
     defaultBranch: detectDefaultBranch(root),
+    lang: normalizeTag(flag("--lang")) || resolveLanguages(root).primary,
   });
 
   if (!argv.includes("--write")) {
-    console.log(diagramsMarkdown(result, { withPuml: true }));
+    console.log(diagramsMarkdown(result, { withPuml: true, root }));
     console.log("\nNothing written. Save under the diagrams folder with --write.");
     return;
   }
@@ -432,7 +459,7 @@ async function main() {
     if (d.mermaid) write(`${d.slug}.mmd`, d.mermaid);
     if (d.puml) write(`${d.slug}.puml`, d.puml);
   }
-  if (result.diagrams.length) write("README.md", diagramsMarkdown(result));
+  if (result.diagrams.length) write("README.md", diagramsMarkdown(result, { root }));
   for (const n of result.notes) console.log(`note: ${n}`);
   console.log(written.length ? `Wrote ${written.length} file(s):\n  ${written.join("\n  ")}` : "No diagrams to write.");
   console.log("Export PNG: npx --yes @mermaid-js/mermaid-cli -i <file>.mmd -o <file>.png");

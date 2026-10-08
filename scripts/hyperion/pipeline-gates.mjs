@@ -13,12 +13,14 @@
  * estimate) and the product CI renderer (product-ci-render.mjs). Never writes files.
  *
  * CLI: [--json | --yaml | --preview | --estimate] [--preset minimal|balanced|strict]
- *      [--gates-file draft.yml] [--pending] [--en] [--diagram (with --preview)]
+ *      [--gates-file draft.yml] [--pending] [--lang <tag> | --en] [--diagram (with --preview)]
+ *      Human output follows `locale` in project.yml unless --lang/--en is given.
  */
 import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
+import { normalizeTag, resolveLanguages, t } from "./i18n.mjs";
 
 export const GATE_MODES = ["off", "warn", "block"];
 export const COVERAGE_METRICS = ["lines", "statements", "branches", "functions"];
@@ -1575,8 +1577,86 @@ export function gateCommand(app, gateName, decisions = app.decisions) {
 // Gates interview — every question the pipeline-architect skill must ask
 // ---------------------------------------------------------------------------
 
+/** Spanish for the static question texts, keyed by the English text (templated ones carry `es` inline). */
+const ES = {
+  "Starting point: minimal (lint/test/build), balanced (+ coverage warn, audit, secrets, PR hygiene) or strict (all block, diff coverage, Lighthouse)? Every question below can still override.":
+    "Punto de partida: minimal (lint/test/build), balanced (+ cobertura warn, audit, secretos, higiene de PR) o strict (todo block, diff coverage, Lighthouse)? Cada pregunta de abajo aún puede sobrescribir.",
+  "Which branches should run the pipeline on push (e.g. main, dev)?": "¿En qué ramas debe correr el pipeline en push (ej.: main, dev)?",
+  "Run the gates on every pull request?": "¿Correr los gates en cada pull request?",
+  "Skip docs-only changes (**/*.md, docs/**) to save CI minutes?": "¿Ignorar cambios solo de docs (**/*.md, docs/**) para ahorrar minutos de CI?",
+  "Also run on the GitHub merge queue (merge_group)? Required if the branch uses a merge queue; harmless otherwise.":
+    "¿Correr también en la merge queue de GitHub (merge_group)? Necesario si la rama usa merge queue; inofensivo si no.",
+  "Default job runner (ubuntu-latest, or self-hosted/larger runner) and timeout in minutes (default 30)?":
+    "Runner por defecto de los jobs (ubuntu-latest, o self-hosted/larger runner) y timeout en minutos (por defecto 30)?",
+  "Per-job timeout (min)?": "¿Timeout por job (min)?",
+  "Keep test/coverage reports as Actions artifacts (7 days)?": "¿Guardar los reportes de pruebas/cobertura como artifacts de Actions (7 días)?",
+  "Shared paths that trigger every app?": "¿Archivos compartidos que disparan todas las apps (ej.: packages/shared/**, package-lock.json)?",
+  "lint gate?": "¿gate de lint?",
+  "no linter detected — set one up?": "no se detectó linter — ¿configurar uno?",
+  "styles/format gate (fails when code is not formatted)?": "¿gate de estilos/format (falla si el código no está formateado)?",
+  "no formatter detected — adopt one for a styles gate?": "no se detectó formatter — ¿adoptar uno para un gate de estilos?",
+  "typecheck gate?": "¿gate de typecheck?",
+  "no typecheck — adopt one?": "sin typecheck — ¿adoptar uno?",
+  "run tests as a gate?": "¿correr las pruebas como gate?",
+  "no test runner detected — set one up?": "no se detectó runner de pruebas — ¿configurar uno?",
+  "test coverage gate?": "¿gate de cobertura de pruebas?",
+  "Which metric?": "¿Qué métrica? (lines, statements, branches, functions)",
+  "Minimum %?": "¿Mínimo en % (ej.: 80)?",
+  "Paths excluded from the metric?": "¿Carpetas/archivos fuera de la métrica (ej.: generated, *.g.dart, screens)?",
+  "Start as warn and promote to block later?": "¿Empezar en warn y subir a block cuando se estabilice?",
+  "Post the coverage summary as a sticky PR comment?": "¿Comentar el resumen de cobertura en el PR (comentario fijo, actualizado en cada push)?",
+  "Diff coverage: minimum % on lines changed by the PR (e.g. 80)? Great for legacy code.":
+    "Diff coverage: ¿% mínimo solo en las líneas nuevas/modificadas del PR (ej.: 80)? Bueno para legado con poca cobertura.",
+  "tests without coverage — enable a report for a gate?": "pruebas sin cobertura — ¿habilitar un reporte para el gate?",
+  "build as a gate?": "¿build como gate?",
+  "dependency audit gate?": "¿gate de audit de dependencias?",
+  "Minimum severity?": "¿Severidad mínima?",
+  "Scan images with Trivy (HIGH/CRITICAL vulnerabilities)?": "¿Escanear las imágenes con Trivy (vulnerabilidades HIGH/CRITICAL)?",
+  "Use buildx with the GitHub Actions cache (type=gha) for much faster builds?": "¿Usar buildx con el cache de GitHub Actions (type=gha) para builds mucho más rápidos?",
+  "Publish images to GHCR (ghcr.io/<owner>/<repo>-<name>) on pushes to the main branch and v* tags? Uses only GITHUB_TOKEN.":
+    "¿Publicar las imágenes en GHCR (ghcr.io/<owner>/<repo>-<nombre>) en push a la rama principal y en tags v*? Usa solo GITHUB_TOKEN.",
+  "Platforms?": "¿Plataformas (linux/amd64; linux/arm64 duplica el tiempo)?",
+  "Which services (empty = all)?": "¿Qué servicios levantar (vacío = todos)?",
+  "Post-up check command?": "¿Comando de verificación después de levantar (ej.: npm run rabbit:check)?",
+  "Compose credentials stay local/.env.example only?": "¿Las credenciales del compose quedan solo locales/.env.example? (nunca en el workflow)",
+  "Validate commit messages (Conventional Commits) on PRs?": "¿Validar los mensajes de commit (Conventional Commits) en los PRs?",
+  "Dependency review on PRs: block newly added dependencies with known vulnerabilities? Private repos need GHAS.":
+    "Dependency review en los PRs: ¿bloquear dependencias nuevas con vulnerabilidades conocidas (solo mira lo que el PR agrega)? Repo privado requiere GitHub Advanced Security.",
+  "Scan PR/push commits for leaked secrets (gitleaks)?": "¿Buscar secretos filtrados (gitleaks) en los commits del PR/push?",
+  "PR hygiene: branch name (feat/…, fix/…), Conventional Commits title, card link (CARD_ID in body/branch) and max diff size?":
+    "Higiene de PR: nombre de la rama (feat/…, fix/…), título en Conventional Commits, enlace a la tarjeta (CARD_ID en cuerpo/rama) y tamaño máximo del diff?",
+  "Branch name gate?": "¿Gate del nombre de la rama?",
+  "PR title gate?": "¿Gate del título del PR?",
+  "Require a CARD_ID in the PR?": "¿Exigir CARD_ID (ej.: PROJ-FEAT-12) en el PR?",
+  "Warn above N changed lines?": "¿Avisar cuando el PR pase de N líneas modificadas (ej.: 800)?",
+  "Which routes?": "¿Qué rutas probar?",
+  "No size-limit. Adopt a bundle size budget (size-limit)?": "Sin size-limit. ¿Adoptar un presupuesto de tamaño de bundle (size-limit + .size-limit.json)?",
+  "Include iOS build (macOS)?": "¿Incluir build iOS (macOS)?",
+  "Links gate?": "¿Gate de enlaces?",
+  "Also check external links? Can be flaky.": "¿Revisar también enlaces externos (http)? Puede ser inestable.",
+  "markdownlint gate?": "¿Gate de markdownlint?",
+  "Notify Slack/Discord when CI fails on push (never on PRs)? Uses SLACK_WEBHOOK_URL / DISCORD_WEBHOOK_URL secrets; skipped when unset.":
+    "¿Notificar a Slack/Discord cuando el CI falle en push (nunca en PR)? Usa los secrets SLACK_WEBHOOK_URL / DISCORD_WEBHOOK_URL; sin secret el paso se omite.",
+  "No Dependabot/Renovate. Create .github/dependabot.yml (weekly; target-branch = integration branch, e.g. dev)?":
+    "Sin Dependabot/Renovate. ¿Crear .github/dependabot.yml (updates semanales; target-branch = rama de integración, ej.: dev)?",
+  "No CODEOWNERS. Create one to require reviews per area?": "Sin CODEOWNERS. ¿Crear uno para exigir review por área (api/, web/, mobile/)?",
+  "Local pre-commit hook running format/lint so the styles gate rarely fails in CI?":
+    "¿Hook local (pre-commit) con format/lint antes del commit, para que el gate de estilos casi nunca falle en el CI?",
+  "Mark block-mode jobs as required checks in branch protection/rulesets?": "¿Marcar los jobs en modo block como required checks en la branch protection/ruleset?",
+  "Publish coverage/audit summary to the Actions Job Summary? (default: yes)": "¿Publicar el resumen (cobertura, audit) en el Job Summary de Actions? (por defecto: sí)",
+};
+
+const withEs = (text) => (text && !text.es && ES[text.en] ? { ...text, es: ES[text.en] } : text);
+
 function q(id, category, text, extra = {}) {
-  return { id, category, question: text, ...extra };
+  const followUps = extra.followUps?.map(withEs);
+  return { id, category, question: withEs(text), ...extra, ...(followUps ? { followUps } : {}) };
+}
+
+/** Question text for a language: exact base (pt/en/es), else English. */
+export function questionText(question, lang = "en") {
+  const base = String(lang || "en").split("-")[0].toLowerCase();
+  return question?.[base] || question?.en || "";
 }
 
 /**
@@ -1627,6 +1707,7 @@ export function buildGateQuestions(scan, { gates = null } = {}) {
       q("settings.affected", "settings", {
         pt: `Monorepo com ${scan.apps.length} apps. Em PR, rodar só os apps cujos arquivos mudaram (push na branch principal roda todos)?`,
         en: `Monorepo with ${scan.apps.length} apps. On PRs, run only apps whose files changed (pushes still run everything)?`,
+        es: `Monorepo con ${scan.apps.length} apps. En PR, ¿correr solo las apps cuyos archivos cambiaron (el push a la rama principal corre todas)?`,
       }, { yaml: "ci.gates.affected", options: ["yes", "no"], recommended: "yes", followUps: [
         { id: "paths", pt: "Arquivos compartilhados que disparam todos os apps (ex.: packages/shared/**, package-lock.json)?", en: "Shared paths that trigger every app?", recommended: [] },
       ] })
@@ -1635,10 +1716,10 @@ export function buildGateQuestions(scan, { gates = null } = {}) {
 
   for (const app of scan.apps) {
     const label = `${app.name} (${app.stack}, ${app.path})`;
-    const ask = (gateName, pt, en, extra = {}) => {
+    const ask = (gateName, pt, en, extra = {}, es = ES[en] || en) => {
       const g = app.gates[gateName];
       questions.push(
-        q(`apps.${app.name}.${gateName}`, gateName, { pt: `${label}: ${pt}`, en: `${label}: ${en}` }, {
+        q(`apps.${app.name}.${gateName}`, gateName, { pt: `${label}: ${pt}`, en: `${label}: ${en}`, es: `${label}: ${es}` }, {
           app: app.name,
           detected: Boolean(g),
           command: g?.command || null,
@@ -1651,7 +1732,7 @@ export function buildGateQuestions(scan, { gates = null } = {}) {
     };
     const missing = (gateName, pt, en, suggestion) =>
       questions.push(
-        q(`apps.${app.name}.${gateName}.adopt`, gateName, { pt: `${label}: ${pt}`, en: `${label}: ${en}` }, {
+        q(`apps.${app.name}.${gateName}.adopt`, gateName, { pt: `${label}: ${pt}`, en: `${label}: ${en}`, es: `${label}: ${ES[en] || en}` }, {
           app: app.name,
           detected: false,
           suggestion,
@@ -1677,6 +1758,7 @@ export function buildGateQuestions(scan, { gates = null } = {}) {
         q(`apps.${app.name}.${gateName}.fix`, gateName, {
           pt: `${label}: auto-fix de ${gateName} (${app.gates[gateName].fix}) — off, suggest (comenta sugestões no PR) ou commit (commita a correção na branch do PR)?`,
           en: `${label}: ${gateName} auto-fix (${app.gates[gateName].fix}) — off, suggest (PR review suggestions) or commit (push the fix to the PR branch)?`,
+          es: `${label}: auto-fix de ${gateName} (${app.gates[gateName].fix}) — off, suggest (comenta sugerencias en el PR) o commit (commitea la corrección en la rama del PR)?`,
         }, {
           app: app.name,
           yaml: `ci.gates.apps.${app.name}.${gateName}.fix`,
@@ -1740,6 +1822,7 @@ export function buildGateQuestions(scan, { gates = null } = {}) {
                 id: "fix",
                 pt: `Audit fix (${app.gates.audit.fix}): off, check (testa o fix no CI e reverte se quebrar, só avisa) ou pr (abre PR semanal com o fix)?`,
                 en: `Audit fix (${app.gates.audit.fix}): off, check (try fix in CI, revert if tests break, warn only) or pr (weekly PR with the fix)?`,
+                es: `Audit fix (${app.gates.audit.fix}): off, check (prueba el fix en el CI y revierte si rompe, solo avisa) o pr (abre un PR semanal con el fix)?`,
                 options: AUDIT_FIX_MODES,
                 recommended: "check",
               }]
@@ -1749,7 +1832,7 @@ export function buildGateQuestions(scan, { gates = null } = {}) {
     }
 
     if (app.gates.migrations) {
-      ask("migrations", `checar migrations (${app.gates.migrations.tool})?`, `check migrations (${app.gates.migrations.tool})?`, { recommended: "block" });
+      ask("migrations", `checar migrations (${app.gates.migrations.tool})?`, `check migrations (${app.gates.migrations.tool})?`, { recommended: "block" }, `¿revisar migrations (${app.gates.migrations.tool})?`);
     }
 
     if (app.setup?.version) {
@@ -1757,6 +1840,7 @@ export function buildGateQuestions(scan, { gates = null } = {}) {
         q(`apps.${app.name}.matrix`, "toolchain", {
           pt: `${label}: versão detectada ${app.setup.version} (${app.setup.versionSource || "padrão"}). Rodar só nela, ou matriz de versões/sistemas (ex.: versions: [20, 22], os: [ubuntu-latest, windows-latest])? Cobertura/audit rodam só na primeira combinação.`,
           en: `${label}: detected version ${app.setup.version} (${app.setup.versionSource || "default"}). Single version, or a versions/OS matrix? Coverage/audit run on the first combination only.`,
+          es: `${label}: versión detectada ${app.setup.version} (${app.setup.versionSource || "por defecto"}). ¿Correr solo en ella, o matriz de versiones/sistemas (ej.: versions: [20, 22], os: [ubuntu-latest, windows-latest])? Cobertura/audit corren solo en la primera combinación.`,
         }, {
           app: app.name,
           yaml: `ci.gates.apps.${app.name}.matrix`,
@@ -1772,6 +1856,7 @@ export function buildGateQuestions(scan, { gates = null } = {}) {
         q(`apps.${app.name}.services`, "services", {
           pt: `${label}: testes parecem usar ${app.services.map((s) => `${s.kind} (${s.source})`).join(", ")}. Subir como service containers no job de teste (Linux) e exportar ${[...new Set(app.services.flatMap((s) => Object.keys(SERVICE_CATALOG[s.kind].jobEnv)))].join(", ")}?`,
           en: `${label}: tests seem to use ${app.services.map((s) => `${s.kind} (${s.source})`).join(", ")}. Start them as service containers in the test job (Linux) and export connection env?`,
+          es: `${label}: las pruebas parecen usar ${app.services.map((s) => `${s.kind} (${s.source})`).join(", ")}. ¿Levantarlos como service containers en el job de pruebas (Linux) y exportar las variables de conexión?`,
         }, {
           app: app.name,
           yaml: `ci.gates.apps.${app.name}.services`,
@@ -1787,6 +1872,7 @@ export function buildGateQuestions(scan, { gates = null } = {}) {
         q(`apps.${app.name}.migrate`, "services", {
           pt: `${label}: aplicar migrations no banco de teste antes dos testes (\`${app.migrate}\`)?`,
           en: `${label}: apply migrations to the test database before tests (\`${app.migrate}\`)?`,
+          es: `${label}: ¿aplicar las migrations en la base de pruebas antes de los tests (\`${app.migrate}\`)?`,
         }, {
           app: app.name,
           yaml: `ci.gates.apps.${app.name}.migrate`,
@@ -1802,6 +1888,7 @@ export function buildGateQuestions(scan, { gates = null } = {}) {
         q(`apps.${app.name}.retry`, "test", {
           pt: `${label}: testes instáveis? Repetir o passo de teste até N vezes antes de falhar (0 = não; máx. 3)? Prefira corrigir o flaky.`,
           en: `${label}: flaky tests? Retry the test step up to N times before failing (0 = no; max 3)? Prefer fixing the flake.`,
+          es: `${label}: ¿pruebas inestables? ¿Repetir el paso de pruebas hasta N veces antes de fallar (0 = no; máx. 3)? Mejor corregir el flaky.`,
         }, { app: app.name, yaml: `ci.gates.apps.${app.name}.retry`, options: [0, 1, 2, 3], recommended: 0 })
       );
     }
@@ -1812,6 +1899,7 @@ export function buildGateQuestions(scan, { gates = null } = {}) {
       q("docker.build", "docker", {
         pt: `Dockerfiles encontrados (${repo.dockerfiles.map((d) => d.path).join(", ")}). Buildar as imagens como gate?`,
         en: `Dockerfiles found (${repo.dockerfiles.map((d) => d.path).join(", ")}). Build images as a gate?`,
+        es: `Dockerfiles encontrados (${repo.dockerfiles.map((d) => d.path).join(", ")}). ¿Construir las imágenes como gate?`,
       }, { yaml: "ci.gates.docker.build", options: GATE_MODES, recommended: "block", evidence: repo.dockerfiles.map((d) => d.path) }),
       q("docker.scan", "docker", {
         pt: "Escanear as imagens com Trivy (vulnerabilidades HIGH/CRITICAL)?",
@@ -1820,6 +1908,7 @@ export function buildGateQuestions(scan, { gates = null } = {}) {
       q("docker.lint", "docker", {
         pt: `Lint dos Dockerfiles com hadolint${repo.hadolint ? " (.hadolint.yaml encontrado)" : ""}?`,
         en: `Lint Dockerfiles with hadolint${repo.hadolint ? " (.hadolint.yaml found)" : ""}?`,
+        es: `¿Lint de los Dockerfiles con hadolint${repo.hadolint ? " (.hadolint.yaml encontrado)" : ""}?`,
       }, { yaml: "ci.gates.docker.lint", options: GATE_MODES, recommended: repo.hadolint ? "block" : "warn" }),
       q("docker.cache", "docker", {
         pt: "Usar buildx com cache do GitHub Actions (type=gha) para builds bem mais rápidos?",
@@ -1840,6 +1929,7 @@ export function buildGateQuestions(scan, { gates = null } = {}) {
       q(`compose.${c.path}`, "docker", {
         pt: `Compose ${c.path} (${c.services.map((s) => s.image || s.name).join(", ")}). Smoke test: subir com --wait e derrubar no fim?`,
         en: `Compose ${c.path} (${c.services.map((s) => s.image || s.name).join(", ")}). Smoke test: up --wait then down?`,
+        es: `Compose ${c.path} (${c.services.map((s) => s.image || s.name).join(", ")}). Smoke test: ¿levantar con --wait y bajar al final?`,
       }, {
         yaml: "ci.gates.compose_smoke",
         options: GATE_MODES,
@@ -1859,6 +1949,7 @@ export function buildGateQuestions(scan, { gates = null } = {}) {
       q(`e2e.${e.tool}.${e.dir || "root"}`, "e2e", {
         pt: `${e.tool} encontrado em ${e.config}. Rodar e2e no CI (mais lento; pode ficar só em PR para main)?`,
         en: `${e.tool} found at ${e.config}. Run e2e in CI (slower; maybe PRs to main only)?`,
+        es: `${e.tool} encontrado en ${e.config}. ¿Correr e2e en el CI (más lento; puede quedar solo en PR a main)?`,
       }, { yaml: "ci.gates.e2e", options: GATE_MODES, recommended: "warn" })
     );
   }
@@ -1868,6 +1959,7 @@ export function buildGateQuestions(scan, { gates = null } = {}) {
       q("iac.terraform", "iac", {
         pt: `Terraform em ${repo.iac.terraform.join(", ")}. Gate de fmt -check + validate (sem backend)?`,
         en: `Terraform in ${repo.iac.terraform.join(", ")}. Gate on fmt -check + validate (no backend)?`,
+        es: `Terraform en ${repo.iac.terraform.join(", ")}. ¿Gate de fmt -check + validate (sin backend)?`,
       }, { yaml: "ci.gates.iac", options: GATE_MODES, recommended: "block" })
     );
   }
@@ -1877,6 +1969,7 @@ export function buildGateQuestions(scan, { gates = null } = {}) {
       q("openapi", "contract", {
         pt: `Specs OpenAPI (${repo.openapi.join(", ")}). Lint do contrato com Redocly?`,
         en: `OpenAPI specs (${repo.openapi.join(", ")}). Lint the contract with Redocly?`,
+        es: `Specs OpenAPI (${repo.openapi.join(", ")}). ¿Lint del contrato con Redocly?`,
       }, { yaml: "ci.gates.openapi", options: GATE_MODES, recommended: "warn" })
     );
   }
@@ -1889,6 +1982,9 @@ export function buildGateQuestions(scan, { gates = null } = {}) {
       en: repo.commitlint
         ? `commitlint configured (${repo.commitlint}). Validate PR commit messages?`
         : "Validate commit messages (Conventional Commits) on PRs?",
+      es: repo.commitlint
+        ? `commitlint configurado (${repo.commitlint}). ¿Validar los mensajes de commit del PR?`
+        : ES["Validate commit messages (Conventional Commits) on PRs?"],
     }, { yaml: "ci.gates.commitlint", options: GATE_MODES, recommended: repo.commitlint ? "block" : "off" })
   );
 
@@ -1897,6 +1993,7 @@ export function buildGateQuestions(scan, { gates = null } = {}) {
       q("codeql", "security", {
         pt: `Análise estática de segurança com CodeQL (${repo.codeqlLanguages.join(", ")})? Grátis em repo público; privado exige GitHub Advanced Security.`,
         en: `CodeQL security analysis (${repo.codeqlLanguages.join(", ")})? Free for public repos; private needs GHAS.`,
+        es: `¿Análisis estático de seguridad con CodeQL (${repo.codeqlLanguages.join(", ")})? Gratis en repo público; privado requiere GitHub Advanced Security.`,
       }, { yaml: "ci.gates.codeql", options: GATE_MODES, recommended: "off" })
     );
   }
@@ -1929,10 +2026,12 @@ export function buildGateQuestions(scan, { gates = null } = {}) {
       q("lighthouse", "web", {
         pt: `App web detectado: ${names}. Lighthouse CI no PR com notas mínimas (performance 0.8, acessibilidade 0.9, best-practices 0.9, SEO 0.8)?`,
         en: `Web app detected: ${names}. Lighthouse CI on PRs with minimum scores (performance 0.8, accessibility 0.9, best-practices 0.9, SEO 0.8)?`,
+        es: `App web detectada: ${names}. ¿Lighthouse CI en el PR con notas mínimas (performance 0.8, accesibilidad 0.9, best-practices 0.9, SEO 0.8)?`,
       }, { yaml: "ci.gates.lighthouse", options: GATE_MODES, recommended: "warn", evidence: webApps.map((a) => a.web) }),
       q("a11y", "web", {
         pt: `Acessibilidade com axe-core nas páginas de ${webApps[0].name} (falha em violações WCAG)?`,
         en: `Accessibility with axe-core on ${webApps[0].name} pages (fails on WCAG violations)?`,
+        es: `¿Accesibilidad con axe-core en las páginas de ${webApps[0].name} (falla con violaciones WCAG)?`,
       }, { yaml: "ci.gates.a11y", options: GATE_MODES, recommended: "warn", followUps: [
         { id: "urls", pt: "Quais rotas testar?", en: "Which routes?", recommended: ["/"] },
       ] })
@@ -1940,7 +2039,11 @@ export function buildGateQuestions(scan, { gates = null } = {}) {
     const bundleApps = scan.apps.filter((a) => a.bundleSize);
     questions.push(
       q("bundle_size", "web", bundleApps.length
-        ? { pt: `size-limit configurado em ${bundleApps.map((a) => a.name).join(", ")}. Gate de tamanho de bundle?`, en: `size-limit configured in ${bundleApps.map((a) => a.name).join(", ")}. Bundle size gate?` }
+        ? {
+            pt: `size-limit configurado em ${bundleApps.map((a) => a.name).join(", ")}. Gate de tamanho de bundle?`,
+            en: `size-limit configured in ${bundleApps.map((a) => a.name).join(", ")}. Bundle size gate?`,
+            es: `size-limit configurado en ${bundleApps.map((a) => a.name).join(", ")}. ¿Gate de tamaño de bundle?`,
+          }
         : { pt: "Sem size-limit. Adotar orçamento de tamanho de bundle (size-limit + .size-limit.json)?", en: "No size-limit. Adopt a bundle size budget (size-limit)?" },
       { yaml: bundleApps.length ? "ci.gates.bundle_size" : `ci.gates.apps.${webApps[0].name}.commands.bundle_size`, options: bundleApps.length ? GATE_MODES : ["configure tool now", "provide my own command", "skip"], recommended: bundleApps.length ? "warn" : "skip" })
     );
@@ -1952,6 +2055,7 @@ export function buildGateQuestions(scan, { gates = null } = {}) {
       q("mobile_build", "mobile", {
         pt: `App mobile ${m.name} (${m.mobile.kind}). Buildar ${m.mobile.android ? "APK debug" : ""}${m.mobile.android && m.mobile.ios ? " e " : ""}${m.mobile.ios ? "iOS sem assinatura (runner macOS custa 10x)" : ""} no CI e anexar como artifact?`,
         en: `Mobile app ${m.name} (${m.mobile.kind}). Build ${m.mobile.android ? "a debug APK" : ""}${m.mobile.android && m.mobile.ios ? " and " : ""}${m.mobile.ios ? "unsigned iOS (macOS runner is 10x minutes)" : ""} in CI and attach as artifact?`,
+        es: `App mobile ${m.name} (${m.mobile.kind}). ¿Construir ${m.mobile.android ? "APK debug" : ""}${m.mobile.android && m.mobile.ios ? " e " : ""}${m.mobile.ios ? "iOS sin firma (el runner macOS cuesta 10x)" : ""} en el CI y adjuntarlo como artifact?`,
       }, { yaml: "ci.gates.mobile_build", options: GATE_MODES, recommended: "warn", followUps: [
         ...(m.mobile.ios ? [{ id: "ios", pt: "Incluir build iOS (macOS)?", en: "Include iOS build (macOS)?", options: ["yes", "no"], recommended: "no" }] : []),
       ] })
@@ -1963,6 +2067,7 @@ export function buildGateQuestions(scan, { gates = null } = {}) {
       q("docs", "docs", {
         pt: `${repo.docs.markdownFiles} arquivo(s) Markdown. Checar links quebrados (lychee, offline por padrão)${repo.docs.markdownlint ? " e markdownlint (config encontrada)" : " e estilo com markdownlint"}?`,
         en: `${repo.docs.markdownFiles} Markdown file(s). Check broken links (lychee, offline by default)${repo.docs.markdownlint ? " and markdownlint (config found)" : " and markdownlint style"}?`,
+        es: `${repo.docs.markdownFiles} archivo(s) Markdown. ¿Revisar enlaces rotos (lychee, offline por defecto)${repo.docs.markdownlint ? " y markdownlint (config encontrada)" : " y estilo con markdownlint"}?`,
       }, { yaml: "ci.gates.docs", options: GATE_MODES, recommended: "warn", followUps: [
         { id: "links", pt: "Gate de links?", en: "Links gate?", options: GATE_MODES, recommended: "warn" },
         { id: "external", pt: "Checar também links externos (http)? Pode ser instável.", en: "Also check external links? Can be flaky.", options: ["yes", "no"], recommended: "no" },
@@ -2177,8 +2282,9 @@ export function estimateCiMinutes(plan, scan = null) {
   };
 }
 
-function printHuman(scan, questions, { lang = "pt" } = {}) {
-  console.log(`Hyperion pipeline gates — ${scan.apps.length} app(s), ${scan.scannedFiles} files scanned\n`);
+function printHuman(scan, questions, { lang = "en", root = null } = {}) {
+  const tr = (key, vars = {}) => t(key, vars, lang, { root });
+  console.log(`${tr("gates.header", { apps: scan.apps.length, files: scan.scannedFiles })}\n`);
   for (const app of scan.apps) {
     console.log(`■ ${app.name}  [${app.stack}${app.pm && app.pm !== app.stack ? `/${app.pm}` : ""}]  ${app.path}`);
     for (const g of APP_GATES) {
@@ -2195,7 +2301,7 @@ function printHuman(scan, questions, { lang = "pt" } = {}) {
     if (app.mobile) console.log(`    ${"mobile".padEnd(10)} ${app.mobile.kind}: ${[app.mobile.android && "android", app.mobile.ios && "ios"].filter(Boolean).join(", ")}`);
   }
   const r = scan.repo;
-  console.log("\nRepo-level");
+  console.log(`\n${tr("gates.repoLevel")}`);
   console.log(`    docker     ${r.dockerfiles.map((d) => d.path).join(", ") || "—"}`);
   for (const c of r.compose) {
     console.log(`    compose    ${c.path}: ${c.services.map((s) => `${s.name}${s.image ? `=${s.image}` : ""}`).join(", ")}`);
@@ -2211,12 +2317,16 @@ function printHuman(scan, questions, { lang = "pt" } = {}) {
 
   const counts = questions.reduce((acc, x) => ({ ...acc, [x.status]: (acc[x.status] || 0) + 1 }), {});
   const summary = Object.entries(counts).map(([k, v]) => `${v} ${k}`).join(", ");
-  console.log(`\nQuestions for the gates interview (${questions.length}${summary ? `: ${summary}` : ""}):`);
+  console.log(`\n${tr("gates.questions", { count: questions.length, summary: summary ? `: ${summary}` : "" })}`);
+  const recommended = tr("gates.recommended");
   for (const item of questions) {
-    const text = item.question[lang] || item.question.en;
+    const text = questionText(item.question, lang);
     const tag = item.status && item.status !== "new" ? ` (${item.status})` : "";
-    console.log(`  - [${item.id}]${tag} ${text}${item.recommended !== undefined ? `  → recommended: ${JSON.stringify(item.recommended)}` : ""}`);
+    console.log(`  - [${item.id}]${tag} ${text}${item.recommended !== undefined ? `  → ${recommended}: ${JSON.stringify(item.recommended)}` : ""}`);
   }
+  console.log(`\n${tr("gates.next1")}`);
+  console.log(tr("gates.next2"));
+  console.log(tr("gates.next3"));
 }
 
 /** Minimal line diff (LCS) for --preview; returns `+`/`-`/` ` prefixed lines with collapsed context. */
@@ -2295,6 +2405,7 @@ async function main() {
   let questions = buildGateQuestions(scan, { gates });
   if (argv.includes("--pending")) questions = questions.filter((x) => x.status === "new");
   const defaultBranch = detectDefaultBranch(root);
+  const lang = normalizeTag(flag("--lang")) || (argv.includes("--en") ? "en" : resolveLanguages(root).primary);
 
   if (argv.includes("--json")) {
     const plan = resolveGatePlan(scan, gates || {});
@@ -2319,17 +2430,14 @@ async function main() {
       }
       if (argv.includes("--diagram")) {
         const { graphFromWorkflowText, toMermaid } = await import("./pipeline-diagram.mjs");
-        const graph = graphFromWorkflowText(content, { title: "ci.gates → hyperion-product-ci.yml" });
-        console.log(`\nPipeline diagram (Mermaid):\n\n\`\`\`mermaid\n${toMermaid(graph, { steps: !argv.includes("--no-steps") })}\n\`\`\``);
+        const graph = graphFromWorkflowText(content, { title: "ci.gates → hyperion-product-ci.yml", lang, root });
+        console.log(`\nPipeline diagram (Mermaid):\n\n\`\`\`mermaid\n${toMermaid(graph, { steps: !argv.includes("--no-steps"), lang, root })}\n\`\`\``);
       }
       console.log("\nNothing written. Apply with: npm run hyperion:pipeline-apply -- --refresh-gates --yes");
       if (!argv.includes("--diagram")) console.log("Diagram of this pipeline: add --diagram (or npm run hyperion:pipeline-diagram -- --write).");
     }
   } else {
-    printHuman(scan, questions, { lang: argv.includes("--en") ? "en" : "pt" });
-    console.log("\nNext: answer the questions (--pending shows only open ones), write ci.gates in .github/project.yml");
-    console.log("(start from --yaml [--preset balanced]), check cost + diff with --preview [--gates-file draft.yml],");
-    console.log("then npm run hyperion:pipeline-plan && npm run hyperion:pipeline-apply -- --refresh-gates --yes");
+    printHuman(scan, questions, { lang, root });
   }
 }
 

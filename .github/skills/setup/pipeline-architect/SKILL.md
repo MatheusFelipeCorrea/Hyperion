@@ -47,7 +47,7 @@ proposes, explains the trade-off and writes only what was accepted.
 ```bash
 npm run hyperion:pipeline-detect
 npm run hyperion:pipeline-plan
-npm run hyperion:pipeline-gates            # whole-repo scan + question list (pt; --en)
+npm run hyperion:pipeline-gates            # whole-repo scan + question list (project.yml locale; --lang <tag>)
 npm run hyperion:pipeline-gates -- --json  # machine-readable: scan + questions (+ status) + estimate
 npm run hyperion:pipeline-gates -- --pending   # only questions not answered/declined in ci.gates
 ```
@@ -83,8 +83,9 @@ Summarize for the user:
 
 Ask if unclear. Write or update `ci:` in `project.yml` (show diff).
 
-If product CI already exists, ask: **"Quer que o Hyperion gere os gates em
-`hyperion-product-ci.yml` ao lado da sua CI, ou só recomendações?"** With
+If product CI already exists, ask (in the repo language): **"Should Hyperion
+generate the gates in `hyperion-product-ci.yml` next to your CI, or only
+recommend them?"** With
 gates configured the file runs **in addition** to existing workflows — turn
 overlapping gates `off`.
 
@@ -101,7 +102,8 @@ overlapping gates `off`.
 ## Step 3 — Gates interview (ask EVERY applicable question)
 
 Use the question list from `pipeline-gates --json` (`questions[]`). Each
-question carries `id`, `question.pt/en`, `options`, `recommended`, the
+question carries `id`, `question.pt/en/es` (ask in the repo `locale`; other
+languages fall back to `en`), `options`, `recommended`, the
 detected `command`/`evidence`, the `yaml` path it writes to and a `status`:
 `new`, `answered` (the path already exists in `ci.gates`) or `declined`
 (listed in `ci.gates.declined`).
