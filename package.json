@@ -20,6 +20,7 @@
     "hyperion:pipeline-apply": "node scripts/hyperion/pipeline-apply.mjs",
     "hyperion:pipeline-gates": "node scripts/hyperion/pipeline-gates.mjs",
     "hyperion:pipeline-diagram": "node scripts/hyperion/pipeline-diagram.mjs",
+    "hyperion:detect-language": "node scripts/hyperion/detect-language.mjs",
     "hyperion:coverage-gate": "node scripts/hyperion/coverage-gate.mjs",
     "hyperion:generate-rules": "node scripts/hyperion/generate-runtime-rules.mjs",
     "hyperion:check-rules": "node scripts/hyperion/generate-runtime-rules.mjs --check",

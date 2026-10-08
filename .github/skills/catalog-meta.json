@@ -155,6 +155,12 @@
     "when_en": "Architecture Decision Record",
     "output": ".github/docs/adr/"
   },
+  "pr-writer": {
+    "phase": "docs",
+    "when_pt": "Abrir PR no idioma do repo (/pr)",
+    "when_en": "Open a PR in the repo language (/pr)",
+    "output": ".github/plans/prs/"
+  },
   "plantuml-generator": {
     "phase": "docs",
     "when_pt": "Diagramas UML (/diagram)",

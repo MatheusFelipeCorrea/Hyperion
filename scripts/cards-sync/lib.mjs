@@ -1,6 +1,7 @@
 ﻿import fs from "node:fs/promises";
 import path from "node:path";
 import { execSync, spawnSync } from "node:child_process";
+import { fallbackChain } from "../hyperion/i18n.mjs";
 
 export function detectRepoFromGit() {
   try {
@@ -781,19 +782,33 @@ export async function loadLabelsCatalog({ cardsRoot, repoConfig, projectLocale =
     };
   }
 
-  const file = resolveLabelsCatalogFilePath(cardsRoot, repoConfig, locale);
-  if (!file) {
+  if (!resolveLabelsCatalogFilePath(cardsRoot, repoConfig, locale)) {
     const specs = overlay.specs;
     return { locale, specs, names: labelNamesFromCatalog(specs), file: null, overlayFile: overlay.file };
   }
 
-  try {
-    const raw = await fs.readFile(file, "utf8");
-    const specs = mergeLabelSpecs(parseLabelsCatalogJson(JSON.parse(raw)), overlay.specs);
+  const { file, json } = await readLocaleCatalogFile((tag) => resolveLabelsCatalogFilePath(cardsRoot, repoConfig, tag), locale);
+  if (json) {
+    const specs = mergeLabelSpecs(parseLabelsCatalogJson(json), overlay.specs);
     return { locale, specs, names: labelNamesFromCatalog(specs), file, overlayFile: overlay.file };
-  } catch {
-    return { locale, specs: overlay.specs, names: labelNamesFromCatalog(overlay.specs), file, overlayFile: overlay.file };
   }
+  return { locale, specs: overlay.specs, names: labelNamesFromCatalog(overlay.specs), file, overlayFile: overlay.file };
+}
+
+/** First existing `{locale}` catalog along the language fallback chain (fr-CA → fr → en, pt-PT → pt-BR). */
+async function readLocaleCatalogFile(resolveForTag, locale) {
+  const tried = new Set();
+  for (const tag of fallbackChain(locale)) {
+    const file = resolveForTag(tag);
+    if (!file || tried.has(file)) continue;
+    tried.add(file);
+    try {
+      return { file, json: JSON.parse(await fs.readFile(file, "utf8")) };
+    } catch {
+      /* next tag */
+    }
+  }
+  return { file: resolveForTag(locale), json: null };
 }
 
 // ---------------------------------------------------------------------------
@@ -1477,16 +1492,13 @@ export async function mapWithConcurrency(items, limit, worker) {
 
 export async function loadStatusColumnsCatalog({ cardsRoot, repoConfig, projectLocale = null }) {
   const locale = repoConfig.locale || projectLocale || "en";
-  const file = resolveStatusColumnFilePath(cardsRoot, repoConfig, locale);
+  let file = resolveStatusColumnFilePath(cardsRoot, repoConfig, locale);
 
   let rawSpecs = [];
   if (file) {
-    try {
-      const raw = await fs.readFile(file, "utf8");
-      rawSpecs = parseStatusColumnsCatalogJson(JSON.parse(raw));
-    } catch {
-      rawSpecs = [];
-    }
+    const found = await readLocaleCatalogFile((tag) => resolveStatusColumnFilePath(cardsRoot, repoConfig, tag), locale);
+    file = found.file;
+    rawSpecs = found.json ? parseStatusColumnsCatalogJson(found.json) : [];
   }
 
   if (!rawSpecs.length) {

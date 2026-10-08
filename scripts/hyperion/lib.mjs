@@ -186,6 +186,9 @@ export async function collectHyperionHealth() {
     issues.push(`Missing \`${path.relative(workspaceRoot, projectsMap).replace(/\\/g, "/")}\`.`);
   }
 
+  const language = await collectLanguageHealth(workspaceRoot, { hasProjectYml });
+  warnings.push(...language.warnings);
+
   return {
     nodeMajor,
     repo,
@@ -198,7 +201,31 @@ export async function collectHyperionHealth() {
     layout: paths.layout,
     kitRootRel: paths.kitRootRel,
     cardsPrefix: paths.cardsPrefix,
+    language: language.settings,
+    languageSummary: language.summary,
     issues,
     warnings,
   };
+}
+
+/** Language settings + doctor warnings (missing locale, no catalog, incomplete repo override). */
+export async function collectLanguageHealth(root, { hasProjectYml = true } = {}) {
+  const { resolveLanguages, t, hasCatalog, missingKeys, SHIPPED_LANGUAGES, baseLanguage } = await import("./i18n.mjs");
+  const settings = resolveLanguages(root);
+  const lang = settings.primary;
+  const warnings = [];
+  if (hasProjectYml && settings.source !== "project.yml") warnings.push(t("lang.missing", {}, lang));
+  for (const tag of settings.languages) {
+    if (!hasCatalog(tag, { root })) {
+      warnings.push(t("lang.noCatalog", { tag }, lang));
+      continue;
+    }
+    if (SHIPPED_LANGUAGES.includes(tag) || baseLanguage(tag) === "en") continue;
+    const missing = missingKeys(tag, { root });
+    if (missing.length) warnings.push(t("lang.partial", { tag, count: missing.length }, lang));
+  }
+  const extra = settings.languages.length > 1
+    ? t("lang.extra", { languages: settings.languages.slice(1).join(", "), surfaces: settings.multilingual.join(", ") }, lang)
+    : "";
+  return { settings, warnings, summary: t("lang.summary", { primary: lang, extra, source: settings.source }, lang) };
 }

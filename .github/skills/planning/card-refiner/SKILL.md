@@ -11,7 +11,6 @@ description: >-
 
 ## Configuration Variables
 ${BOARD_PLATFORM="GitHub Projects|Jira|Azure DevOps|Linear|Other|}
-${OUTPUT_LANGUAGE="pt-BR|en"}
 ${TECH_STACK="Auto-detect|Provided by user"}
 ${CARD_TYPES="All|Epic only|Frontend only|Backend only|Database only|Prototype only|Custom selection"}
 
@@ -44,14 +43,16 @@ Cards are read in the IDE **and** rendered as GitHub Issues after sync. Use a co
 
 ### Section headers (emojis recommended)
 
-| Section | Header |
-|---------|--------|
-| Sub-issues | `## 🔗 Sub-issues` |
-| Description | `## 📝 Descrição` |
-| Acceptance | `## ✅ Critérios de Aceite` |
-| Implementation | `## 🛠️ Implementação` |
-| Business rules | `## 📐 Regras de Negócio` |
-| Summary | `## 📋 Resumo` with `### ✅ Concluído` / `### ⏳ Pendente` |
+Headers follow the primary `locale`. The examples further down are pt-BR; translate their headers and prose for other locales.
+
+| Section | en | pt-BR | es |
+|---------|----|-------|----|
+| Sub-issues | `## 🔗 Sub-issues` | `## 🔗 Sub-issues` | `## 🔗 Sub-issues` |
+| Description | `## 📝 Description` | `## 📝 Descrição` | `## 📝 Descripción` |
+| Acceptance | `## ✅ Acceptance Criteria` | `## ✅ Critérios de Aceite` | `## ✅ Criterios de Aceptación` |
+| Implementation | `## 🛠️ Implementation` | `## 🛠️ Implementação` | `## 🛠️ Implementación` |
+| Business rules | `## 📐 Business Rules` | `## 📐 Regras de Negócio` | `## 📐 Reglas de Negocio` |
+| Summary | `## 📋 Summary` + `### ✅ Done` / `### ⏳ Pending` | `## 📋 Resumo` + `### ✅ Concluído` / `### ⏳ Pendente` | `## 📋 Resumen` + `### ✅ Completado` / `### ⏳ Pendiente` |
 
 ### Formatting
 
@@ -69,11 +70,13 @@ Cards are read in the IDE **and** rendered as GitHub Issues after sync. Use a co
 
 ## Language
 
-- Generate all card content in ${OUTPUT_LANGUAGE}
-- Keep technical terms in English (controller, service, repository, hook, middleware, etc.)
-- User story format adapts to language:
-  - PT: 'Como um [role], eu quero [goal], para que [benefit]'
-  - EN: 'As a [role], I want [goal], so that [benefit]'
+- Write all card content in the primary `locale` from `.github/project.yml` (cards stay single-language unless `issues` is in `i18n.multilingual`; then add one `<details>` block per extra `languages` entry). No `locale` → ask the team language before creating cards.
+- Keep technical terms, `card_id`, labels and front-matter keys in English (controller, service, repository, hook, middleware, etc.)
+- User story format follows the language, e.g.:
+  - en: 'As a [role], I want [goal], so that [benefit]'
+  - pt-BR: 'Como um [role], eu quero [goal], para que [benefit]'
+  - es: 'Como [rol], quiero [objetivo], para [beneficio]'
+  - any other locale: the same three parts in that language
 
 ## Output
 

@@ -69,6 +69,7 @@ import {
   DUPLICATE_MARKER,
   renderReconcileReport,
 } from "./reconcile.mjs";
+import { languagesFor, resolveLanguages, t as i18nT } from "../hyperion/i18n.mjs";
 import { resolveHyperionPaths } from "../hyperion/paths.mjs";
 import {
   runForwardSyncJira,
@@ -371,12 +372,12 @@ function enrichBodyWithParentSection(body, card, issueByCardId, owner, name) {
   }
 
   const parentLink = formatCardReference(card.parent, issueByCardId, owner, name);
-  const block = `## 👆 Parent\n\n- ${parentLink}\n\n`;
+  const block = `## 👆 ${cardText("sync.footer.parent")}\n\n- ${parentLink}\n\n`;
   const subMatch = body.match(/\n##\s+.*[Ss]ub-issues/i);
   if (subMatch?.index !== undefined) {
     return `${body.slice(0, subMatch.index)}\n${block}${body.slice(subMatch.index + 1)}`;
   }
-  const resumoMatch = body.match(/\n##\s+Resumo/i);
+  const resumoMatch = body.match(/\n##\s+(?:Resumo|Summary|Resumen)/i);
   if (resumoMatch?.index !== undefined) {
     return `${body.slice(0, resumoMatch.index)}\n${block}${body.slice(resumoMatch.index + 1)}`;
   }
@@ -396,7 +397,28 @@ const DISPLAY_SECTION_REPLACEMENTS = [
   [/^###\s+Concluído\s*$/i, "### ✅ Concluído"],
   [/^###\s+PENDENTE\s*$/i, "### ⏳ Pendente"],
   [/^###\s+Pendente\s*$/i, "### ⏳ Pendente"],
+  [/^##\s+Summary\s*$/i, "## 📋 Summary"],
+  [/^##\s+Description\s*$/i, "## 📝 Description"],
+  [/^##\s+Acceptance Criteria\s*$/i, "## ✅ Acceptance Criteria"],
+  [/^##\s+Implementation\s*$/i, "## 🛠️ Implementation"],
+  [/^##\s+Business Rules\s*$/i, "## 📐 Business Rules"],
+  [/^###\s+Done\s*$/i, "### ✅ Done"],
+  [/^###\s+Pending\s*$/i, "### ⏳ Pending"],
+  [/^##\s+Resumen\s*$/i, "## 📋 Resumen"],
+  [/^##\s+Descripción\s*$/i, "## 📝 Descripción"],
+  [/^##\s+Criterios de Aceptación\s*$/i, "## ✅ Criterios de Aceptación"],
+  [/^##\s+Implementación\s*$/i, "## 🛠️ Implementación"],
+  [/^##\s+Reglas de Negocio\s*$/i, "## 📐 Reglas de Negocio"],
+  [/^###\s+Completado\s*$/i, "### ✅ Completado"],
+  [/^###\s+Pendiente\s*$/i, "### ⏳ Pendiente"],
 ];
+
+let cardLanguage = null;
+/** Fixed sync text (issue footer) in the primary repo language — cards are single-language. */
+function cardText(key) {
+  cardLanguage ??= resolveLanguages(workspaceRoot).primary;
+  return i18nT(key, {}, cardLanguage, { root: workspaceRoot });
+}
 
 function lineHasDisplayEmoji(line) {
   return /[\u{1F300}-\u{1FAFF}]/u.test(line);
@@ -429,14 +451,14 @@ function buildIssueBody(card, linkContext = null) {
   const lines = [body, "", "---"];
 
   if (linkContext) {
-    lines.push("", "> **🔄 Hyperion sync**", ">");
-    lines.push(`> - **Card:** \`${card.cardId}\``);
+    lines.push("", `> **🔄 ${cardText("sync.footer.title")}**`, ">");
+    lines.push(`> - **${cardText("sync.footer.card")}:** \`${card.cardId}\``);
     if (card.parent) {
       lines.push(
-        `> - **Parent:** ${formatCardReference(card.parent, linkContext.issueByCardId, linkContext.owner, linkContext.name)}`
+        `> - **${cardText("sync.footer.parent")}:** ${formatCardReference(card.parent, linkContext.issueByCardId, linkContext.owner, linkContext.name)}`
       );
     }
-    lines.push(`> - **Source:** \`${card.relativeFile}\``);
+    lines.push(`> - **${cardText("sync.footer.source")}:** \`${card.relativeFile}\``);
     lines.push("");
   }
 
@@ -2427,7 +2449,7 @@ async function createLocalCardFromRemote(cardId, remote, repoConfig) {
   return { kind: "created", path: relative };
 }
 
-async function commentDuplicates(duplicates, { commented, locale }) {
+async function commentDuplicates(duplicates, { commented, locale, languages }) {
   for (const dupe of duplicates) {
     for (const extra of dupe.extraIssues || []) {
       const key = `${dupe.cardId}:#${extra.number}`;
@@ -2437,7 +2459,7 @@ async function commentDuplicates(duplicates, { commented, locale }) {
         continue;
       }
       try {
-        await addIssueComment(extra.id, duplicateCommentBody({ cardId: dupe.cardId, keep: dupe.keep, locale }));
+        await addIssueComment(extra.id, duplicateCommentBody({ cardId: dupe.cardId, keep: dupe.keep, locale, languages, root: workspaceRoot }));
         commented.add(key);
         log(`Commented duplicate #${extra.number} → canonical #${dupe.keep} (${DUPLICATE_MARKER})`);
       } catch (error) {
@@ -2484,10 +2506,12 @@ async function runAutoSync() {
   const orphans = issueByCardId.orphans || [];
 
   const commented = new Set(snapshot?.commentedDuplicates || []);
-  const locale = repoConfig.locale || (await detectProjectLocale()) || "en";
+  const langSettings = resolveLanguages(workspaceRoot);
+  const locale = repoConfig.locale || (await detectProjectLocale()) || langSettings.primary;
+  const commentLanguages = repoConfig.locale ? [locale] : languagesFor(langSettings, "comments");
   if (duplicates.length) {
     log(`${duplicates.length} CARD_ID(s) with duplicate issues — canonical kept, extras commented once, never deleted.`);
-    if (token) await commentDuplicates(duplicates, { commented, locale });
+    if (token) await commentDuplicates(duplicates, { commented, locale, languages: commentLanguages });
   }
   if (orphans.length) log(`${orphans.length} open issue(s) without CARD_ID (listed in last-reconcile.md, not imported).`);
 
@@ -2607,6 +2631,8 @@ async function runAutoSync() {
     deletedLocally,
     remoteOnlyClosed,
     tokenWarning,
+    lang: locale,
+    root: workspaceRoot,
   });
 
   if (!snapshotStateChanged(snapshot, payload)) {

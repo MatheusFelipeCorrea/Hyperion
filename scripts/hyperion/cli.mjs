@@ -34,6 +34,7 @@ export const COMMANDS = {
   "pipeline-apply": { script: "pipeline-apply.mjs", desc: "Apply hyperion workflows" },
   "pipeline-gates": { script: "pipeline-gates.mjs", desc: "Scan repo for quality gates (/pipeline interview)" },
   "pipeline-diagram": { script: "pipeline-diagram.mjs", desc: "Pipeline diagram (Mermaid + PlantUML) from ci.gates + workflows" },
+  "detect-language": { script: "detect-language.mjs", desc: "Suggest the team language (README, commits, PR titles)" },
   "coverage-gate": { script: "coverage-gate.mjs", desc: "Enforce a coverage threshold from a report" },
   "phase-verify": { script: "phase-verify.mjs", desc: "Gate /execute Verification" },
   "project-verify": { script: "project-verify.mjs", desc: "Gate project.yml" },

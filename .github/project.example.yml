@@ -17,7 +17,15 @@ kit:
   root: Hyperion
 
 name: My Project
+
+# Language of everything people read (PRs, commit subjects, cards, docs, CI comments, CLI).
+# Any BCP 47 tag: en, pt-BR, es, fr… /setup asks and suggests one from the README and commits.
 locale: en
+# Optional: more than one = multilingual (primary first). Surfaces below get the primary text
+# plus collapsed translations; cards/specs/plans stay in the primary language.
+# languages: [en, pt-BR]
+# i18n:
+#   multilingual: [pr, comments, release]
 
 # Workspace shape: single | monorepo | multi-package
 layout: single

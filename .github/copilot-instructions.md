@@ -51,6 +51,8 @@ Use Conventional Commits:
 - `docs:` — documentation only
 - `chore:` — tooling, config, dependencies
 
+Type and scope stay in English (tooling parses them); the subject is written in the primary language (`locale`), e.g. `fix(cards): corrige status duplicado no board`.
+
 ### Tests
 
 - Every feature must have tests. Prefer unit tests for logic, integration for flows.
@@ -86,9 +88,21 @@ Use Conventional Commits:
 
 ### Language
 
-- Match the user's language for communication.
-- Keep technical terms in English (controller, service, hook, middleware, etc.).
-- Read `locale` from `project.yml` for generated artifacts.
+<!-- HYPERION:LANGUAGE:START -->
+Read `locale` (primary language) and `languages` (primary first) from `.github/project.yml`. No `locale` → ask the team language(s) via `/setup` before writing artifacts; until then use `en`.
+
+| What | Language |
+|------|----------|
+| Chat replies | The person's language |
+| Cards, specs, plans, ADRs, memory, audits, reports | Primary (`locale`) |
+| PR title/body, PR/review comments, release notes | Primary; when `languages` has more than one and the surface is in `i18n.multilingual` (default `pr`, `comments`, `release`), add one `<details><summary>Language name</summary>` block per extra language |
+| Commit messages | Conventional type/scope in English + subject in the primary language (`feat(auth): adiciona login com Google`) |
+| Code, identifiers, branches, CARD_ID, paths, CLI flags, CI job/step names | Always English |
+
+Fixed script messages (CI comments, board guard, coverage) come from `scripts/hyperion/i18n/<tag>.json` (+ `.github/i18n/<tag>.json` override) — never hand-translate them. Policy: `.github/docs/meta/language-policy-en.md`.
+<!-- HYPERION:LANGUAGE:END -->
+
+Keep technical terms in English (controller, service, hook, middleware, etc.).
 
 ### Documentation
 
@@ -104,7 +118,7 @@ Skills live in `.github/skills/` organized by category:
 - **planning/** — acceptance-spec, api-contract-guide, card-refiner, feature-flag-manager, hypothesis-forge, project-architect, refactor-guide, sprint-retro
 - **setup/** — cards-sync-setup, hyperion-ops, integration-bridge, memory-capture, pipeline-architect, project-discovery, project-startup, repo-migration
 - **quality/** — architecture-audit, code-review, compliance-audit, dependency-health, devops-audit, eng-metrics, full-audit, po-audit, pr-review, security-audit, tech-debt-tracker, testing-strategy, ux-audit
-- **docs/** — adr-generator, changelog-generator, plantuml-generator, readme-updater, release-manager
+- **docs/** — adr-generator, changelog-generator, plantuml-generator, pr-writer, readme-updater, release-manager
 
 When the user asks for any of these capabilities, read the corresponding `SKILL.md` and follow its instructions exactly.
 <!-- HYPERION:SKILLS:END -->
@@ -146,6 +160,7 @@ When a task maps to an existing skill, suggest using it — **or run npm yoursel
 | Product alignment | `po-audit` — or user says `/po` |
 | UX review | `ux-audit` — or user says `/ux` |
 | Code review | `code-review` — or user says `/review` |
+| Open a PR in the repo language (multilingual when configured) | `pr-writer` — or user says `/pr` |
 | Review open PR (diff + tests) | `pr-reviewer` agent |
 | Phased implementation plan | `implementation-plan` agent |
 | Execute approved plan phase | `implementation-executor` agent |

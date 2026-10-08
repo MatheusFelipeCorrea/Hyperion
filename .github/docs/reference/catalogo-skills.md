@@ -1,7 +1,7 @@
 # 🧩 Catálogo de skills Hyperion
 
 <p align="center">
-  <img src="https://img.shields.io/badge/skills-34-F5D76E?style=for-the-badge&labelColor=0B1220" alt="34 skills">
+  <img src="https://img.shields.io/badge/skills-35-F5D76E?style=for-the-badge&labelColor=0B1220" alt="35 skills">
   <img src="https://img.shields.io/badge/agents-8-F5D76E?style=for-the-badge&labelColor=0B1220" alt="8 agents">
   <img src="https://img.shields.io/badge/áreas-5-2563EB?style=for-the-badge&labelColor=0B1220" alt="5 áreas">
 </p>
@@ -77,6 +77,7 @@ Legenda de área: 🧭 Bootstrap · 📋 Planejamento · ⚡ Entrega · 🔍 Qua
 | **adr-generator** | `/adr` | Architecture Decision Record | .github/docs/adr/ | [SKILL.md](../../skills/docs/adr-generator/SKILL.md) |
 | **changelog-generator** | `/changelog` | Gerar CHANGELOG | CHANGELOG.md | [SKILL.md](../../skills/docs/changelog-generator/SKILL.md) |
 | **plantuml-generator** | `/diagram` | Diagramas UML (/diagram) | .github/diagrams/ | [SKILL.md](../../skills/docs/plantuml-generator/SKILL.md) |
+| **pr-writer** | `/pr` | Abrir PR no idioma do repo (/pr) | .github/plans/prs/ | [SKILL.md](../../skills/docs/pr-writer/SKILL.md) |
 | **readme-updater** | `/readme` | Atualizar README(s) | README in repo | [SKILL.md](../../skills/docs/readme-updater/SKILL.md) |
 | **release-manager** | `—` | Checklist de release | .github/plans/releases/ | [SKILL.md](../../skills/docs/release-manager/SKILL.md) |
 

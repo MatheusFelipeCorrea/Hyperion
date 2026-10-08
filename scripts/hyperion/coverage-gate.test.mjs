@@ -142,4 +142,16 @@ describe("evaluateCoverage + CLI", () => {
     fs.rmSync(dir, { recursive: true, force: true });
     fs.rmSync(missing, { recursive: true, force: true });
   });
+
+  it("--lang writes the summary in the primary language with extras collapsed", () => {
+    const dir = tmpWith("coverage/lcov.info", LCOV);
+    const out = execFileSync(process.execPath, [SCRIPT, "--dir", dir, "--min", "90", "--mode", "warn", "--lang", "pt-BR,en"], {
+      encoding: "utf8",
+      env: { ...process.env, GITHUB_STEP_SUMMARY: "", GITHUB_WORKSPACE: "" },
+    });
+    assert.match(out, /^### Cobertura/m);
+    assert.match(out, /<details><summary>English<\/summary>\n\n### Coverage/);
+    assert.match(out, /::warning title=Gate de cobertura::lines/);
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
 });

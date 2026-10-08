@@ -43,6 +43,36 @@ npm test — pass
     }
   });
 
+  it("accepts translated headings with card emojis", () => {
+    const dir = mkdtempSync(join(tmpdir(), "rv-emoji-"));
+    try {
+      const file = join(dir, "pr-3-review.md");
+      writeFileSync(
+        file,
+        `---
+pr: 3
+verdict: APPROVE
+tests_ran: yes
+review_date: 2026-10-08
+---
+
+## 📋 Resumo
+Ok.
+
+## 🔍 Achados
+Nenhum.
+
+## ✅ Saída dos testes
+npm test — pass
+`
+      );
+      const r = spawnSync(process.execPath, [script, "--review", file], { encoding: "utf8" });
+      assert.equal(r.status, 0, r.stderr || r.stdout);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("fails without tests_ran", () => {
     const dir = mkdtempSync(join(tmpdir(), "rv-bad-"));
     try {

@@ -132,6 +132,10 @@
     "mustContain": [".github/docs/adr/ADR-{NNN}-{slug}.md", "Superseded by ADR-{NNN}"]
   },
   {
+    "skill": "pr-writer",
+    "mustContain": ["i18n.multilingual", "<details><summary>English</summary>", "wait for approval", "## Output"]
+  },
+  {
     "skill": "readme-updater",
     "mustContain": ["NEVER rewrite the README from scratch", "WAIT for approval", "## Output"]
   },

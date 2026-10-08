@@ -214,3 +214,21 @@ test("renderReconcileReport lists every section and round-trips the timestamp", 
   assert.match(md, /\*\*Token:\*\* GITHUB_TOKEN only/);
   assert.equal(parseLastSyncWhen(md), when);
 });
+
+test("renderReconcileReport localizes labels and still round-trips the timestamp", () => {
+  const when = "2026-05-02T08:00:00.000Z";
+  const md = renderReconcileReport({ when, lang: "pt-BR", duplicates: [{ cardId: "D-1", keep: 3, extras: [8] }] });
+  assert.match(md, /^# Último reconcile de cards/);
+  assert.match(md, /\*\*Quando:\*\* 2026-05-02/);
+  assert.match(md, /`D-1` canônica #3; extras #8/);
+  assert.match(md, /## Issues abertas sem CARD_ID\n\nNenhum\./);
+  assert.equal(parseLastSyncWhen(md), when);
+  assert.equal(parseLastSyncWhen("- **When:** 2026-01-01T00:00:00.000Z"), "2026-01-01T00:00:00.000Z");
+});
+
+test("duplicateCommentBody renders extra languages collapsed", () => {
+  const body = duplicateCommentBody({ cardId: "X-1", keep: 12, languages: ["es", "en"] });
+  assert.match(body, /^<!-- hyperion-duplicate-of:#12 -->\n/);
+  assert.match(body, /duplicado/);
+  assert.match(body, /<details><summary>English<\/summary>\n\nThis issue is a \*\*duplicate\*\*/);
+});

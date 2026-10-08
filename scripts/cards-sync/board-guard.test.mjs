@@ -115,6 +115,14 @@ test("printBoardDriftHelp includes push instruction for PR context", () => {
   assert.ok(lines.some((l) => l.includes("git push")));
 });
 
+test("printBoardDriftHelp follows the repo language; commit type and commands stay English", () => {
+  const lines = [];
+  printBoardDriftHelp([".github/cards/epics/A.md"], "github", "pr", (m) => lines.push(m), [], "pt-BR");
+  assert.ok(lines.includes("npm run cards:reverse") || lines.some((l) => l.trim() === "npm run cards:reverse"));
+  assert.ok(lines.some((l) => /git commit -m "chore\(cards\): /.test(l)));
+  assert.ok(!lines.some((l) => l.includes("Merge is blocked")));
+});
+
 test("detectExternalDriftFields detects board_sync_at external drift", () => {
   const head = { board_sync_at: "2026-01-01T00:00:00.000Z" };
   const base = { board_sync_at: "2026-01-01T00:00:00.000Z" };

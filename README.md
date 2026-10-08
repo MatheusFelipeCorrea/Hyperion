@@ -7,7 +7,7 @@
   <a href="https://github.com/MatheusFelipeCorrea/Hyperion"><img src="https://img.shields.io/badge/repo-Hyperion-2563EB?style=for-the-badge&labelColor=0B1220&logo=github" alt="GitHub"></a>
   <a href="https://github.com/MatheusFelipeCorrea/Hyperion/actions/workflows/hyperion-validate.yml"><img src="https://img.shields.io/github/actions/workflow/status/MatheusFelipeCorrea/Hyperion/hyperion-validate.yml?branch=main&style=for-the-badge&label=validate&labelColor=0B1220" alt="Kit validation"></a>
   <img src="https://img.shields.io/badge/agents-8-F5D76E?style=for-the-badge&labelColor=0B1220" alt="8 agents">
-  <img src="https://img.shields.io/badge/skills-34-F5D76E?style=for-the-badge&labelColor=0B1220" alt="34 skills">
+  <img src="https://img.shields.io/badge/skills-35-F5D76E?style=for-the-badge&labelColor=0B1220" alt="35 skills">
 </p>
 
 <p align="center">
@@ -21,8 +21,10 @@
   <a href="./GETTING-STARTED.md"><img src="https://img.shields.io/badge/▶_Começar-GETTING--STARTED-F5D76E?style=for-the-badge&labelColor=0B1220" alt="Começar"></a>
   <a href="./.github/docs/reference/catalogo-skills.md"><img src="https://img.shields.io/badge/📚_Skills-catálogo-2563EB?style=for-the-badge&labelColor=0B1220" alt="Skills"></a>
   <a href="./.github/docs/reference/comandos-rapidos.md"><img src="https://img.shields.io/badge/💬_Comandos-lista-2563EB?style=for-the-badge&labelColor=0B1220" alt="Comandos"></a>
-  <a href="./.github/docs/onboarding/learning-path-en.md"><img src="https://img.shields.io/badge/English-guide-94A3B8?style=for-the-badge&labelColor=0B1220" alt="English"></a>
+  <a href="./README.en.md"><img src="https://img.shields.io/badge/English-README-94A3B8?style=for-the-badge&labelColor=0B1220" alt="English"></a>
 </p>
+
+**Português** · **English:** [README.en.md](./README.en.md)
 
 ---
 
@@ -62,7 +64,7 @@ Cinco áreas. Cada uma tem comandos no chat e skills por trás.
 |---|------|------------------|------------------|
 | 🧭 | **Bootstrap** | Ligar o kit, saúde, CI, board | `/setup` · `/migrate` · `/doctor` · `/pipeline` · `/sync` |
 | 📋 | **Planejamento** | Ideia → cards → spec | `/explore` · `/refine` · `/spec` · `/spec-review` |
-| ⚡ | **Entrega** | Plano, código, PR | `/implement` · `/execute` · `/pr-review` · `/test-plan` |
+| ⚡ | **Entrega** | Plano, código, PR | `/implement` · `/execute` · `/pr` · `/pr-review` · `/test-plan` |
 | 🔍 | **Qualidade** | Auditar produto / código / ops | `/audit` · `/security` · `/architecture` · `/deps` |
 | 📚 | **Docs & release** | Diagramas, ADR, changelog, tag | `/diagram` · `/adr` · `/changelog` · `/release` |
 
@@ -84,7 +86,7 @@ Trilha completa: [fluxo-completo.md](./.github/docs/meta/fluxo-completo.md) · E
 <img src="https://img.shields.io/badge/setup-8_skills-2563EB?style=flat-square&labelColor=0B1220" alt="setup">
 <img src="https://img.shields.io/badge/planning-8_skills-2563EB?style=flat-square&labelColor=0B1220" alt="planning">
 <img src="https://img.shields.io/badge/quality-13_skills-2563EB?style=flat-square&labelColor=0B1220" alt="quality">
-<img src="https://img.shields.io/badge/docs-5_skills-2563EB?style=flat-square&labelColor=0B1220" alt="docs">
+<img src="https://img.shields.io/badge/docs-6_skills-2563EB?style=flat-square&labelColor=0B1220" alt="docs">
 <img src="https://img.shields.io/badge/agents-8-F5D76E?style=flat-square&labelColor=0B1220" alt="agents">
 
 ### 🧭 Bootstrap / setup
@@ -143,6 +145,7 @@ Trilha completa: [fluxo-completo.md](./.github/docs/meta/fluxo-completo.md) · E
 | adr-generator | `/adr` | Architecture Decision Record |
 | changelog-generator | `/changelog` | CHANGELOG |
 | readme-updater | `/readme` | Atualiza README(s) |
+| pr-writer | `/pr` | Abre PR no idioma do repo (multilíngue se configurado) |
 | release *(agent)* | `/release` | Changelog + versão + tag |
 
 📄 **Lista completa (quando · output · link do SKILL):** [catalogo-skills.md](./.github/docs/reference/catalogo-skills.md)
@@ -174,6 +177,7 @@ Se o `/` não aparecer no Cursor, diga a frase: *“Configura o Hyperion neste r
 |----------|---------|
 | Subir cards pro board | `/sync` |
 | Spec antes de codar | `/spec` · `/spec-review` |
+| Abrir PR | `/pr` |
 | Revisar PR | `/pr-review` |
 | Auditoria | `/audit` (rápida) ou `/audit-run` (com gates) |
 | Dependências / release | `/deps` · `/release` |
@@ -196,6 +200,8 @@ git clone https://github.com/MatheusFelipeCorrea/Hyperion.git
 | 3 | **Instalar** | Tem Node ≥ 20? Dentro de `Hyperion/`: `npm install` (ajv + js-yaml — únicas dependências do kit). **Sem Node no produto?** Pule este passo — o wrapper `./bin/hyperion` roda via Docker automaticamente em qualquer comando dos passos seguintes. Ver [node-and-docker.md](./.github/docs/meta/node-and-docker.md) |
 | 4 | **Shims** | Na raiz do produto: `npm run hyperion:init --prefix Hyperion -- --adopt` |
 | 5 | **Usar** | Chat no **produto**: `/setup` ou `/migrate` |
+
+🌐 **Idioma:** o `/setup` pergunta o idioma do repo (`locale: pt-BR`, `en`, `es`…). Com `languages: [pt-BR, en]` os PRs, comentários e releases saem nas duas línguas. Código, branches e o tipo do commit continuam em inglês — ver [language-policy.md](./.github/docs/meta/language-policy.md).
 
 <details>
 <summary><strong>📦 Detalhes (pasta Hyperion + o que fica na raiz)</strong></summary>

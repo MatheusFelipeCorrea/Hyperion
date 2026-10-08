@@ -1,0 +1,37 @@
+[
+  {
+    "key": "Backlog",
+    "color": "GRAY",
+    "description": "Capturado pero sin refinar; sin responsable, sprint ni criterios de aceptación."
+  },
+  {
+    "key": "Functional Refinement",
+    "color": "BLUE",
+    "description": "PM/PO aclarando alcance, valor, criterios de aceptación y sub-issues."
+  },
+  {
+    "key": "Technical Refinement",
+    "color": "PURPLE",
+    "description": "Ingeniería estimando dependencias, enfoque y riesgos técnicos."
+  },
+  {
+    "key": "In Progress",
+    "color": "YELLOW",
+    "description": "En implementación activa en una rama."
+  },
+  {
+    "key": "In Tests",
+    "color": "PINK",
+    "description": "Implementación lista; QA o pruebas automatizadas en ejecución."
+  },
+  {
+    "key": "In Revision",
+    "color": "ORANGE",
+    "description": "PR abierto o esperando revisión, correcciones o aprobación."
+  },
+  {
+    "key": "Done",
+    "color": "GREEN",
+    "description": "Cumple la Definition of Done — mergeado, publicado o aceptado por el equipo."
+  }
+]

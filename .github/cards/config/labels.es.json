@@ -1,0 +1,197 @@
+[
+  {
+    "name": "Backend",
+    "color": "5319e7",
+    "description": "Lógica del servidor, servicios y código de dominio sin una etiqueta más específica."
+  },
+  {
+    "name": "Base de Datos",
+    "color": "006b75",
+    "description": "Esquema, migraciones, consultas y persistencia de datos."
+  },
+  {
+    "name": "Bug",
+    "color": "d73a4a",
+    "description": "Defecto o comportamiento incorrecto a corregir."
+  },
+  {
+    "name": "CI / CD",
+    "color": "1d76db",
+    "description": "Pipelines de build, despliegue automatizado y herramientas de release."
+  },
+  {
+    "name": "Ciberseguridad",
+    "color": "b60205",
+    "description": "Hardening, vulnerabilidades, autorización y mitigación de amenazas."
+  },
+  {
+    "name": "Documentación",
+    "color": "0075ca",
+    "description": "Docs de usuario, API, runbooks y guías en el repositorio."
+  },
+  {
+    "name": "Frontend",
+    "color": "7057ff",
+    "description": "Componentes de UI, estado en el cliente y comportamiento en el navegador."
+  },
+  {
+    "name": "Web",
+    "color": "2ea043",
+    "description": "Entrega web: routing, SSR, PWA y compatibilidad de navegadores."
+  },
+  {
+    "name": "Infra / DevOps",
+    "color": "fbca04",
+    "description": "Cloud, contenedores, IaC e infraestructura operativa."
+  },
+  {
+    "name": "Integración Externa",
+    "color": "0366d6",
+    "description": "APIs de terceros, webhooks y conectores con socios."
+  },
+  {
+    "name": "Inteligencia Artificial",
+    "color": "8b5cf6",
+    "description": "ML, funciones con LLM, embeddings y flujos asistidos por IA."
+  },
+  {
+    "name": "Prototipo",
+    "color": "d4c5f9",
+    "description": "Implementación exploratoria o descartable hacia una dirección de producto."
+  },
+  {
+    "name": "QA / Pruebas",
+    "color": "fef2c0",
+    "description": "Automatización de pruebas, planes de prueba y aseguramiento de calidad."
+  },
+  {
+    "name": "Refactorización",
+    "color": "c2e0c6",
+    "description": "Mejora estructural sin cambio intencional de comportamiento."
+  },
+  {
+    "name": "Regla de Negocio",
+    "color": "bfdadc",
+    "description": "Reglas de dominio, validaciones y comportamiento guiado por políticas."
+  },
+  {
+    "name": "UX / UI",
+    "color": "e99695",
+    "description": "Diseño de interacción, pulido visual y mejoras de usabilidad."
+  },
+  {
+    "name": "Arquitectura",
+    "color": "0e8a16",
+    "description": "Diseño de sistema, fronteras, patrones y dirección técnica."
+  },
+  {
+    "name": "Deuda Técnica",
+    "color": "6f42c1",
+    "description": "Atajos conocidos y limpieza pospuesta de entregas anteriores."
+  },
+  {
+    "name": "Performance",
+    "color": "fb8500",
+    "description": "Latencia, throughput, memoria y mejoras de escalabilidad."
+  },
+  {
+    "name": "Accesibilidad",
+    "color": "1f883d",
+    "description": "WCAG, lectores de pantalla, teclado y UX inclusiva."
+  },
+  {
+    "name": "Mobile",
+    "color": "0969da",
+    "description": "Apps nativas/híbridas y comportamiento móvil responsivo."
+  },
+  {
+    "name": "Analytics",
+    "color": "6554c0",
+    "description": "Métricas, dashboards, event tracking y analítica de producto."
+  },
+  {
+    "name": "Blocked",
+    "color": "cf222e",
+    "description": "Trabajo bloqueado hasta resolver una dependencia externa."
+  },
+  {
+    "name": "Observabilidad",
+    "color": "6366f1",
+    "description": "Logs, métricas, tracing, alertas y señales de guardia."
+  },
+  {
+    "name": "API",
+    "color": "1d4ed8",
+    "description": "REST, GraphQL, gRPC, contratos y versionado de API."
+  },
+  {
+    "name": "Auth / Identidad",
+    "color": "7c3aed",
+    "description": "Autenticación, autorización, sesiones, OAuth y RBAC."
+  },
+  {
+    "name": "i18n / L10n",
+    "color": "0891b2",
+    "description": "Internacionalización, localización y comportamiento por locale."
+  },
+  {
+    "name": "Cumplimiento",
+    "color": "64748b",
+    "description": "Regulatorio, auditoría, retención y privacidad (ej.: GDPR/LGPD)."
+  },
+  {
+    "name": "Spike",
+    "color": "ca8a04",
+    "description": "Investigación con timebox para reducir incertidumbre antes de entregar."
+  },
+  {
+    "name": "Breaking change",
+    "color": "dc2626",
+    "description": "Cambio incompatible que requiere migración o notas de release."
+  },
+  {
+    "name": "Regresión",
+    "color": "be123c",
+    "description": "Comportamiento que funcionaba y volvió a fallar."
+  },
+  {
+    "name": "Hotfix",
+    "color": "ea580c",
+    "description": "Corrección urgente en producción fuera del ciclo normal de release."
+  },
+  {
+    "name": "Design system",
+    "color": "db2777",
+    "description": "Tokens compartidos, primitivos y estándares de la biblioteca de componentes."
+  },
+  {
+    "name": "POC",
+    "color": "a855f7",
+    "description": "Prueba de concepto para validar viabilidad o demostrar valor a stakeholders."
+  },
+  {
+    "name": "Datos / ETL",
+    "color": "0d9488",
+    "description": "Pipelines de datos, warehousing, jobs batch y flujos ETL/ELT."
+  },
+  {
+    "name": "Notificaciones",
+    "color": "0284c7",
+    "description": "Email, push, SMS, alertas in-app y canales de entrega."
+  },
+  {
+    "name": "Migración",
+    "color": "78716c",
+    "description": "Migración de esquema, datos o aplicación con riesgo de corte."
+  },
+  {
+    "name": "DevEx",
+    "color": "4ade80",
+    "description": "Experiencia del desarrollador: setup local, tooling, plantillas e inner-loop."
+  },
+  {
+    "name": "Solicitud del cliente",
+    "color": "f472b6",
+    "description": "Trabajo trazable a un cliente específico o compromiso comercial."
+  }
+]

@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { execSync } from "node:child_process";
+import { resolveLanguages, translator } from "./i18n.mjs";
 import { workspaceRoot, pathExists, readTextIfExists } from "./lib.mjs";
 import { resolveHyperionPaths } from "./paths.mjs";
 
@@ -244,9 +245,9 @@ export const DEFAULT_CI_CONFIG = {
  * Render hyperion-sync-cards workflow YAML for legacy (kit at repo root) or nested kit.root layout.
  * @param {{ kitRootRel?: string, defaultBranch?: string, syncMode?: string }} opts
  */
-export function renderSyncCardsWorkflow({ kitRootRel = "", defaultBranch = "main", syncMode } = {}) {
+export function renderSyncCardsWorkflow({ kitRootRel = "", defaultBranch = "main", syncMode, i18n = null } = {}) {
   if (normalizeCardsSyncMode(syncMode) === "auto") {
-    return renderSyncCardsAutoWorkflow({ kitRootRel, defaultBranch });
+    return renderSyncCardsAutoWorkflow({ kitRootRel, defaultBranch, i18n });
   }
   const prefix = kitRootRel ? `${String(kitRootRel).replace(/\\/g, "/").replace(/\/+$/, "")}/` : "";
   const wdBlock = kitRootRel
@@ -345,10 +346,18 @@ jobs:
  * branch rejects the push. Projects v2 has no workflow trigger — the schedule covers
  * board-only edits (status/sprint).
  */
-export function renderSyncCardsAutoWorkflow({ kitRootRel = "", defaultBranch = "main" } = {}) {
+export function renderSyncCardsAutoWorkflow({ kitRootRel = "", defaultBranch = "main", i18n = null } = {}) {
   const kit = normalizeKitRootRel(kitRootRel);
   const prefix = kit ? `${kit}/` : "";
   const wdBlock = kit ? `\n    defaults:\n      run:\n        working-directory: ${kit}` : "";
+  const tr = translator(i18n);
+  const subject = `chore(cards): ${tr.shell("reconcile.commitSubject")} [cards-sync]`;
+  const prBody = tr
+    .multi("pr", (lang) => tr.tIn(lang, "reconcile.fallbackPrBody", { branch: "\u0000" }))
+    .trimEnd()
+    .replace(/[\\"`$]/g, (c) => `\\${c}`)
+    .replace(/\u0000/g, "$TARGET_BRANCH")
+    .replace(/\n/g, "\n          ");
 
   return `name: Hyperion — Sync Cards (auto reconcile)
 
@@ -456,7 +465,7 @@ jobs:
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -m "chore(cards): reconcile board and markdown [cards-sync]"
+          git commit -m "${subject}"
           for attempt in 1 2 3; do
             if git push origin "HEAD:$TARGET_BRANCH"; then exit 0; fi
             git pull --rebase origin "$TARGET_BRANCH" || { git rebase --abort; break; }
@@ -464,8 +473,8 @@ jobs:
           fallback="hyperion/cards-reconcile-$GITHUB_RUN_ID"
           git push origin "HEAD:refs/heads/$fallback"
           gh pr create --base "$TARGET_BRANCH" --head "$fallback" \\
-            --title "chore(cards): reconcile board and markdown [cards-sync]" \\
-            --body "Automatic card reconcile could not push to $TARGET_BRANCH (protected or diverged). Review and merge."
+            --title "${subject}" \\
+            --body "${prBody}"
 
       - name: Notify (Slack/Discord)
         if: always()
@@ -1312,10 +1321,12 @@ export function readCardsSyncMode(root = workspaceRoot) {
 export function resolvePipelineRenderOptions(root = workspaceRoot, { kitRootRel = null } = {}) {
   const kit =
     kitRootRel !== null ? normalizeKitRootRel(kitRootRel) : normalizeKitRootRel(resolveHyperionPaths(root).kitRootRel);
+  const { primary, languages, multilingual } = resolveLanguages(root);
   return {
     kitRootRel: kit,
     defaultBranch: detectDefaultBranch(root),
     syncMode: readCardsSyncMode(root),
+    i18n: { primary, languages, multilingual },
   };
 }
 

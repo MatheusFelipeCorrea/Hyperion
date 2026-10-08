@@ -9,6 +9,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { makeIgnore } from "./coverage-gate.mjs";
+import { t } from "./i18n.mjs";
 
 const toPosix = (p) => String(p || "").replace(/\\/g, "/");
 
@@ -167,18 +168,19 @@ function ranges(lines) {
   return out.map(([a, b]) => (a === b ? `${a}` : `${a}-${b}`)).join(", ");
 }
 
-export function renderDiffSummary(result, { mode = "block" } = {}) {
-  if (result.pct === null) return "#### Changed lines\n\nNo coverable changed lines.\n";
+export function renderDiffSummary(result, { mode = "block", lang = "en", root = null } = {}) {
+  const msg = (key, vars = {}) => t(key, vars, lang, { root });
+  if (result.pct === null) return `#### ${msg("coverage.diff.heading")}\n\n${msg("coverage.diff.none")}\n`;
   const icon = result.ok ? "✅" : mode === "warn" ? "⚠️" : "❌";
   const rows = result.files
     .filter((f) => f.missed.length)
     .slice(0, 30)
     .map((f) => `| ${f.file} | ${f.covered}/${f.total} | ${ranges(f.missed)} |`);
   return [
-    "#### Changed lines",
+    `#### ${msg("coverage.diff.heading")}`,
     "",
-    `${icon} **${result.pct.toFixed(2)}%** of ${result.total} changed line(s) covered (min ${result.min}%, mode: ${mode})`,
-    ...(rows.length ? ["", "| file | covered | uncovered lines |", "|---|---|---|", ...rows] : []),
+    `${icon} ${msg("coverage.diff.result", { pct: result.pct.toFixed(2), total: result.total, min: result.min, mode })}`,
+    ...(rows.length ? ["", msg("coverage.diff.tableHeader"), "|---|---|---|", ...rows] : []),
     "",
   ].join("\n");
 }

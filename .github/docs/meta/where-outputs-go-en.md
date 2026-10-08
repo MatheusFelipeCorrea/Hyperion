@@ -19,6 +19,7 @@ Config: **`project.yml` → `outputs`**
 | Cards (source) | `.github/cards/` | Yes |
 | Specs / plans | `.github/plans/specs/`, `implementations/` | No |
 | Reviews / migrations | `.github/plans/reviews/`, `migrations/` | No |
+| PR body drafts (`/pr`) | `.github/plans/prs/` | No |
 | Audits | `.github/audits/results/` | No |
 | ADR / retros | `.github/docs/adr/`, `retros/` | No |
 | Diagrams | `.github/diagrams/` | No |

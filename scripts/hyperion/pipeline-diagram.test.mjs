@@ -9,6 +9,7 @@ import {
   diagramsMarkdown,
   graphFromWorkflowText,
   overviewMermaid,
+  puml,
   toMermaid,
   toPlantUml,
   whenTags,
@@ -143,6 +144,22 @@ describe("toMermaid / toPlantUml", () => {
     assert.doesNotMatch(p, /"[^"\n]*"[^"\n]*"[^"\n]*" <</, "no unescaped quotes inside labels");
   });
 
+  it("translates labels and legend; PlantUML stays ASCII via &#NNNN; entities", () => {
+    const pt = graphFromWorkflowText(GENERIC, { file: "deploy.yml", lang: "pt-BR" });
+    const report = pt.jobs.find((j) => j.id === "report");
+    assert.deepEqual(report.when, ["quando falha"]);
+    const m = toMermaid(pt, { lang: "pt-BR" });
+    assert.match(m, /<b>Gatilhos<\/b>/);
+    assert.match(m, /vermelho = bloqueia \(falha o run\)/);
+    const p = toPlantUml(pt, { lang: "pt-BR" });
+    assert.match(p, /legend right\nvermelho = bloqueia \(falha o run\)\n&#226;mbar tracejado = aviso\n/);
+    assert.match(p, /\/\/quando falha\/\//);
+    assert.doesNotMatch(p, /[^\x00-\x7F]/);
+    assert.equal(puml("Saída — ação ⚠"), "Sa&#237;da - a&#231;&#227;o (warn)");
+    assert.equal(puml("emoji 🚀"), "emoji &#128640;");
+    assert.match(toMermaid(graphFromWorkflowText(GENERIC, { lang: "es" }), { lang: "es" }), /<b>Disparadores<\/b>/);
+  });
+
   it("overview keeps workflows in separate subgraphs", () => {
     const m = overviewMermaid([g, { ...g, file: "other.yml" }]);
     assert.match(m, /subgraph w0_wf\["deploy.yml"\]/);
@@ -190,6 +207,9 @@ describe("buildPipelineDiagrams", () => {
     const md = diagramsMarkdown(await buildPipelineDiagrams(root, { source: "workflows" }));
     assert.match(md, /```mermaid\n---\ntitle: Deploy/);
     assert.match(md, /\[workflow-deploy\.puml\]\(workflow-deploy\.puml\)/);
+    const es = diagramsMarkdown(await buildPipelineDiagrams(root, { source: "workflows", lang: "es" }));
+    assert.match(es, /^# /);
+    assert.doesNotMatch(es, /^# Pipeline diagrams/);
   });
 });
 

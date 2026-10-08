@@ -14,6 +14,7 @@
  * history is reported (deleted_locally) instead of recreated from its issue.
  * Closed issues without a local card are reported, not recreated.
  */
+import { multiRender, t } from "../hyperion/i18n.mjs";
 
 export const BOARD_FIELDS = ["status", "sprint"];
 export const GIT_FIELDS = ["title", "type", "priority", "storyPoints", "reporter", "parent", "dueDate"];
@@ -174,25 +175,23 @@ export function isPortugueseLocale(locale) {
   return /^pt\b/i.test(String(locale || ""));
 }
 
-/** Comment left once on each duplicate issue (marker makes it idempotent). */
-export function duplicateCommentBody({ cardId, keep, locale = "en" }) {
+/**
+ * Comment left once on each duplicate issue (marker makes it idempotent).
+ * `languages` (primary first) renders extras as <details>; otherwise only `locale`.
+ */
+export function duplicateCommentBody({ cardId, keep, locale = "en", languages = null, root = null }) {
   const marker = `<!-- ${DUPLICATE_MARKER}:#${keep} -->`;
-  if (isPortugueseLocale(locale)) {
-    return [
-      marker,
-      `Esta issue é uma **duplicata** de \`${cardId}\`.`,
-      `A issue canônica é #${keep}. O sync do Hyperion ignora esta cópia — edite a canônica e feche esta quando puder.`,
-    ].join("\n");
-  }
-  return [
-    marker,
-    `This issue is a **duplicate** of \`${cardId}\`.`,
-    `The canonical issue is #${keep}. Hyperion sync ignores this copy — edit the canonical one and close this when convenient.`,
-  ].join("\n");
+  const render = (lang) =>
+    [t("reconcile.duplicate.line1", { cardId }, lang, { root }), t("reconcile.duplicate.line2", { keep }, lang, { root })].join("\n");
+  const body = languages?.length > 1 ? multiRender(render, languages).trimEnd() : render(languages?.[0] || locale);
+  return `${marker}\n${body}`;
 }
 
+const WHEN_MARKER = "hyperion:reconcile-when";
+
 export function parseLastSyncWhen(markdown) {
-  const match = String(markdown || "").match(/\*\*When:\*\*\s*(\S+)/);
+  const text = String(markdown || "");
+  const match = text.match(new RegExp(`<!-- ${WHEN_MARKER}:(\\S+) -->`)) || text.match(/\*\*When:\*\*\s*(\S+)/);
   if (!match) return null;
   return Number.isNaN(Date.parse(match[1])) ? null : match[1];
 }
@@ -271,12 +270,13 @@ export function buildReconcilePlan({ localCards = [], remotes = new Map(), snaps
   };
 }
 
-function issueList(rows, limit = 100) {
+function issueList(rows, m, limit = 100) {
   const lines = rows.slice(0, limit).map((r) => `- \`${r.cardId}\` #${r.issueNumber ?? "?"} ${r.title || ""}`.trimEnd());
-  if (rows.length > limit) lines.push(`- … ${rows.length - limit} more`);
+  if (rows.length > limit) lines.push(`- ${m("reconcile.report.more", { count: rows.length - limit })}`);
   return lines;
 }
 
+/** Report in `lang` (repo primary language); the timestamp also goes in a fixed marker for parseLastSyncWhen. */
 export function renderReconcileReport({
   when,
   counts = {},
@@ -287,40 +287,45 @@ export function renderReconcileReport({
   deletedLocally = [],
   remoteOnlyClosed = [],
   tokenWarning = null,
+  lang = "en",
+  root = null,
 } = {}) {
+  const m = (key, vars) => t(key, vars, lang, { root });
+  const at = when || new Date().toISOString();
   const lines = [
-    "# Last card reconcile",
+    `# ${m("reconcile.report.title")}`,
+    `<!-- ${WHEN_MARKER}:${at} -->`,
     "",
-    `- **When:** ${when || new Date().toISOString()}`,
-    `- **Plan:** ${
+    `- **${m("reconcile.report.when")}:** ${at}`,
+    `- **${m("reconcile.report.plan")}:** ${
       Object.entries(counts)
         .map(([key, value]) => `${key}=${value}`)
-        .join(" ") || "empty"
+        .join(" ") || m("reconcile.report.empty")
     }`,
     "",
   ];
-  if (tokenWarning) lines.push(`- **Token:** ${tokenWarning}`, "");
+  if (tokenWarning) lines.push(`- **${m("reconcile.report.token")}:** ${tokenWarning}`, "");
 
-  const section = (title, rows, render) => {
-    lines.push(`## ${title}`, "");
-    if (!rows.length) lines.push("None.", "");
+  const section = (titleKey, rows, render) => {
+    lines.push(`## ${m(titleKey)}`, "");
+    if (!rows.length) lines.push(m("reconcile.report.none"), "");
     else lines.push(...render(rows), "");
   };
 
-  section("Duplicates", duplicates, (rows) =>
-    rows.map((d) => `- \`${d.cardId}\` canonical #${d.keep}; extras ${d.extras.map((n) => `#${n}`).join(", ")}`)
+  section("reconcile.report.duplicates", duplicates, (rows) =>
+    rows.map((d) => `- \`${d.cardId}\` ${m("reconcile.report.duplicateRow", { keep: d.keep, extras: d.extras.map((n) => `#${n}`).join(", ") })}`)
   );
-  section("Conflicts (owner applied)", conflicts, (rows) =>
+  section("reconcile.report.conflicts", conflicts, (rows) =>
     rows.map(
       (r) => `- \`${r.cardId}\`.${r.field}: git=\`${r.local}\` board=\`${r.remote}\` kept=\`${r.kept}\` (${r.winner || "owner"})`
     )
   );
-  section("Forward failures (retried next run)", failedCardIds, (rows) => rows.map((id) => `- \`${id}\``));
-  section("Deleted locally (issue kept open/closed, card not recreated)", deletedLocally, (rows) => issueList(rows));
-  section("Closed issues without a local card (not recreated)", remoteOnlyClosed, (rows) => issueList(rows));
-  section("Open issues without CARD_ID", orphans, (rows) => {
+  section("reconcile.report.failures", failedCardIds, (rows) => rows.map((id) => `- \`${id}\``));
+  section("reconcile.report.deletedLocally", deletedLocally, (rows) => issueList(rows, m));
+  section("reconcile.report.closedNoCard", remoteOnlyClosed, (rows) => issueList(rows, m));
+  section("reconcile.report.orphans", orphans, (rows) => {
     const out = rows.slice(0, 100).map((issue) => `- #${issue.number} ${issue.title || ""}`.trimEnd());
-    if (rows.length > 100) out.push(`- … ${rows.length - 100} more`);
+    if (rows.length > 100) out.push(`- ${m("reconcile.report.more", { count: rows.length - 100 })}`);
     return out;
   });
 

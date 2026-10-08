@@ -1,0 +1,27 @@
+{
+  "$comment": "Docs that exist in more than one language. Paths are relative to the kit root. Each entry maps a language tag to a file; every file must exist and link to the others. Checked by npm run docs:check.",
+  "pairs": [
+    { "pt-BR": "README.md", "en": "README.en.md" },
+    { "pt-BR": "GETTING-STARTED.md", "en": "GETTING-STARTED.en.md" },
+    { "pt-BR": ".github/docs/integration/escolher-backend.md", "en": ".github/docs/integration/choose-backend-en.md" },
+    { "pt-BR": ".github/docs/integration/github-cli-setup.md", "en": ".github/docs/integration/github-cli-setup-en.md" },
+    { "pt-BR": ".github/docs/integration/pipeline-merge.md", "en": ".github/docs/integration/pipeline-merge-en.md" },
+    { "pt-BR": ".github/docs/meta/fluxo-completo.md", "en": ".github/docs/meta/full-flow-en.md" },
+    { "pt-BR": ".github/docs/meta/language-policy.md", "en": ".github/docs/meta/language-policy-en.md" },
+    { "pt-BR": ".github/docs/meta/node-and-docker.md", "en": ".github/docs/meta/node-and-docker-en.md" },
+    { "pt-BR": ".github/docs/meta/onde-ficam-os-outputs.md", "en": ".github/docs/meta/where-outputs-go-en.md" },
+    { "pt-BR": ".github/docs/meta/organizacao.md", "en": ".github/docs/meta/organization-en.md" },
+    { "pt-BR": ".github/docs/onboarding/adaptar-ao-repo.md", "en": ".github/docs/onboarding/adapt-repo-en.md" },
+    { "pt-BR": ".github/docs/onboarding/setup-github.md", "en": ".github/docs/onboarding/setup-github-en.md" },
+    { "pt-BR": ".github/docs/onboarding/trilha-de-aprendizado.md", "en": ".github/docs/onboarding/learning-path-en.md" },
+    { "pt-BR": ".github/docs/onboarding/trilha-pm.md", "en": ".github/docs/onboarding/pm-track-en.md" },
+    { "pt-BR": ".github/docs/quality/primeira-auditoria.md", "en": ".github/docs/quality/first-audit-en.md" },
+    { "pt-BR": ".github/docs/reference/catalogo-skills.md", "en": ".github/docs/reference/skills-catalog.md" },
+    { "pt-BR": ".github/docs/reference/cheatsheet-metodologia.md", "en": ".github/docs/reference/methodology-cheatsheet.md" },
+    { "pt-BR": ".github/docs/reference/comandos-rapidos.md", "en": ".github/docs/reference/quick-commands-en.md" },
+    { "pt-BR": ".github/docs/troubleshooting/armadilhas-comuns.md", "en": ".github/docs/troubleshooting/common-pitfalls-en.md" }
+  ],
+  "$commentUnpaired": "Folders where a doc without a translation is reported as a warning, and docs that are intentionally single-language.",
+  "warnUnpairedIn": [".github/docs/onboarding", ".github/docs/reference"],
+  "singleLanguage": [".github/docs/reference/exemplars.md", ".github/docs/reference/skills-output-map.md"]
+}

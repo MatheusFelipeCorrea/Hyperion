@@ -100,6 +100,36 @@ describe("renderProductCiForRepo", () => {
     assert.notEqual(readGatesHash(a.content), readGatesHash(c.content));
   });
 
+  it("writes CI messages in the repo language, comments multilingual, job names in English", () => {
+    const gates = {
+      preset: "strict",
+      defaults: { coverage: { mode: "block", min: 80, comment: true }, audit: { mode: "warn", fix: "pr" } },
+      apps: { svc: "off" },
+      notify: { on: "failure", slack: true },
+    };
+    const en = renderProductCiForRepo(root, { gates });
+    write(root, ".github/project.yml", "version: 1\nlocale: pt-BR\nlanguages: [pt-BR, en]\n");
+    try {
+      const pt = renderProductCiForRepo(root, { gates });
+      const doc = load(pt.content);
+      const api = job(doc, "app-api");
+      assert.match(stepNamed(api, /^Coverage gate/).run, /--lang pt-BR,en/);
+      assert.doesNotMatch(stepNamed(load(en.content).jobs["app-api"], /^Coverage gate/).run, /--lang/);
+      assert.ok(stepNamed(api, /^Test \+ coverage/));
+      const prJob = job(doc, "audit-fix-api");
+      const openPr = stepNamed(prJob, /^Open or update PR/).run;
+      assert.match(openPr, /chore\(deps\): correção de audit \(api\)/);
+      assert.match(openPr, /<details><summary>English<\/summary>/);
+      assert.notEqual(readGatesHash(pt.content), readGatesHash(en.content));
+      const hygiene = job(doc, "pr-hygiene");
+      assert.equal(hygiene.name, "PR hygiene");
+      assert.match(stepNamed(hygiene, /^Branch name$/).run, /não segue o padrão \$PATTERN/);
+      assert.match(job(doc, "notify").steps[0].env.STATUS, /'falhou' \|\| 'passou'/);
+    } finally {
+      fs.rmSync(path.join(root, ".github"), { recursive: true, force: true });
+    }
+  });
+
   it("notes explicitly requested gates that have no command", () => {
     const { content } = renderProductCiForRepo(root, { gates: { apps: { svc: { typecheck: "block" } } } });
     assert.match(content, /# NOTE \(svc\): typecheck: block requested but no command/);

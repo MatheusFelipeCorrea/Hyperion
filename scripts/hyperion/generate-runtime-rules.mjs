@@ -12,7 +12,10 @@ import {
   AGENTS_MARKER_START,
   buildAgentsSection,
   buildHelpContent,
+  buildLanguageSection,
   buildSkillIndex,
+  LANGUAGE_MARKER_END,
+  LANGUAGE_MARKER_START,
   loadCommands,
   normalizeEol,
   replaceMarkedSection,
@@ -38,6 +41,7 @@ function applyCatalogSections(content, syncCatalog) {
     SKILLS_MARKER_END
   );
   next = replaceTextSection(next, buildAgentsSection(), AGENTS_MARKER_START, AGENTS_MARKER_END);
+  next = replaceTextSection(next, buildLanguageSection(), LANGUAGE_MARKER_START, LANGUAGE_MARKER_END);
   return next;
 }
 

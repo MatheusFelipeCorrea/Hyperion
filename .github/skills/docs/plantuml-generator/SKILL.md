@@ -15,7 +15,6 @@ description: >-
 ## Configuration Variables
 ${DIAGRAM_SELECTION="All|Complete package|Use Case|Component|Class|Package|Deployment|Sequence|Activity|State|ER|Data Flow|Pipeline|Architecture Prompt|Custom selection"} <!-- Which diagrams to generate -->
 ${PROJECT_TYPE="Auto-detect|Provided by user"} <!-- Technology stack -->
-${OUTPUT_LANGUAGE="pt-BR|en"} <!-- Language for diagram labels and notes -->
 ${MODE="Generate|Update"} <!-- Generate from scratch or update existing diagrams -->
 
 ## Generated Prompt
@@ -34,7 +33,7 @@ ${MODE="Generate|Update"} <!-- Generate from scratch or update existing diagrams
 
 ## Language
 
-- Diagram labels, notes, and descriptions in ${OUTPUT_LANGUAGE}
+- Diagram labels, notes, and descriptions in the primary `locale` from `.github/project.yml` (the pipeline diagram script reads it too)
 - Technical terms stay in English (Controller, Service, Repository, Hook, etc.)
 - PlantUML keywords always in English (actor, component, class, package, etc.)
 

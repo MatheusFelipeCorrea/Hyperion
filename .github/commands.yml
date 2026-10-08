@@ -84,6 +84,10 @@ commands:
     skill: "code-review"
     description: "Code review"
 
+  - phrase: "/pr"
+    skill: "pr-writer"
+    description: "Open a PR in the repo language (multilingual when configured)"
+
   - phrase: "/pr-review"
     skill: "pr-reviewer"
     type: agent
@@ -198,6 +202,10 @@ npm_shortcuts:
     desc: "CI-minute estimate + diff of hyperion-product-ci.yml from ci.gates (writes nothing)"
   - cmd: "npm run hyperion:pipeline-diagram -- --write"
     desc: "Pipeline diagram (Mermaid + PlantUML) from ci.gates + .github/workflows → diagrams/Pipeline/"
+  - cmd: "npm run hyperion:detect-language"
+    desc: "Suggest the team language from README, commits and PR titles (setup asks to confirm)"
+  - cmd: "npm run hyperion:setup -- --locale pt-BR --languages pt-BR,en"
+    desc: "Save the team language(s) in project.yml — primary first; more than one = multilingual PRs/comments"
   - cmd: "npm run hyperion:repo-detect"
     desc: "Detect test/lint/build commands for this repo"
   - cmd: "npm run hyperion:phase-verify"

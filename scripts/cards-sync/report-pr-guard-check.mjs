@@ -12,6 +12,7 @@
  */
 import { spawnSync } from "node:child_process";
 import path from "node:path";
+import { resolveLanguages, translator } from "../hyperion/i18n.mjs";
 import { resolveHyperionPaths } from "../hyperion/paths.mjs";
 
 const paths = resolveHyperionPaths(process.cwd());
@@ -28,7 +29,7 @@ function parseRepo() {
   return { owner, repo };
 }
 
-async function createCheckRun({ owner, repo, token, headSha, name, conclusion, summary }) {
+async function createCheckRun({ owner, repo, token, headSha, name, conclusion, title, summary }) {
   const response = await fetch(`https://api.github.com/repos/${owner}/${repo}/check-runs`, {
     method: "POST",
     headers: {
@@ -42,10 +43,7 @@ async function createCheckRun({ owner, repo, token, headSha, name, conclusion, s
       head_sha: headSha,
       status: "completed",
       conclusion,
-      output: {
-        title: conclusion === "success" ? "Board guard passed" : "Board drift detected",
-        summary,
-      },
+      output: { title, summary },
     }),
   });
 
@@ -88,10 +86,9 @@ async function main() {
 
   const code = result.status ?? 1;
   const conclusion = code === 0 ? "success" : "failure";
-  const summary =
-    conclusion === "success"
-      ? "Directional board guard passed — no external drift on this commit."
-      : "External board drift detected. Run `npm run cards:reverse`, commit, and push.";
+  const passed = conclusion === "success";
+  const tr = translator(resolveLanguages(paths.workspaceRoot), { root: paths.workspaceRoot });
+  const summary = tr.multi("comments", (lang) => tr.tIn(lang, passed ? "guard.check.passedSummary" : "guard.check.failedSummary")).trimEnd();
 
   await createCheckRun({
     owner,
@@ -100,6 +97,7 @@ async function main() {
     headSha,
     name: checkName,
     conclusion,
+    title: tr.t(passed ? "guard.check.passedTitle" : "guard.check.failedTitle"),
     summary,
   });
 

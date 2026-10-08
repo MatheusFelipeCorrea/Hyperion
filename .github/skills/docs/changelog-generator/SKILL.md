@@ -77,7 +77,8 @@ Prepend new version block after the header; never delete historical entries.
 - Link commit hashes when possible: `[abc1234](../../commit/abc1234)`
 - If scope is provided in commits (`feat(auth):`), group by scope within each section
 - Breaking changes always go first with clear migration notes
-- Output language matches `project.yml` locale or user preference
+- Output language: primary `locale` from `project.yml`; when `languages` has extras and `release` is in `i18n.multilingual`, add one `<details>` block per extra language (see `.github/docs/meta/language-policy-en.md`)
+- Commit subjects may be in any language — classify by the English type/scope (`feat`, `fix`…), not by the subject text
 
 ## Example
 

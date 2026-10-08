@@ -84,7 +84,7 @@ If `memory.auto_capture: true` in project.yml, append cross-cutting themes via `
 
 - **Read-only** — never edit product code or CI unless user explicitly asks
 - Phased audits: one phase per session for heavy dimensions
-- Match user language
+- Audit reports in the primary `locale` from `.github/project.yml`; chat in the person's language
 - If `npm run hyperion:doctor` fails, mention before starting
 
 ## Handoff

@@ -1,7 +1,7 @@
 # 🧩 Hyperion skills catalog
 
 <p align="center">
-  <img src="https://img.shields.io/badge/skills-34-F5D76E?style=for-the-badge&labelColor=0B1220" alt="34 skills">
+  <img src="https://img.shields.io/badge/skills-35-F5D76E?style=for-the-badge&labelColor=0B1220" alt="35 skills">
   <img src="https://img.shields.io/badge/agents-8-F5D76E?style=for-the-badge&labelColor=0B1220" alt="8 agents">
 </p>
 
@@ -73,6 +73,7 @@ Human index: **when**, **command**, **output**.
 | **adr-generator** | `/adr` | Architecture Decision Record | .github/docs/adr/ | [SKILL.md](../../skills/docs/adr-generator/SKILL.md) |
 | **changelog-generator** | `/changelog` | Generate CHANGELOG | CHANGELOG.md | [SKILL.md](../../skills/docs/changelog-generator/SKILL.md) |
 | **plantuml-generator** | `/diagram` | UML diagrams (/diagram) | .github/diagrams/ | [SKILL.md](../../skills/docs/plantuml-generator/SKILL.md) |
+| **pr-writer** | `/pr` | Open a PR in the repo language (/pr) | .github/plans/prs/ | [SKILL.md](../../skills/docs/pr-writer/SKILL.md) |
 | **readme-updater** | `/readme` | Update README(s) | README in repo | [SKILL.md](../../skills/docs/readme-updater/SKILL.md) |
 | **release-manager** | `—` | Release checklist | .github/plans/releases/ | [SKILL.md](../../skills/docs/release-manager/SKILL.md) |
 

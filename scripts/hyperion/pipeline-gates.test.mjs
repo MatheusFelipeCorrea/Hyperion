@@ -14,6 +14,7 @@ import {
   questionStatus,
   estimateCiMinutes,
   lineDiff,
+  questionText,
 } from "./pipeline-gates.mjs";
 
 function write(root, rel, content) {
@@ -154,7 +155,16 @@ describe("buildGateQuestions", () => {
     assert.deepEqual(cov.followUps.map((f) => f.id), ["metric", "min", "ignore", "ratchet", "comment", "diff"]);
     const audit = qs.find((x) => x.id === "apps.api.audit");
     assert.ok(audit.followUps.some((f) => f.id === "fix"));
-    assert.ok(qs.every((x) => x.question.pt && x.question.en));
+    assert.ok(qs.every((x) => x.question.pt && x.question.en && x.question.es));
+    assert.ok(qs.every((x) => (x.followUps || []).every((f) => f.pt && f.en && f.es)));
+  });
+
+  it("picks the question text by language base, falling back to English", () => {
+    const question = { pt: "Olá?", en: "Hello?", es: "¿Hola?" };
+    assert.equal(questionText(question, "pt-BR"), "Olá?");
+    assert.equal(questionText(question, "es-MX"), "¿Hola?");
+    assert.equal(questionText(question, "fr"), "Hello?");
+    assert.equal(questionText({ en: "Hello?" }, "es"), "Hello?");
   });
 
   it("offers adopting a tool when a gate is not detected", () => {

@@ -44,6 +44,7 @@ With Cursor, Copilot, or Claude Code, **you do not need npm**. Say:
 | **`/refine`** or *"Refine into cards"* | Structured cards |
 | **`/audit`** or *"Full repo audit"* | Six audit dimensions |
 | **`/review`** | Code review |
+| **`/pr`** | Open a PR in the repo language (`locale`; multilingual when `languages` has more than one) |
 | **`/pr-review`** | Open PR review (diff + tests) |
 | **`/deps`** | Dependency health (audit + outdated) |
 | **`/implement`** | Implementation plan for a card |

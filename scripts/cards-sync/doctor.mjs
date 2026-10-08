@@ -231,7 +231,7 @@ function normalizeText(value) {
     .trim();
 }
 
-function checkStatusOptions(statusField) {
+function checkStatusOptions(statusField, statusMap = {}) {
   if (!statusField || statusField.__typename !== "ProjectV2SingleSelectField") {
     warn("Status field was not found as a single-select field.");
     return false;
@@ -240,8 +240,8 @@ function checkStatusOptions(statusField) {
   const optionNames = (statusField.options || []).map((o) => o.name);
   const normalizedExisting = new Set(optionNames.map(normalizeText));
   const missing = EXPECTED_STATUS_OPTIONS.filter(
-    (name) => !normalizedExisting.has(normalizeText(name))
-  );
+    (name) => !normalizedExisting.has(normalizeText(name)) && !normalizedExisting.has(normalizeText(statusMap[name]))
+  ).map((name) => (statusMap[name] ? `${statusMap[name]} (${name})` : name));
 
   if (!missing.length) {
     ok("Status field options match Hyperion flow (7 columns).");
@@ -726,7 +726,7 @@ if (missingFields.length) {
 
 const statusCandidates = [required.status, ...(FIELD_NAME_ALIASES.status || [])];
 const statusField = findFieldByCandidates(byName, statusCandidates);
-const statusOk = checkStatusOptions(statusField);
+const statusOk = checkStatusOptions(statusField, repoConfig.optionMapByLocale?.[locale]?.status || {});
 
 const sprintCandidates = [required.sprint, ...(FIELD_NAME_ALIASES.sprint || [])];
 const sprintField = findFieldByCandidates(byName, sprintCandidates);

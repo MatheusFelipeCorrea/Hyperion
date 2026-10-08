@@ -276,6 +276,18 @@ describe("renderSyncCardsWorkflow", () => {
     assert.equal(auditSyncCardsWorkflow(yaml, { kitRootRel: "Hyperion", syncMode: "auto" }).ok, true);
   });
 
+  it("auto mode: commit subject and fallback PR follow the repo language(s)", async () => {
+    const i18n = { primary: "pt-BR", languages: ["pt-BR", "en"], multilingual: ["pr", "comments", "release"] };
+    const yaml = renderSyncCardsWorkflow({ syncMode: "auto", i18n });
+    const { load } = await import("js-yaml");
+    const commit = load(yaml).jobs.sync.steps.find((s) => /git commit/.test(s.run || ""));
+    assert.match(commit.run, /git commit -m "chore\(cards\): reconcilia board e markdown \[cards-sync\]"/);
+    assert.match(commit.run, /push em \$TARGET_BRANCH/);
+    assert.match(commit.run, /\n<details><summary>English<\/summary>\n/);
+    assert.match(commit.run, /could not push to \$TARGET_BRANCH/);
+    assert.equal(auditSyncCardsWorkflow(yaml, { syncMode: "auto" }).ok, true);
+  });
+
   it("audit flags a template that does not match cards_sync_mode", () => {
     const pullForward = renderSyncCardsWorkflow();
     const auto = renderSyncCardsWorkflow({ syncMode: "auto" });
