@@ -200,9 +200,281 @@
               "description": "Install hyperion-security.yml."
             },
             "product_ci": {
+              "enum": ["auto", "true", "false", true, false],
+              "description": "auto=generate hyperion-product-ci.yml only when no product CI exists; true=always (hyperion-* file only); false=never."
+            },
+            "cards_sync_mode": {
+              "enum": ["pull-forward", "auto"],
+              "default": "pull-forward",
+              "description": "pull-forward=sync on push to the default branch (board drift blocks PRs); auto=bidirectional reconcile on push, issue events and a schedule, committing board status/sprint back to markdown ([cards-sync] commits; the PR guard ignores status/sprint drift)."
+            }
+          }
+        },
+        "gates": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Quality gates accepted in the /pipeline interview. When present, hyperion-product-ci.yml is rendered from these decisions (npm run hyperion:pipeline-gates lists what the repo supports).",
+          "properties": {
+            "preset": {
+              "enum": ["minimal", "balanced", "strict"],
+              "description": "Starting point; every explicit key below wins. minimal=lint/test/build; balanced=+coverage warn, audit, secrets, PR hygiene, Docker cache; strict=all block, diff coverage, Lighthouse/a11y, notifications."
+            },
+            "declined": {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "Interview question ids the team declined (not asked again by --pending)."
+            },
+            "branches": {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "Branches that run the gates on push (default: repository default branch)."
+            },
+            "merge_group": {
+              "type": "boolean",
+              "description": "Also run on the GitHub merge queue (default true)."
+            },
+            "runner": {
               "type": "string",
-              "enum": ["auto", "true", "false"],
-              "description": "auto=generate hyperion-product-ci.yml only when no product CI exists."
+              "description": "Default runs-on label (default ubuntu-latest)."
+            },
+            "timeout_minutes": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Default per-job timeout (default 30)."
+            },
+            "affected": {
+              "anyOf": [
+                { "type": "boolean" },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "enabled": { "type": "boolean" },
+                    "paths": { "type": "array", "items": { "type": "string" }, "description": "Shared paths that trigger every app." }
+                  }
+                }
+              ],
+              "description": "On PRs, run only apps whose files changed (dorny/paths-filter). Pushes and the merge queue run everything."
+            },
+            "artifacts": {
+              "type": "boolean",
+              "description": "Upload coverage/test reports as Actions artifacts (7 days)."
+            },
+            "pull_request": {
+              "type": "boolean",
+              "description": "Run the gates on pull requests (default true)."
+            },
+            "paths_ignore": {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "Paths that do not trigger the pipeline (e.g. **/*.md)."
+            },
+            "defaults": {
+              "$ref": "#/$defs/gateSet",
+              "description": "Gate modes applied to every detected app unless overridden in apps.<name>."
+            },
+            "apps": {
+              "type": "object",
+              "description": "Per-app overrides keyed by app name (from pipeline-gates). Use `<name>: off` to exclude an app.",
+              "additionalProperties": {
+                "anyOf": [{ "$ref": "#/$defs/gateApp" }, { "$ref": "#/$defs/gateMode" }]
+              }
+            },
+            "docker": {
+              "anyOf": [
+                { "$ref": "#/$defs/gateMode" },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "build": { "$ref": "#/$defs/gateMode" },
+                    "scan": { "$ref": "#/$defs/gateMode" },
+                    "severity": { "type": "string", "description": "Trivy severities (default HIGH,CRITICAL)." },
+                    "files": { "type": "array", "items": { "type": "string" }, "description": "Limit to these Dockerfiles." },
+                    "lint": { "$ref": "#/$defs/gateMode", "description": "hadolint (respects .hadolint.yaml)." },
+                    "cache": { "type": "boolean", "description": "buildx with the GitHub Actions cache (type=gha)." },
+                    "publish": {
+                      "anyOf": [
+                        { "type": "boolean" },
+                        {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "properties": {
+                            "branches": { "type": "array", "items": { "type": "string" }, "description": "Branches that publish (default: first push branch)." },
+                            "tags": { "type": "boolean", "description": "Publish semver images on v* tags (default true)." },
+                            "platforms": { "type": "array", "items": { "type": "string" }, "description": "Default [linux/amd64]." }
+                          }
+                        }
+                      ],
+                      "description": "Push images to ghcr.io/<owner>/<repo>[-<name>] after every gate passes (GITHUB_TOKEN, packages: write)."
+                    }
+                  }
+                }
+              ],
+              "description": "A scalar sets build."
+            },
+            "compose_smoke": {
+              "anyOf": [
+                { "$ref": "#/$defs/gateMode" },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "mode": { "$ref": "#/$defs/gateMode" },
+                    "file": { "type": "string" },
+                    "services": { "type": "array", "items": { "type": "string" } },
+                    "check": { "type": "string", "description": "Command run after services are healthy (e.g. npm run rabbit:check)." }
+                  }
+                }
+              ]
+            },
+            "e2e": { "$ref": "#/$defs/gateMode" },
+            "iac": { "$ref": "#/$defs/gateMode" },
+            "commitlint": { "$ref": "#/$defs/gateMode" },
+            "openapi": { "$ref": "#/$defs/gateMode" },
+            "codeql": { "$ref": "#/$defs/gateMode" },
+            "dependency_review": {
+              "anyOf": [
+                { "$ref": "#/$defs/gateMode" },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "mode": { "$ref": "#/$defs/gateMode" },
+                    "severity": { "enum": ["low", "moderate", "high", "critical"] }
+                  }
+                }
+              ],
+              "description": "actions/dependency-review-action on PRs (private repos need GitHub Advanced Security)."
+            },
+            "secrets_scan": { "$ref": "#/$defs/gateMode", "description": "gitleaks over the pushed/PR commit range (respects .gitleaks.toml)." },
+            "pr_checks": {
+              "anyOf": [
+                { "$ref": "#/$defs/gateMode" },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "mode": { "$ref": "#/$defs/gateMode", "description": "Default for branch_name, title and card_link." },
+                    "branch_name": { "$ref": "#/$defs/patternGate" },
+                    "title": { "$ref": "#/$defs/patternGate" },
+                    "card_link": { "$ref": "#/$defs/patternGate" },
+                    "size": {
+                      "anyOf": [
+                        { "$ref": "#/$defs/gateMode" },
+                        { "type": "integer", "minimum": 1 },
+                        {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "properties": { "mode": { "$ref": "#/$defs/gateMode" }, "max": { "type": "integer", "minimum": 1 } }
+                        }
+                      ],
+                      "description": "Max changed lines (default 800). A number means warn above it."
+                    }
+                  }
+                }
+              ],
+              "description": "PR hygiene: branch name, Conventional Commits title, CARD_ID link, diff size."
+            },
+            "lighthouse": {
+              "anyOf": [
+                { "$ref": "#/$defs/gateMode" },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "mode": { "$ref": "#/$defs/gateMode" },
+                    "app": { "type": "string" },
+                    "dist": { "type": "string" },
+                    "start": { "type": "string" },
+                    "url": { "type": "string" },
+                    "urls": { "type": "array", "items": { "type": "string" } },
+                    "min": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "performance": { "type": "number", "minimum": 0, "maximum": 1 },
+                        "accessibility": { "type": "number", "minimum": 0, "maximum": 1 },
+                        "best-practices": { "type": "number", "minimum": 0, "maximum": 1 },
+                        "seo": { "type": "number", "minimum": 0, "maximum": 1 }
+                      }
+                    }
+                  }
+                }
+              ],
+              "description": "Lighthouse CI on the detected web app (static dist or start command)."
+            },
+            "a11y": {
+              "anyOf": [
+                { "$ref": "#/$defs/gateMode" },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "mode": { "$ref": "#/$defs/gateMode" },
+                    "app": { "type": "string" },
+                    "dist": { "type": "string" },
+                    "start": { "type": "string" },
+                    "url": { "type": "string" },
+                    "urls": { "type": "array", "items": { "type": "string" } }
+                  }
+                }
+              ],
+              "description": "axe-core accessibility check on the served web app."
+            },
+            "bundle_size": {
+              "anyOf": [
+                { "$ref": "#/$defs/gateMode" },
+                { "type": "object", "additionalProperties": false, "properties": { "mode": { "$ref": "#/$defs/gateMode" }, "app": { "type": "string" } } }
+              ],
+              "description": "size-limit budget (or apps.<name>.commands.bundle_size)."
+            },
+            "mobile_build": {
+              "anyOf": [
+                { "$ref": "#/$defs/gateMode" },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "mode": { "$ref": "#/$defs/gateMode" },
+                    "app": { "type": "string" },
+                    "android": { "type": "boolean" },
+                    "ios": { "type": "boolean", "description": "macOS runner (10x minutes); default false." }
+                  }
+                }
+              ],
+              "description": "Debug APK (Flutter/Android Gradle) and unsigned iOS build."
+            },
+            "notify": {
+              "anyOf": [
+                { "enum": ["off", "failure", "always", true, false] },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "on": { "enum": ["off", "failure", "always"] },
+                    "slack": { "type": "boolean" },
+                    "discord": { "type": "boolean" }
+                  }
+                }
+              ],
+              "description": "Slack/Discord webhook on push runs (secrets SLACK_WEBHOOK_URL / DISCORD_WEBHOOK_URL; skipped when unset)."
+            },
+            "docs": {
+              "anyOf": [
+                { "$ref": "#/$defs/gateMode" },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "mode": { "$ref": "#/$defs/gateMode" },
+                    "links": { "$ref": "#/$defs/gateMode" },
+                    "external": { "type": "boolean", "description": "Check http(s) links too (default offline only)." },
+                    "markdown": { "$ref": "#/$defs/gateMode" }
+                  }
+                }
+              ],
+              "description": "lychee link check and markdownlint."
             }
           }
         }
@@ -313,6 +585,157 @@
     }
   },
   "$defs": {
+    "gateMode": {
+      "enum": ["off", "warn", "block", true, false],
+      "description": "off=not run; warn=runs, never fails the pipeline; block=fails the pipeline. true=block, false=off."
+    },
+    "fixableGate": {
+      "anyOf": [
+        { "$ref": "#/$defs/gateMode" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "mode": { "$ref": "#/$defs/gateMode" },
+            "fix": {
+              "enum": ["off", "suggest", "commit", true, false],
+              "description": "PR auto-fix: suggest=review suggestions (reviewdog); commit=push the fix to the PR branch (secrets.HYPERION_PR_TOKEN re-triggers CI). Fork PRs are skipped."
+            }
+          }
+        }
+      ]
+    },
+    "patternGate": {
+      "anyOf": [
+        { "$ref": "#/$defs/gateMode" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": { "mode": { "$ref": "#/$defs/gateMode" }, "pattern": { "type": "string", "description": "Bash ERE." } }
+        }
+      ]
+    },
+    "gateSet": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "lint": { "$ref": "#/$defs/fixableGate" },
+        "format": { "$ref": "#/$defs/fixableGate" },
+        "typecheck": { "$ref": "#/$defs/gateMode" },
+        "test": { "$ref": "#/$defs/gateMode" },
+        "build": { "$ref": "#/$defs/gateMode" },
+        "migrations": { "$ref": "#/$defs/gateMode" },
+        "coverage": {
+          "anyOf": [
+            { "$ref": "#/$defs/gateMode" },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "mode": { "$ref": "#/$defs/gateMode" },
+                "metric": { "type": "string", "enum": ["lines", "statements", "branches", "functions"] },
+                "min": { "type": "number", "minimum": 0, "maximum": 100 },
+                "ignore": { "type": "array", "items": { "type": "string" }, "description": "Globs/substrings excluded from the metric." },
+                "report": { "type": "string", "description": "Report path relative to the app (auto-detected when omitted)." },
+                "comment": { "type": "boolean", "description": "Sticky PR comment with the coverage summary." },
+                "diff": {
+                  "anyOf": [
+                    { "$ref": "#/$defs/gateMode" },
+                    { "type": "number", "minimum": 0, "maximum": 100 },
+                    {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "mode": { "$ref": "#/$defs/gateMode" },
+                        "min": { "type": "number", "minimum": 0, "maximum": 100 }
+                      }
+                    }
+                  ],
+                  "description": "Coverage of lines changed by the PR (needs a line-level report: lcov, Cobertura, Go cover, coverage-final.json). A number is the minimum %."
+                }
+              }
+            }
+          ]
+        },
+        "audit": {
+          "anyOf": [
+            { "$ref": "#/$defs/gateMode" },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "mode": { "$ref": "#/$defs/gateMode" },
+                "level": { "type": "string", "enum": ["low", "moderate", "high", "critical"] },
+                "fix": {
+                  "enum": ["off", "check", "pr", true, false],
+                  "description": "off; check=apply fix in CI, run tests, revert, warn only; pr=scheduled job opens a PR with the fix."
+                }
+              }
+            }
+          ]
+        },
+        "services": {
+          "anyOf": [
+            { "enum": ["auto", "off", true, false] },
+            { "type": "array", "items": { "enum": ["postgres", "mysql", "mariadb", "mongo", "redis", "rabbitmq"] } },
+            {
+              "type": "object",
+              "propertyNames": { "enum": ["postgres", "mysql", "mariadb", "mongo", "redis", "rabbitmq"] },
+              "additionalProperties": { "type": ["string", "boolean"] },
+              "description": "Kind → image (or true for the default image)."
+            }
+          ],
+          "description": "Service containers for tests (Linux runners). auto=what pipeline-gates detected; exports DATABASE_URL/REDIS_URL/… to the job."
+        },
+        "migrate": {
+          "type": ["boolean", "string"],
+          "description": "Apply migrations to the test database before tests (true=detected command, or a command)."
+        },
+        "retry": { "type": "integer", "minimum": 0, "maximum": 3, "description": "Retry the test step N times (flaky tests)." },
+        "matrix": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "versions": { "type": "array", "items": { "type": ["string", "number"] }, "description": "Toolchain versions; coverage/audit run on the first." },
+            "os": { "type": "array", "items": { "type": "string" }, "description": "runs-on labels (services need Linux)." }
+          }
+        },
+        "version": { "type": ["string", "number"], "description": "Pin the toolchain version (overrides detection)." },
+        "runner": { "type": "string" },
+        "timeout_minutes": { "type": "integer", "minimum": 1 },
+        "affected_paths": { "type": "array", "items": { "type": "string" }, "description": "Extra paths that mark this app as changed." }
+      }
+    },
+    "gateApp": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "path": { "type": "string" },
+        "stack": { "type": "string" },
+        "enabled": { "$ref": "#/$defs/gateMode" },
+        "lint": { "$ref": "#/$defs/gateSet/properties/lint" },
+        "format": { "$ref": "#/$defs/gateSet/properties/format" },
+        "typecheck": { "$ref": "#/$defs/gateSet/properties/typecheck" },
+        "test": { "$ref": "#/$defs/gateSet/properties/test" },
+        "build": { "$ref": "#/$defs/gateSet/properties/build" },
+        "migrations": { "$ref": "#/$defs/gateSet/properties/migrations" },
+        "coverage": { "$ref": "#/$defs/gateSet/properties/coverage" },
+        "audit": { "$ref": "#/$defs/gateSet/properties/audit" },
+        "services": { "$ref": "#/$defs/gateSet/properties/services" },
+        "migrate": { "$ref": "#/$defs/gateSet/properties/migrate" },
+        "retry": { "$ref": "#/$defs/gateSet/properties/retry" },
+        "matrix": { "$ref": "#/$defs/gateSet/properties/matrix" },
+        "version": { "$ref": "#/$defs/gateSet/properties/version" },
+        "runner": { "$ref": "#/$defs/gateSet/properties/runner" },
+        "timeout_minutes": { "$ref": "#/$defs/gateSet/properties/timeout_minutes" },
+        "affected_paths": { "$ref": "#/$defs/gateSet/properties/affected_paths" },
+        "commands": {
+          "type": "object",
+          "description": "Command overrides per gate (install, lint, format, typecheck, test, coverage, build, audit, audit_fix, migrations, migrate, lint_fix, format_fix, bundle_size).",
+          "additionalProperties": { "type": "string" }
+        }
+      }
+    },
     "app": {
       "type": "object",
       "additionalProperties": false,

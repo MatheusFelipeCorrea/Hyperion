@@ -92,6 +92,53 @@ ci:
     kit_validation: false
     security_scan: true
     product_ci: auto
+    # pull-forward (push to main syncs; board drift blocks PRs) | auto (two-way reconcile:
+    # board status/sprint are committed back to markdown; needs PROJECT_SYNC_TOKEN)
+    cards_sync_mode: pull-forward
+  # Quality gates from the /pipeline interview (npm run hyperion:pipeline-gates --yaml for a draft).
+  # Modes: off | warn (runs, never fails) | block (fails the pipeline). Renders hyperion-product-ci.yml.
+  # Preview cost + diff before applying: npm run hyperion:pipeline-gates -- --preview
+  # gates:
+  #   preset: balanced         # minimal | balanced | strict — explicit keys below win
+  #   declined: [notify]       # interview questions the team refused (not asked again)
+  #   branches: [main, dev]
+  #   pull_request: true
+  #   merge_group: true        # merge queue (default true)
+  #   affected: true           # monorepo: PRs run only apps whose files changed
+  #   artifacts: true          # coverage/test reports as artifacts (7 days)
+  #   defaults:
+  #     lint: block
+  #     format: { mode: block, fix: suggest }   # styles gate; fix: off | suggest (PR suggestions) | commit
+  #     typecheck: block
+  #     test: block
+  #     build: block
+  #     coverage: { mode: warn, metric: lines, min: 80, comment: true, diff: { mode: block, min: 80 } }
+  #     audit: { mode: warn, level: high, fix: check }   # fix: off | check (try + revert) | pr (weekly PR)
+  #   apps:
+  #     api:
+  #       path: apps/api
+  #       coverage: { mode: block, min: 89 }
+  #       migrations: block
+  #       services: auto       # postgres/mysql/mariadb/mongo/redis/rabbitmq containers for tests
+  #       migrate: true        # detected migrate command before tests
+  #       matrix: { versions: [20, 22] }
+  #     mobile:
+  #       path: apps/mobile
+  #       coverage: { ignore: ["lib/screens/**", "*.g.dart"] }
+  #   docker: { build: block, scan: warn, lint: warn, cache: true, publish: false }
+  #   compose_smoke: { mode: warn, services: [rabbitmq], check: npm run rabbit:check }
+  #   e2e: warn
+  #   dependency_review: warn
+  #   secrets_scan: block
+  #   pr_checks: { branch_name: warn, title: warn, card_link: warn, size: 800 }
+  #   lighthouse: warn
+  #   a11y: warn
+  #   bundle_size: warn
+  #   mobile_build: { mode: warn, ios: false }
+  #   docs: { links: warn, markdown: off }
+  #   notify: { on: failure }  # secrets SLACK_WEBHOOK_URL / DISCORD_WEBHOOK_URL
+  #   commitlint: off
+  #   codeql: off
 
 # Repo-adaptive commands (agents run these — discovery fills when omitted)
 commands:
