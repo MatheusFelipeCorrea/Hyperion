@@ -56,7 +56,19 @@ import {
   canonicalizeLinearState,
   frontmatterUpdatesFromConvertedMarkdown,
   mapWithConcurrency,
+  resolveCardRelativePath,
+  resolveSourceFileCandidates,
 } from "./lib.mjs";
+import {
+  buildReconcilePlan,
+  composeSnapshotCards,
+  composeTombstones,
+  snapshotStateChanged,
+  detectDuplicateIssues,
+  duplicateCommentBody,
+  DUPLICATE_MARKER,
+  renderReconcileReport,
+} from "./reconcile.mjs";
 import { resolveHyperionPaths } from "../hyperion/paths.mjs";
 import {
   runForwardSyncJira,
@@ -88,6 +100,7 @@ const projectYmlPath = hyperionPaths.projectYmlPath;
 const argDryRun = process.argv.includes("--dry-run");
 const argReverse = process.argv.includes("--reverse");
 const argForward = process.argv.includes("--forward");
+const argAuto = process.argv.includes("--auto");
 const envDryRun = String(process.env.DRY_RUN || "false").toLowerCase() === "true";
 export const dryRun = argDryRun || envDryRun;
 const directionEnv = String(process.env.SYNC_DIRECTION || "").toLowerCase();
@@ -95,9 +108,13 @@ const syncDirection = argReverse
   ? "reverse"
   : argForward
     ? "forward"
-    : directionEnv === "reverse"
-      ? "reverse"
-      : "forward";
+    : argAuto || directionEnv === "auto"
+      ? "auto"
+      : directionEnv === "reverse"
+        ? "reverse"
+        : "forward";
+const snapshotStatePath = path.join(hyperionPaths.plansCardsDir, "last-state.json");
+const reconcileReportPath = path.join(hyperionPaths.plansCardsDir, "last-reconcile.md");
 
 // ---------------------------------------------------------------------------
 // Auto-detect repository from git remote
@@ -132,6 +149,9 @@ const [repoOwner, repoName] = repositorySlug.split("/");
 
 const token =
   process.env.PROJECT_SYNC_TOKEN || process.env.GITHUB_TOKEN || detectTokenFromGhCli();
+// Auto mode writes issues with the Actions token so its own edits never re-trigger
+// the workflow (GITHUB_TOKEN events are not delivered); Project writes keep `token`.
+const issueToken = syncDirection === "auto" ? process.env.GITHUB_TOKEN || token : token;
 const tokenSource = process.env.PROJECT_SYNC_TOKEN
   ? "PROJECT_SYNC_TOKEN"
   : process.env.GITHUB_TOKEN
@@ -437,11 +457,11 @@ function buildIssueBody(card, linkContext = null) {
 // GitHub GraphQL
 // ---------------------------------------------------------------------------
 
-async function graphql(query, variables = {}) {
+async function graphql(query, variables = {}, authToken = token) {
   const response = await fetch("https://api.github.com/graphql", {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${token}`,
+      Authorization: `Bearer ${authToken}`,
       "Content-Type": "application/json",
       "User-Agent": "cards-sync-script",
     },
@@ -464,8 +484,20 @@ async function getRepositoryNodeId(owner, name) {
   return data.repository.id;
 }
 
+function isBotLogin(login) {
+  const value = String(login || "").toLowerCase();
+  return value.endsWith("[bot]") || value === "dependabot" || value === "github-actions";
+}
+
+/**
+ * CARD_ID → canonical issue (open first, then lowest number).
+ * The returned Map also carries `duplicates` (every CARD_ID with 2+ issues)
+ * and `orphans` (open, human-authored issues without CARD_ID) for reconcile.
+ */
 async function loadIssueMapByCardId(owner, name) {
   const map = new Map();
+  const grouped = new Map();
+  const orphans = [];
   let endCursor = null;
   let hasNextPage = true;
   let skippedSamples = 0;
@@ -478,6 +510,7 @@ async function loadIssueMapByCardId(owner, name) {
             pageInfo { hasNextPage endCursor }
             nodes {
               id number title url body updatedAt state
+              author { login }
               labels(first: 30) { nodes { name } }
             }
           }
@@ -490,7 +523,12 @@ async function loadIssueMapByCardId(owner, name) {
       if (!issue?.id) continue;
       const cardId = parseCardIdFromIssueBody(issue.body);
       const sourceFile = parseSourceFileFromIssueBody(issue.body);
-      if (!cardId) continue;
+      if (!cardId) {
+        if (String(issue.state || "").toUpperCase() === "OPEN" && !isBotLogin(issue.author?.login)) {
+          orphans.push({ number: issue.number, title: issue.title, url: issue.url });
+        }
+        continue;
+      }
       if (isKitSampleRemoteArtifact({ cardId, sourceFile })) {
         skippedSamples += 1;
         continue;
@@ -498,6 +536,8 @@ async function loadIssueMapByCardId(owner, name) {
       const labels = (issue.labels?.nodes || []).map((l) => l.name).filter(Boolean);
       const enriched = { ...issue, labels };
       map.set(cardId, pickCanonicalIssueForCardId(map.get(cardId), enriched));
+      if (!grouped.has(cardId)) grouped.set(cardId, []);
+      grouped.get(cardId).push(enriched);
     }
 
     hasNextPage = Boolean(data.repository?.issues?.pageInfo?.hasNextPage);
@@ -510,7 +550,17 @@ async function loadIssueMapByCardId(owner, name) {
     );
   }
 
+  map.duplicates = detectDuplicateIssues(grouped);
+  map.orphans = orphans;
   return map;
+}
+
+async function addIssueComment(issueId, body) {
+  await graphql(
+    `mutation($id: ID!, $body: String!) { addComment(input: { subjectId: $id, body: $body }) { comment { id } } }`,
+    { id: issueId, body },
+    issueToken
+  );
 }
 
 async function searchIssueByCardId(owner, name, cardId, issueMapCache = null) {
@@ -522,7 +572,8 @@ async function searchIssueByCardId(owner, name, cardId, issueMapCache = null) {
 async function createIssue(repositoryId, title, body) {
   const data = await graphql(
     `mutation($repositoryId: ID!, $title: String!, $body: String!) { createIssue(input: { repositoryId: $repositoryId, title: $title, body: $body }) { issue { id number title url } } }`,
-    { repositoryId, title, body }
+    { repositoryId, title, body },
+    issueToken
   );
   return data.createIssue.issue;
 }
@@ -530,7 +581,8 @@ async function createIssue(repositoryId, title, body) {
 async function updateIssue(issueId, title, body) {
   const data = await graphql(
     `mutation($issueId: ID!, $title: String!, $body: String!) { updateIssue(input: { id: $issueId, title: $title, body: $body }) { issue { id number title url } } }`,
-    { issueId, title, body }
+    { issueId, title, body },
+    issueToken
   );
   return data.updateIssue.issue;
 }
@@ -538,7 +590,8 @@ async function updateIssue(issueId, title, body) {
 async function linkAsSubIssue(parentIssueId, childIssueId) {
   await graphql(
     `mutation($issueId: ID!, $subIssueId: ID!) { addSubIssue(input: { issueId: $issueId, subIssueId: $subIssueId }) { issue { id } } }`,
-    { issueId: parentIssueId, subIssueId: childIssueId }
+    { issueId: parentIssueId, subIssueId: childIssueId },
+    issueToken
   );
 }
 
@@ -1638,6 +1691,8 @@ async function runForwardSync() {
   const issueByCardId = new Map();
   const issueExistedByCardId = new Map();
   const actions = [];
+  const failedCardIds = new Set();
+  const failedIssueIds = new Set();
   const preloadedIssueMap = token ? await loadIssueMapByCardId(repoOwner, repoName) : new Map();
   const repositoryId = dryRun ? null : await getRepositoryNodeId(repoOwner, repoName);
 
@@ -1654,9 +1709,18 @@ async function runForwardSync() {
       return;
     }
 
-    const issue = existing
-      ? await updateIssue(existing.id, issueTitle, issueBody)
-      : await createIssue(repositoryId, issueTitle, issueBody);
+    let issue;
+    try {
+      issue = existing
+        ? await updateIssue(existing.id, issueTitle, issueBody)
+        : await createIssue(repositoryId, issueTitle, issueBody);
+    } catch (e) {
+      failedCardIds.add(card.cardId);
+      failedIssueIds.add(card.cardId);
+      actions.push({ action: "ISSUE_SYNC_FAILED", cardId: card.cardId, reason: e.message });
+      log(`ISSUE_SYNC_FAILED ${card.cardId}: ${e.message}`);
+      return;
+    }
 
     issueByCardId.set(card.cardId, issue);
     issueExistedByCardId.set(card.cardId, Boolean(existing));
@@ -1783,6 +1847,7 @@ async function runForwardSync() {
           actions.push({ action: "ADDED_TO_PROJECT", cardId: card.cardId });
         }
       } catch (e) {
+        failedCardIds.add(card.cardId);
         actions.push({ action: "PROJECT_ADD_FAILED", cardId: card.cardId, reason: e.message });
         return;
       }
@@ -1812,6 +1877,7 @@ async function runForwardSync() {
         );
         await updateProjectField(project.id, itemId, fDueDate, card.dueDate);
       } catch (e) {
+        failedCardIds.add(card.cardId);
         actions.push({ action: "FIELD_UPDATE_FAILED", cardId: card.cardId, reason: e.message });
       }
     });
@@ -1843,6 +1909,13 @@ async function runForwardSync() {
       log(`Could not write sync summary: ${error.message}`);
     }
   }
+
+  if (failedIssueIds.size && syncDirection !== "auto") {
+    log(`${failedIssueIds.size} issue(s) failed to create/update: ${[...failedIssueIds].join(", ")}`);
+    process.exitCode = 1;
+  }
+
+  return { failedCardIds: [...failedCardIds], actions };
 }
 
 // ---------------------------------------------------------------------------
@@ -2195,6 +2268,367 @@ async function runReverseSync() {
 }
 
 // ---------------------------------------------------------------------------
+// Auto reconcile (Markdown <-> GitHub, field ownership + snapshot ancestor)
+// ---------------------------------------------------------------------------
+
+function gitLines(args) {
+  try {
+    return execSync(`git ${args}`, { cwd: workspaceRoot, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], maxBuffer: 64 * 1024 * 1024 })
+      .split(/\r?\n/)
+      .filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Last commit time per card file, files with local edits, and files deleted in
+ * history — one git call each instead of one per card.
+ */
+export function readGitCardHistory(cardsDirRel) {
+  const dir = JSON.stringify(cardsDirRel);
+  const committed = new Map();
+  let when = null;
+  for (const line of gitLines(`log --relative --format=__%cI --name-only -- ${dir}`)) {
+    if (line.startsWith("__")) when = line.slice(2);
+    else if (when && !committed.has(line)) committed.set(line, when);
+  }
+  const dirty = new Set([
+    ...gitLines(`diff --name-only --relative HEAD -- ${dir}`),
+    ...gitLines(`ls-files --others --exclude-standard -- ${dir}`),
+  ]);
+  const deleted = new Set(gitLines(`log --relative --diff-filter=D --format= --name-only -- ${dir}`));
+  return { committed, dirty, deleted };
+}
+
+function comparableTitle(card) {
+  return String(card.title || "").replace(/^\[[^\]]+\]\s*/, "").trim() || card.cardId;
+}
+
+async function loadLocalSyncCards(history) {
+  const files = await listMarkdownFiles(cardsRoot);
+  const cards = [];
+  for (const file of files) {
+    const relative = path.relative(workspaceRoot, file).replace(/\\/g, "/");
+    const card = parseCardFile(await fs.readFile(file, "utf8"), relative);
+    if (!card) continue;
+    card.title = comparableTitle(card);
+    const committedAt = history?.committed.get(relative);
+    if (committedAt && !history.dirty.has(relative)) {
+      card.updatedAt = committedAt;
+    } else {
+      try {
+        card.updatedAt = (await fs.stat(file)).mtime.toISOString();
+      } catch {
+        card.updatedAt = null;
+      }
+    }
+    cards.push(card);
+  }
+  return applyKitSampleFilter(cards, null);
+}
+
+async function loadSnapshotState() {
+  try {
+    return JSON.parse(await fs.readFile(snapshotStatePath, "utf8"));
+  } catch {
+    return null;
+  }
+}
+
+export function remoteViewFromIssue(issue, board = {}, repoConfig = {}) {
+  const meta = parseSyncMetadataFromDescription(issue.body || "")?.meta || {};
+  const parsedTitle = parseIssueSummaryTypeTitle(issue.title);
+  const fromBoard = buildRemoteFrontmatterUpdates(board, { labels: [] }, repoConfig);
+  const pick = (boardValue, metaValue) => (boardValue !== undefined && boardValue !== null ? boardValue : metaValue || null);
+  return {
+    title: parsedTitle.title || issue.title,
+    status: pick(fromBoard.status, canonicalizeRemoteOption("status", meta.STATUS, repoConfig) ?? meta.STATUS),
+    type: pick(fromBoard.type, meta.TYPE || parsedTitle.type),
+    priority: pick(fromBoard.priority, meta.PRIORITY),
+    sprint: pick(fromBoard.sprint, meta.SPRINT),
+    storyPoints: pick(fromBoard.story_points, meta.STORY_POINTS),
+    reporter: pick(fromBoard.reporter, meta.REPORTER),
+    parent: pick(fromBoard.parent, meta.PARENT_CARD_ID),
+    dueDate: pick(fromBoard.due_date, meta.DUE_DATE),
+    state: issue.state || null,
+    issueNumber: issue.number,
+    sourceFile: meta.SOURCE_FILE?.trim() || parseSourceFileFromIssueBody(issue.body) || null,
+    updatedAt: issue.updatedAt || null,
+    issue,
+  };
+}
+
+function frontmatterUpdatesFromMerge(local, merged) {
+  const updates = {};
+  const set = (key, field, value) => {
+    if (String(local[field] ?? "") !== String(merged[field] ?? "")) updates[key] = value;
+  };
+  set("title", "title", merged.title);
+  set("status", "status", merged.status ?? null);
+  set("type", "type", merged.type ?? null);
+  set("priority", "priority", merged.priority ?? null);
+  set("sprint", "sprint", merged.sprint ?? null);
+  set(
+    "story_points",
+    "storyPoints",
+    merged.storyPoints === null || merged.storyPoints === undefined || merged.storyPoints === "" ? null : Number(merged.storyPoints)
+  );
+  set("reporter", "reporter", merged.reporter ?? null);
+  set("parent", "parent", merged.parent ?? null);
+  set("due_date", "dueDate", merged.dueDate ?? null);
+  return updates;
+}
+
+async function createLocalCardFromRemote(cardId, remote, repoConfig) {
+  const issue = remote.issue || {};
+  const remoteUpdates = buildRemoteFrontmatterUpdates({}, issue, repoConfig);
+  for (const [key, field] of [
+    ["status", "status"],
+    ["type", "type"],
+    ["priority", "priority"],
+    ["sprint", "sprint"],
+    ["reporter", "reporter"],
+    ["parent", "parent"],
+    ["due_date", "dueDate"],
+  ]) {
+    if (remote[field] != null) remoteUpdates[key] = remote[field];
+  }
+  if (remote.storyPoints != null && remote.storyPoints !== "") remoteUpdates.story_points = Number(remote.storyPoints);
+
+  const converted = remoteIssueToCardMarkdown({
+    title: issue.title,
+    description: issue.body || "",
+    labels: issue.labels,
+    statusOverride: remote.status,
+  });
+  if (converted) {
+    return applyReverseCardFileUpdate({
+      sourceFile: converted.sourceFile,
+      cardId,
+      remoteUpdates,
+      converted,
+      logLabel: ` (issue #${remote.issueNumber}, created from board)`,
+    });
+  }
+
+  const relative = resolveCardRelativePath({ type: remote.type, cardId, parent: remote.parent, cardsPrefix });
+  const markdown = buildCardMarkdownFromMeta(
+    { card_id: cardId, title: remote.title || cardId, ...remoteUpdates },
+    `# ${remote.title || cardId}\n`
+  );
+  if (dryRun) {
+    log(`Would create: ${relative} (issue #${remote.issueNumber}, created from board)`);
+    return { kind: "dry_run_create" };
+  }
+  await fs.mkdir(path.dirname(path.join(workspaceRoot, relative)), { recursive: true });
+  await fs.writeFile(path.join(workspaceRoot, relative), markdown, "utf8");
+  log(`Created: ${relative} (issue #${remote.issueNumber}, created from board)`);
+  return { kind: "created", path: relative };
+}
+
+async function commentDuplicates(duplicates, { commented, locale }) {
+  for (const dupe of duplicates) {
+    for (const extra of dupe.extraIssues || []) {
+      const key = `${dupe.cardId}:#${extra.number}`;
+      if (!extra.id || commented.has(key)) continue;
+      if (dryRun) {
+        log(`Would comment duplicate #${extra.number} → canonical #${dupe.keep}`);
+        continue;
+      }
+      try {
+        await addIssueComment(extra.id, duplicateCommentBody({ cardId: dupe.cardId, keep: dupe.keep, locale }));
+        commented.add(key);
+        log(`Commented duplicate #${extra.number} → canonical #${dupe.keep} (${DUPLICATE_MARKER})`);
+      } catch (error) {
+        log(`Could not comment duplicate #${extra.number}: ${error.message}`);
+      }
+    }
+  }
+}
+
+function previewValue(value) {
+  const text = String(value ?? "");
+  return text.length > 80 ? `${text.slice(0, 77)}...` : text;
+}
+
+async function runAutoSync() {
+  const config = await readConfig();
+  const repoConfig = resolveRepoConfig(config, repositorySlug);
+  const management = await resolveManagementConfig(repoConfig);
+  const backend = String(management.backend || "github").toLowerCase();
+  if (backend !== "github") {
+    log(`Auto reconcile supports the GitHub backend only (backend: ${backend}) — running forward sync.`);
+    return runForwardSync();
+  }
+
+  log("Direction: auto (reconcile markdown <-> GitHub Issues/Project)");
+  log(`Dry-run: ${dryRun ? "yes" : "no"}`);
+  if (!dryRun) {
+    if (!repoOwner || repoOwner === "unknown") throw new Error("GITHUB_REPOSITORY not set.");
+    if (!token) throw new Error("Token missing.");
+  }
+  warnIfGhCliFallback();
+
+  const tokenWarning =
+    process.env.GITHUB_ACTIONS && !process.env.PROJECT_SYNC_TOKEN
+      ? "PROJECT_SYNC_TOKEN missing — org/user Project updates usually fail with GITHUB_TOKEN"
+      : null;
+  if (tokenWarning) log(`WARN: ${tokenWarning}`);
+
+  const snapshot = await loadSnapshotState();
+  const history = readGitCardHistory(path.relative(workspaceRoot, cardsRoot).replace(/\\/g, "/") || ".");
+  const localCards = await loadLocalSyncCards(history);
+  const issueByCardId = token ? await loadIssueMapByCardId(repoOwner, repoName) : new Map();
+  const duplicates = issueByCardId.duplicates || [];
+  const orphans = issueByCardId.orphans || [];
+
+  const commented = new Set(snapshot?.commentedDuplicates || []);
+  const locale = repoConfig.locale || (await detectProjectLocale()) || "en";
+  if (duplicates.length) {
+    log(`${duplicates.length} CARD_ID(s) with duplicate issues — canonical kept, extras commented once, never deleted.`);
+    if (token) await commentDuplicates(duplicates, { commented, locale });
+  }
+  if (orphans.length) log(`${orphans.length} open issue(s) without CARD_ID (listed in last-reconcile.md, not imported).`);
+
+  let projectFields = new Map();
+  const projectOwner = process.env.PROJECT_OWNER || repoConfig.projectOwner || repoOwner;
+  const projectNumber = Number(process.env.PROJECT_NUMBER || "0") || Number(repoConfig.projectNumber || "0");
+  if (token && projectNumber > 0) {
+    const loaded = await loadProjectFieldValuesByIssueNumber(projectOwner, projectNumber, repoConfig);
+    projectFields = loaded.byIssueNumber;
+    if (!loaded.project) log(`Project #${projectNumber} not found — board fields fall back to issue metadata.`);
+  } else if (token) {
+    log("No projectNumber configured — status/sprint come from issue metadata only.");
+  }
+
+  const remotes = new Map();
+  for (const [cardId, issue] of issueByCardId) {
+    remotes.set(cardId, remoteViewFromIssue(issue, projectFields.get(issue.number) || {}, repoConfig));
+  }
+
+  const isDeletedInGit = (_cardId, remote) =>
+    resolveSourceFileCandidates(remote.sourceFile, { kitRootRel: hyperionPaths.kitRootRel }).some((p) => history.deleted.has(p));
+  const plan = buildReconcilePlan({ localCards, remotes, snapshot, isDeletedInGit });
+  log(`Plan ${Object.entries(plan.counts).map(([k, v]) => `${k}=${v}`).join(" ") || "empty"}`);
+  if (!snapshot) {
+    log("No last-state.json yet — board status/sprint only flow back when the issue is newer than the card's last commit.");
+  }
+
+  const forwardIds = [];
+  const conflictRows = [];
+  const deletedLocally = [];
+  const remoteOnlyClosed = [];
+
+  for (const item of plan.items) {
+    const row = { cardId: item.cardId, issueNumber: item.remote?.issueNumber, title: item.remote?.title };
+    if (item.action === "skip") continue;
+    if (item.action === "forward") {
+      forwardIds.push(item.cardId);
+      continue;
+    }
+    if (item.action === "deleted_locally") {
+      deletedLocally.push(row);
+      continue;
+    }
+    if (item.action === "remote_only_closed") {
+      remoteOnlyClosed.push(row);
+      continue;
+    }
+    if (item.action === "reverse_create") {
+      await createLocalCardFromRemote(item.cardId, item.remote, repoConfig);
+      continue;
+    }
+
+    for (const conflict of item.merge.conflicts) {
+      const c = {
+        cardId: item.cardId,
+        field: conflict.field,
+        local: previewValue(conflict.local),
+        remote: previewValue(conflict.remote),
+        kept: previewValue(conflict.kept),
+        winner: conflict.winner,
+      };
+      conflictRows.push(c);
+      log(`CONFLICT ${c.cardId}.${c.field}: git=${c.local} board=${c.remote} kept=${c.kept} (${c.winner})`);
+    }
+
+    const local = await readLocalCardFromSourceFile(item.local.relativeFile, {
+      workspaceRoot,
+      kitRootRel: hyperionPaths.kitRootRel,
+    });
+    const updates = frontmatterUpdatesFromMerge(item.local, item.merge.next);
+    if (local && Object.keys(updates).length && frontmatterDiffers(local.content, updates)) {
+      const patched = patchCardFrontmatter(local.content, updates);
+      if (patched && !dryRun) {
+        await fs.writeFile(local.absolutePath, patched, "utf8");
+        log(`Reconciled ${local.relativeFile} (${item.action}: ${Object.keys(updates).join(", ")})`);
+      } else if (patched) {
+        log(`Would reconcile ${local.relativeFile} (${item.action}: ${Object.keys(updates).join(", ")})`);
+      }
+    }
+    if (item.action === "merge") forwardIds.push(item.cardId);
+  }
+
+  let failedCardIds = [];
+  if (forwardIds.length) {
+    process.env.CARDS_SYNC_ONLY = forwardIds.join(",");
+    try {
+      failedCardIds = (await runForwardSync())?.failedCardIds || [];
+    } catch (error) {
+      failedCardIds = [...forwardIds];
+      log(`Forward aborted: ${error.message}`);
+    } finally {
+      delete process.env.CARDS_SYNC_ONLY;
+    }
+  } else {
+    log("No forward push needed.");
+  }
+  if (failedCardIds.length) {
+    log(`Forward incomplete for ${failedCardIds.length} card(s); snapshot keeps their previous state so they retry.`);
+  }
+
+  const refreshed = await loadLocalSyncCards(null);
+  const refreshedIds = refreshed.map((c) => c.cardId);
+  const payload = {
+    when: new Date().toISOString(),
+    failedCardIds,
+    commentedDuplicates: [...commented].sort(),
+    tombstones: composeTombstones(snapshot, deletedLocally.map((r) => r.cardId), refreshedIds),
+    cards: composeSnapshotCards(refreshed, snapshot, failedCardIds),
+  };
+  const report = renderReconcileReport({
+    when: payload.when,
+    counts: plan.counts,
+    duplicates,
+    conflicts: conflictRows,
+    orphans,
+    failedCardIds,
+    deletedLocally,
+    remoteOnlyClosed,
+    tokenWarning,
+  });
+
+  if (!snapshotStateChanged(snapshot, payload)) {
+    log(`Snapshot unchanged — ${path.relative(workspaceRoot, snapshotStatePath)} not rewritten.`);
+  } else if (dryRun) {
+    log(`Dry-run: would write ${path.relative(workspaceRoot, snapshotStatePath)} and ${path.relative(workspaceRoot, reconcileReportPath)}`);
+  } else {
+    await fs.mkdir(path.dirname(snapshotStatePath), { recursive: true });
+    await fs.writeFile(snapshotStatePath, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
+    await fs.writeFile(reconcileReportPath, report, "utf8");
+    log(`Wrote ${path.relative(workspaceRoot, snapshotStatePath)} and ${path.relative(workspaceRoot, reconcileReportPath)}`);
+  }
+  if (conflictRows.length) {
+    log(`${conflictRows.length} field conflict(s); owner applied (board = status/sprint, git = the rest).`);
+  }
+  if (deletedLocally.length) {
+    log(`${deletedLocally.length} card(s) deleted in git still have issues — not recreated (close them on the board).`);
+  }
+  return { plan, failedCardIds };
+}
+
+// ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
 
@@ -2243,6 +2677,8 @@ async function main() {
 
   if (syncDirection === "reverse") {
     await runReverseSync();
+  } else if (syncDirection === "auto") {
+    await runAutoSync();
   } else {
     await runForwardSync();
   }
