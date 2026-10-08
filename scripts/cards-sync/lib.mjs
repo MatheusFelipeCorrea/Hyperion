@@ -1344,7 +1344,7 @@ export function patchCardFrontmatter(existingContent, updates) {
   const { meta, body } = parsed;
   const next = {
     card_id: meta.card_id,
-    title: meta.title ?? extractTitleFromBody(body),
+    title: updates.title !== undefined && updates.title !== null ? updates.title : meta.title ?? extractTitleFromBody(body),
     status: updates.status !== undefined ? updates.status : meta.status,
     type: updates.type !== undefined ? updates.type : meta.type || "Story",
     priority: updates.priority !== undefined ? updates.priority : meta.priority,
@@ -1376,6 +1376,7 @@ export function frontmatterDiffers(existingContent, updates) {
   };
 
   return (
+    (updates.title != null && compare("title")) ||
     compare("status") ||
     compare("type") ||
     compare("priority") ||

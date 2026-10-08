@@ -1,4 +1,4 @@
-﻿import test from "node:test";
+import test from "node:test";
 import assert from "node:assert/strict";
 import {
   pickBestGitHubProject,
@@ -39,6 +39,8 @@ import {
   STATUS_COLUMNS_OVERLAY_FILENAME,
   appendSyncEvent,
   mapWithConcurrency,
+  patchCardFrontmatter,
+  frontmatterDiffers,
 } from "./lib.mjs";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -536,4 +538,13 @@ test("mapWithConcurrency handles limit larger than the item count and an empty l
   const results = await mapWithConcurrency([1, 2], 10, async (n) => n + 1);
   assert.deepEqual(results, [2, 3]);
   assert.deepEqual(await mapWithConcurrency([], 5, async (n) => n), []);
+});
+
+test("patchCardFrontmatter patches title only when provided; frontmatterDiffers ignores null title", () => {
+  const md = "---\ncard_id: APP-TASK-001\ntitle: Old title\nstatus: To Do\ntype: Task\n---\n\n# Old title\n";
+  assert.match(patchCardFrontmatter(md, { title: "New title" }), /title: "?New title"?/);
+  assert.match(patchCardFrontmatter(md, { title: null, status: "Done" }), /title: "?Old title"?/);
+  assert.equal(frontmatterDiffers(md, { title: "New title" }), true);
+  assert.equal(frontmatterDiffers(md, { title: null }), false);
+  assert.equal(frontmatterDiffers(md, { title: "Old title" }), false);
 });

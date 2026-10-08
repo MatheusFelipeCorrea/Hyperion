@@ -1,4 +1,5 @@
 import fs from "node:fs/promises";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import { execSync } from "node:child_process";
 import { workspaceRoot, pathExists, readTextIfExists } from "./lib.mjs";
@@ -80,11 +81,23 @@ export function normalizeKitRootRel(kitRootRel) {
  */
 export const NO_AUTO_REFRESH_MARKER = "hyperion:no-auto-refresh";
 
+export const CARDS_SYNC_MODES = ["pull-forward", "auto"];
+
+/** ci.hyperion.cards_sync_mode → "pull-forward" (default) | "auto". */
+export function normalizeCardsSyncMode(value) {
+  const v = String(value ?? "").trim().toLowerCase();
+  return v === "auto" ? "auto" : "pull-forward";
+}
+
+const AUTO_SYNC_RE = /sync\.mjs\s+--auto/m;
+
 /**
  * Audit hyperion-sync-cards.yml for branch filter, concurrency, and nested paths.
+ * `syncMode` (when given) must match the template on disk: pull-forward → ci-sync.mjs,
+ * auto → sync.mjs --auto with the [cards-sync] loop guard and a commit step.
  * @returns {{ ok: boolean, issues: string[], missing: string[] }}
  */
-export function auditSyncCardsWorkflow(content, { kitRootRel = "" } = {}) {
+export function auditSyncCardsWorkflow(content, { kitRootRel = "", syncMode } = {}) {
   const text = String(content || "");
   const issues = [];
   const missing = [];
@@ -97,6 +110,30 @@ export function auditSyncCardsWorkflow(content, { kitRootRel = "" } = {}) {
 
   if (text.includes(NO_AUTO_REFRESH_MARKER)) {
     return { ok: true, issues: [], missing: [] };
+  }
+
+  const isAuto = AUTO_SYNC_RE.test(text);
+  if (syncMode !== undefined && (normalizeCardsSyncMode(syncMode) === "auto") !== isAuto) {
+    issues.push("sync_mode_mismatch");
+    missing.push(`ci.hyperion.cards_sync_mode=${normalizeCardsSyncMode(syncMode)}`);
+  }
+
+  if (isAuto) {
+    if (!/\[cards-sync\]/.test(text)) {
+      issues.push("missing_loop_guard");
+      missing.push("[cards-sync] commit marker");
+    }
+    if (!/contents:\s*write/m.test(text)) {
+      issues.push("missing_contents_write");
+      missing.push("permissions.contents");
+    }
+    if (!/git pull --rebase/m.test(text)) {
+      issues.push("missing_push_retry");
+      missing.push("commit step (rebase retry + PR fallback)");
+    }
+    if (/projects_v2_item/m.test(text)) {
+      issues.push("invalid_projects_v2_item_trigger");
+    }
   }
 
   if (!/^\s*on:/m.test(text)) missing.push("on");
@@ -112,17 +149,19 @@ export function auditSyncCardsWorkflow(content, { kitRootRel = "" } = {}) {
     issues.push("missing_cancel_in_progress");
     missing.push("concurrency.cancel-in-progress");
   }
-  if (!/ci-sync\.mjs/m.test(text)) {
-    issues.push("missing_ci_pull_push");
-    missing.push("scripts/cards-sync/ci-sync.mjs");
-  }
-  if (!/CARDS_CI_REQUIRE_PROJECT/m.test(text)) {
-    issues.push("missing_ci_project_requirement");
-    missing.push("env.CARDS_CI_REQUIRE_PROJECT");
-  }
-  if (!/CARDS_CI_STRICT_GIT/m.test(text)) {
-    issues.push("missing_strict_git");
-    missing.push("env.CARDS_CI_STRICT_GIT");
+  if (!isAuto) {
+    if (!/ci-sync\.mjs/m.test(text)) {
+      issues.push("missing_ci_pull_push");
+      missing.push("scripts/cards-sync/ci-sync.mjs");
+    }
+    if (!/CARDS_CI_REQUIRE_PROJECT/m.test(text)) {
+      issues.push("missing_ci_project_requirement");
+      missing.push("env.CARDS_CI_REQUIRE_PROJECT");
+    }
+    if (!/CARDS_CI_STRICT_GIT/m.test(text)) {
+      issues.push("missing_strict_git");
+      missing.push("env.CARDS_CI_STRICT_GIT");
+    }
   }
 
   const cardsPath = `"${prefix}.github/cards/`;
@@ -197,14 +236,18 @@ export const DEFAULT_CI_CONFIG = {
     kit_validation: false,
     security_scan: true,
     product_ci: "auto",
+    cards_sync_mode: "pull-forward",
   },
 };
 
 /**
  * Render hyperion-sync-cards workflow YAML for legacy (kit at repo root) or nested kit.root layout.
- * @param {{ kitRootRel?: string, defaultBranch?: string }} opts
+ * @param {{ kitRootRel?: string, defaultBranch?: string, syncMode?: string }} opts
  */
-export function renderSyncCardsWorkflow({ kitRootRel = "", defaultBranch = "main" } = {}) {
+export function renderSyncCardsWorkflow({ kitRootRel = "", defaultBranch = "main", syncMode } = {}) {
+  if (normalizeCardsSyncMode(syncMode) === "auto") {
+    return renderSyncCardsAutoWorkflow({ kitRootRel, defaultBranch });
+  }
   const prefix = kitRootRel ? `${String(kitRootRel).replace(/\\/g, "/").replace(/\/+$/, "")}/` : "";
   const wdBlock = kitRootRel
     ? `\n    defaults:\n      run:\n        working-directory: ${kitRootRel}`
@@ -296,7 +339,146 @@ jobs:
 }
 
 /**
+ * ci.hyperion.cards_sync_mode=auto: bidirectional reconcile (sync.mjs --auto) on card
+ * pushes, issue events and a schedule; reconciled markdown is committed back with a
+ * [cards-sync] marker (loop guard), retried with rebase, or opened as a PR when the
+ * branch rejects the push. Projects v2 has no workflow trigger — the schedule covers
+ * board-only edits (status/sprint).
+ */
+export function renderSyncCardsAutoWorkflow({ kitRootRel = "", defaultBranch = "main" } = {}) {
+  const kit = normalizeKitRootRel(kitRootRel);
+  const prefix = kit ? `${kit}/` : "";
+  const wdBlock = kit ? `\n    defaults:\n      run:\n        working-directory: ${kit}` : "";
+
+  return `name: Hyperion — Sync Cards (auto reconcile)
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Run without persisting changes (set to false for a real sync)"
+        required: false
+        default: "true"
+      sync_direction:
+        description: "auto | forward-only | reverse"
+        required: false
+        default: "auto"
+  push:
+    branches: [${defaultBranch}]
+    paths:
+      - "${prefix}.github/cards/**/*.md"
+      - "${prefix}.github/cards/config/projects-map.json"
+      - "${prefix}scripts/cards-sync/**"
+  issues:
+    types: [opened, edited, closed, reopened]
+  schedule:
+    - cron: "*/30 * * * *"
+
+concurrency:
+  group: hyperion-sync-cards-\${{ github.workflow }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+  repository-projects: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    if: >-
+      (github.event_name != 'push' || !contains(github.event.head_commit.message, '[cards-sync]')) &&
+      (github.event_name != 'issues' || contains(github.event.issue.body, 'CARD_ID'))${wdBlock}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          ref: \${{ github.event_name == 'push' && github.ref || github.event.repository.default_branch }}
+          fetch-depth: 0
+          token: \${{ secrets.PROJECT_SYNC_TOKEN || github.token }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+
+      - name: Token check
+        env:
+          HAS_PROJECT_SYNC_TOKEN: \${{ secrets.PROJECT_SYNC_TOKEN != '' }}
+        run: |
+          if [ "$HAS_PROJECT_SYNC_TOKEN" != "true" ]; then
+            echo "::warning::PROJECT_SYNC_TOKEN is not set — GITHUB_TOKEN cannot write user/org Projects v2 (status/sprint) nor push past branch protection."
+          fi
+
+      - name: Reconcile markdown ↔ board
+        if: github.event_name != 'workflow_dispatch' || github.event.inputs.sync_direction == 'auto'
+        env:
+          GITHUB_TOKEN: \${{ github.token }}
+          PROJECT_SYNC_TOKEN: \${{ secrets.PROJECT_SYNC_TOKEN }}
+          GITHUB_REPOSITORY: \${{ github.repository }}
+          CREATE_MISSING_LABELS: "true"
+          DRY_RUN: \${{ github.event.inputs.dry_run || 'false' }}
+          CARDS_SYNC_MODE: auto
+        run: node scripts/cards-sync/sync.mjs --auto
+
+      - name: Forward sync only
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.sync_direction == 'forward-only'
+        env:
+          GITHUB_TOKEN: \${{ github.token }}
+          PROJECT_SYNC_TOKEN: \${{ secrets.PROJECT_SYNC_TOKEN }}
+          GITHUB_REPOSITORY: \${{ github.repository }}
+          CREATE_MISSING_LABELS: "true"
+          DRY_RUN: \${{ github.event.inputs.dry_run || 'false' }}
+        run: node scripts/cards-sync/sync.mjs
+
+      - name: Reverse sync only
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.sync_direction == 'reverse'
+        env:
+          GITHUB_TOKEN: \${{ github.token }}
+          PROJECT_SYNC_TOKEN: \${{ secrets.PROJECT_SYNC_TOKEN }}
+          GITHUB_REPOSITORY: \${{ github.repository }}
+          DRY_RUN: \${{ github.event.inputs.dry_run || 'false' }}
+        run: node scripts/cards-sync/sync.mjs --reverse
+
+      - name: Commit reconciled cards [cards-sync]
+        if: github.event.inputs.dry_run != 'true'
+        env:
+          GH_TOKEN: \${{ secrets.PROJECT_SYNC_TOKEN || github.token }}
+          TARGET_BRANCH: \${{ github.event_name == 'push' && github.ref_name || github.event.repository.default_branch }}
+        run: |
+          git add -A -- .github/cards
+          if [ -d .github/plans/cards ]; then git add -A -- .github/plans/cards; fi
+          if git diff --cached --quiet; then
+            echo "No card changes to commit."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "chore(cards): reconcile board and markdown [cards-sync]"
+          for attempt in 1 2 3; do
+            if git push origin "HEAD:$TARGET_BRANCH"; then exit 0; fi
+            git pull --rebase origin "$TARGET_BRANCH" || { git rebase --abort; break; }
+          done
+          fallback="hyperion/cards-reconcile-$GITHUB_RUN_ID"
+          git push origin "HEAD:refs/heads/$fallback"
+          gh pr create --base "$TARGET_BRANCH" --head "$fallback" \\
+            --title "chore(cards): reconcile board and markdown [cards-sync]" \\
+            --body "Automatic card reconcile could not push to $TARGET_BRANCH (protected or diverged). Review and merge."
+
+      - name: Notify (Slack/Discord)
+        if: always()
+        env:
+          SLACK_WEBHOOK_URL: \${{ secrets.SLACK_WEBHOOK_URL }}
+          DISCORD_WEBHOOK_URL: \${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: node scripts/cards-sync/notify.mjs
+`;
+}
+
+/**
  * Render PR board guard workflow — blocks merge when board diverges from PR branch.
+ * With ci.hyperion.cards_sync_mode=auto the guard (board-guard.mjs) ignores status/sprint drift.
  * @param {{ kitRootRel?: string, defaultBranch?: string }} opts
  */
 export function renderPrBoardGuardWorkflow({ kitRootRel = "", defaultBranch = "main" } = {}) {
@@ -747,6 +929,8 @@ export function readCiFromProjectYml(text) {
     }
     const pci = hyperionBlock.match(/^    product_ci:\s*(.+)$/m);
     if (pci) cfg.hyperion.product_ci = pci[1].trim();
+    const mode = hyperionBlock.match(/^    cards_sync_mode:\s*(.+)$/m);
+    if (mode) cfg.hyperion.cards_sync_mode = normalizeCardsSyncMode(mode[1].replace(/["']/g, ""));
   }
 
   const existing = [];
@@ -760,6 +944,53 @@ export function readCiFromProjectYml(text) {
   if (existing.length) cfg.existing = existing;
 
   return cfg;
+}
+
+/**
+ * Parse ci.gates from project.yml (nested maps/lists → needs a real YAML parser).
+ * Returns null when absent or when js-yaml is not installed (warned once).
+ */
+export async function readCiGatesFromProjectYml(text) {
+  if (!text || !/^\s{2}gates:/m.test(text)) return null;
+  let load;
+  try {
+    ({ load } = await import("js-yaml"));
+  } catch {
+    console.warn("[Hyperion] ⚠️  ci.gates found but js-yaml is not installed — run npm install in the kit.");
+    return null;
+  }
+  try {
+    const doc = load(text);
+    const gates = doc?.ci?.gates;
+    return gates && typeof gates === "object" ? gates : null;
+  } catch (e) {
+    console.warn(`[Hyperion] ⚠️  Could not parse ci.gates: ${e.message}`);
+    return null;
+  }
+}
+
+/** product_ci accepts YAML booleans or strings — normalize to "auto" | "true" | "false". */
+export function normalizeProductCi(value) {
+  const v = String(value ?? "auto").trim().toLowerCase();
+  return v === "true" || v === "false" ? v : "auto";
+}
+
+/**
+ * State of hyperion-product-ci.yml relative to ci.gates (for plan/doctor).
+ * @returns {Promise<{ exists: boolean, currentHash: string|null, expectedHash: string|null, noAutoRefresh: boolean, apps: number }>}
+ */
+export async function inspectProductCiGates(root, gates, { kitRootRel = "", defaultBranch = "main" } = {}) {
+  const rel = `${WORKFLOWS_DIR}/${HYPERION_WORKFLOWS.productCi}`;
+  const existing = await readTextIfExists(path.join(root, rel));
+  const { readGatesHash, renderProductCiForRepo, gatesHash } = await import("./product-ci-render.mjs");
+  const { plan } = renderProductCiForRepo(root, { gates, kitRootRel, defaultBranch });
+  return {
+    exists: existing !== null,
+    currentHash: existing ? readGatesHash(existing) : null,
+    expectedHash: gatesHash(plan),
+    noAutoRefresh: Boolean(existing && existing.includes(NO_AUTO_REFRESH_MARKER)),
+    apps: plan.apps.length,
+  };
 }
 
 export async function listGithubWorkflows(root = workspaceRoot) {
@@ -842,10 +1073,20 @@ export async function detectPipeline(root = workspaceRoot) {
   if (workflows.length > 0 || classified.product.length > 0) provider = "github-actions";
   if (external.length > 0) provider = external[0].provider;
 
-  const projectYmlPath = path.join(root, ".github", "project.yml");
+  const { projectYmlPath } = resolveHyperionPaths(root);
   const projectText = await readTextIfExists(projectYmlPath);
   const configured = readCiFromProjectYml(projectText);
   const config = configured ? { ...DEFAULT_CI_CONFIG, ...configured, hyperion: { ...DEFAULT_CI_CONFIG.hyperion, ...configured.hyperion } } : structuredClone(DEFAULT_CI_CONFIG);
+  config.gates = await readCiGatesFromProjectYml(projectText);
+
+  let productCiGates = null;
+  if (config.gates) {
+    const { kitRootRel } = resolvePipelineRenderOptions(root);
+    productCiGates = await inspectProductCiGates(root, config.gates, {
+      kitRootRel,
+      defaultBranch: detectDefaultBranch(root),
+    });
+  }
 
   if (provider !== "none") config.provider = provider;
   if (config.stack === "auto") config.stack = stack;
@@ -867,6 +1108,7 @@ export async function detectPipeline(root = workspaceRoot) {
     config,
     hasProductCi,
     projectYmlPath,
+    productCiGates,
   };
 }
 
@@ -921,7 +1163,12 @@ export function buildPipelinePlan(detection) {
 
   if (useGithubActions) {
     if (h.cards_sync) {
-      planWorkflowAction("syncCards", "Cards sync on push to main (.github/cards/ or nested kit.root paths)");
+      planWorkflowAction(
+        "syncCards",
+        normalizeCardsSyncMode(h.cards_sync_mode) === "auto"
+          ? "Cards auto reconcile (push + issues + schedule; commits board changes back) — ci.hyperion.cards_sync_mode=auto"
+          : "Cards sync on push to main (.github/cards/ or nested kit.root paths)"
+      );
       planWorkflowAction("cardsPrGuard", "PR directional board guard + merge queue support");
       planWorkflowAction("cardsPrRecheck", "Scheduled PR recheck + repository_dispatch on board changes");
     }
@@ -934,15 +1181,45 @@ export function buildPipelinePlan(detection) {
       planWorkflowAction("validate", "Hyperion kit validation (docs, skills, runtime rules, cards tests)");
     }
 
-    const wantProductCi =
-      h.product_ci === true || (h.product_ci === "auto" && !hasProductCi && config.policy !== "merge");
+    const pci = normalizeProductCi(h.product_ci);
+    const wantProductCi = pci === "true" || (pci === "auto" && !hasProductCi && config.policy !== "merge");
     // hasProductCi only looks at non-hyperion-prefixed workflows (see
     // detectPipeline) — it doesn't know hyperion-product-ci.yml itself might
     // already be on disk from a prior apply, so check that separately too.
     const productCiExists = existingHyperionFiles.has(HYPERION_WORKFLOWS.productCi);
+    const productCiFile = `${WORKFLOWS_DIR}/${HYPERION_WORKFLOWS.productCi}`;
+    const gatesState = detection.productCiGates;
 
-    if (productCiExists && (wantProductCi || hasProductCi)) {
-      plan.skips.push(`${WORKFLOWS_DIR}/${HYPERION_WORKFLOWS.productCi} already exists — not overwritten.`);
+    if (config.gates && pci !== "false" && config.policy !== "merge") {
+      const gatesAction = {
+        file: productCiFile,
+        template: HYPERION_WORKFLOWS.productCi,
+        templateDir: "workflows",
+        render: "gates",
+      };
+      if (hasProductCi) {
+        plan.warnings.push(
+          `ci.gates is set and product CI already exists (${config.existing.join(", ") || "other workflows"}) — ${HYPERION_WORKFLOWS.productCi} runs in addition; turn overlapping gates off.`
+        );
+      }
+      if (!productCiExists) {
+        plan.actions.push({ ...gatesAction, reason: `Product CI from ci.gates (${gatesState?.apps ?? 0} app(s))` });
+      } else if (gatesState?.noAutoRefresh) {
+        plan.skips.push(`${productCiFile} has ${NO_AUTO_REFRESH_MARKER} — not re-rendered from ci.gates.`);
+      } else if (gatesState && gatesState.currentHash === gatesState.expectedHash) {
+        plan.skips.push(`${productCiFile} matches ci.gates — up to date.`);
+      } else {
+        plan.actions.push({
+          ...gatesAction,
+          replace: true,
+          reason: gatesState?.currentHash
+            ? "ci.gates changed — re-render product CI (--refresh-gates)"
+            : "Replace generic product CI with the ci.gates pipeline (--refresh-gates)",
+        });
+        plan.warnings.push(`${productCiFile} differs from ci.gates — run npm run hyperion:pipeline-apply -- --refresh-gates --yes`);
+      }
+    } else if (productCiExists && (wantProductCi || hasProductCi)) {
+      plan.skips.push(`${productCiFile} already exists — not overwritten.`);
     } else if (wantProductCi && config.policy === "hyperion-only") {
       plan.actions.push({
         file: `${WORKFLOWS_DIR}/${HYPERION_WORKFLOWS.productCi}`,
@@ -950,12 +1227,14 @@ export function buildPipelinePlan(detection) {
         templateDir: "workflows",
         reason: `Greenfield product CI for stack: ${stack}`,
       });
-    } else if (wantProductCi && config.policy === "detect" && !hasProductCi) {
+    } else if (wantProductCi && config.policy === "detect" && (!hasProductCi || pci === "true")) {
       plan.actions.push({
         file: `${WORKFLOWS_DIR}/${HYPERION_WORKFLOWS.productCi}`,
         template: HYPERION_WORKFLOWS.productCi,
         templateDir: "workflows",
-        reason: `No product CI detected — generating minimal pipeline for ${stack}`,
+        reason: hasProductCi
+          ? `ci.hyperion.product_ci=true — generating ${HYPERION_WORKFLOWS.productCi} alongside existing product CI`
+          : `No product CI detected — generating minimal pipeline for ${stack} (run /pipeline to configure ci.gates)`,
       });
     } else if (hasProductCi && config.policy === "detect") {
       plan.skips.push("Product CI already exists — hyperion-product-ci.yml not written (ci.policy=detect).");
@@ -1013,18 +1292,30 @@ export function formatCiYamlBlock(detection) {
   lines.push(`    cards_sync: ${config.hyperion.cards_sync}`);
   lines.push(`    kit_validation: ${config.hyperion.kit_validation}`);
   lines.push(`    security_scan: ${config.hyperion.security_scan}`);
-  lines.push(`    product_ci: ${config.hyperion.product_ci}`);
+  lines.push(`    product_ci: ${normalizeProductCi(config.hyperion.product_ci)}`);
+  lines.push(`    cards_sync_mode: ${normalizeCardsSyncMode(config.hyperion.cards_sync_mode)}`);
+  if (!config.gates) lines.push("  # gates: run /pipeline (npm run hyperion:pipeline-gates) to configure quality gates");
 
   return lines.join("\n");
 }
 
 /** Shared render options for sync workflow and CI snippets. */
+export function readCardsSyncMode(root = workspaceRoot) {
+  try {
+    const cfg = readCiFromProjectYml(readFileSync(resolveHyperionPaths(root).projectYmlPath, "utf8"));
+    return normalizeCardsSyncMode(cfg?.hyperion?.cards_sync_mode);
+  } catch {
+    return "pull-forward";
+  }
+}
+
 export function resolvePipelineRenderOptions(root = workspaceRoot, { kitRootRel = null } = {}) {
   const kit =
     kitRootRel !== null ? normalizeKitRootRel(kitRootRel) : normalizeKitRootRel(resolveHyperionPaths(root).kitRootRel);
   return {
     kitRootRel: kit,
     defaultBranch: detectDefaultBranch(root),
+    syncMode: readCardsSyncMode(root),
   };
 }
 
@@ -1033,6 +1324,7 @@ export async function auditHyperionPipelineFiles(root = workspaceRoot, options =
   const renderOpts = {
     kitRootRel: paths.kitRootRel || "",
     defaultBranch: options.defaultBranch || detectDefaultBranch(root),
+    syncMode: readCardsSyncMode(root),
   };
 
   const findings = [];
@@ -1125,6 +1417,19 @@ export async function auditHyperionPipelineFiles(root = workspaceRoot, options =
         kind: "azure-pipelines",
         issues: audit.issues,
         fix: "npm run hyperion:pipeline-apply -- --refresh-sync --yes",
+      });
+    }
+  }
+
+  const gates = await readCiGatesFromProjectYml(await readTextIfExists(paths.projectYmlPath));
+  if (gates) {
+    const state = await inspectProductCiGates(root, gates, renderOpts);
+    if (state.exists && !state.noAutoRefresh && state.currentHash !== state.expectedHash) {
+      findings.push({
+        file: `${WORKFLOWS_DIR}/${HYPERION_WORKFLOWS.productCi}`,
+        kind: "github-product-ci-gates",
+        issues: [state.currentHash ? "gates_changed" : "not_rendered_from_gates"],
+        fix: "npm run hyperion:pipeline-apply -- --refresh-gates --yes",
       });
     }
   }

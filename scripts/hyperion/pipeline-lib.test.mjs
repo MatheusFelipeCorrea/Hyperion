@@ -166,6 +166,74 @@ describe("buildPipelinePlan", () => {
     const plan = buildPipelinePlan(detection);
     assert.ok(plan.actions.some((a) => a.file === "hyperion-azure-pipelines.yml"));
   });
+
+  it("product_ci: true (parsed as string from project.yml) generates product CI alongside existing workflows", () => {
+    const cfg = readCiFromProjectYml("ci:\n  policy: detect\n  hyperion:\n    product_ci: true\n");
+    const detection = {
+      config: { ...DEFAULT_CI_CONFIG, ...cfg, existing: ["deploy.yml"] },
+      hasProductCi: true,
+      classified: { legacy: [], product: ["deploy.yml"], hyperion: [] },
+      stack: "node-npm",
+      external: [],
+    };
+    const plan = buildPipelinePlan(detection);
+    assert.ok(plan.actions.some((a) => a.template === "hyperion-product-ci.yml"));
+  });
+
+  it("renders product CI from ci.gates when configured", () => {
+    const detection = {
+      config: { ...DEFAULT_CI_CONFIG, policy: "detect", hyperion: { ...DEFAULT_CI_CONFIG.hyperion }, gates: { defaults: {} } },
+      hasProductCi: false,
+      classified: { legacy: [], product: [], hyperion: [] },
+      stack: "node-npm",
+      external: [],
+      productCiGates: { exists: false, currentHash: null, expectedHash: "abc", noAutoRefresh: false, apps: 2 },
+    };
+    const plan = buildPipelinePlan(detection);
+    const action = plan.actions.find((a) => a.template === "hyperion-product-ci.yml");
+    assert.equal(action?.render, "gates");
+    assert.ok(!action.replace);
+  });
+
+  it("plans a --refresh-gates replace when ci.gates changed, skips when hash matches or opted out", () => {
+    const base = {
+      config: { ...DEFAULT_CI_CONFIG, policy: "detect", hyperion: { ...DEFAULT_CI_CONFIG.hyperion }, gates: { defaults: {} } },
+      hasProductCi: false,
+      classified: { legacy: [], product: [], hyperion: ["hyperion-product-ci.yml"] },
+      stack: "node-npm",
+      external: [],
+    };
+    const stale = buildPipelinePlan({ ...base, productCiGates: { exists: true, currentHash: "old", expectedHash: "new", noAutoRefresh: false, apps: 1 } });
+    assert.ok(stale.actions.some((a) => a.render === "gates" && a.replace));
+    const fresh = buildPipelinePlan({ ...base, productCiGates: { exists: true, currentHash: "same", expectedHash: "same", noAutoRefresh: false, apps: 1 } });
+    assert.ok(!fresh.actions.some((a) => a.template === "hyperion-product-ci.yml"));
+    const pinned = buildPipelinePlan({ ...base, productCiGates: { exists: true, currentHash: "old", expectedHash: "new", noAutoRefresh: true, apps: 1 } });
+    assert.ok(!pinned.actions.some((a) => a.template === "hyperion-product-ci.yml"));
+    assert.ok(pinned.skips.some((s) => s.includes("no-auto-refresh")));
+  });
+
+  it("product_ci: false wins over ci.gates", () => {
+    const detection = {
+      config: { ...DEFAULT_CI_CONFIG, policy: "detect", hyperion: { ...DEFAULT_CI_CONFIG.hyperion, product_ci: "false" }, gates: { defaults: {} } },
+      hasProductCi: false,
+      classified: { legacy: [], product: [], hyperion: [] },
+      stack: "node-npm",
+      external: [],
+      productCiGates: { exists: false, currentHash: null, expectedHash: "x", noAutoRefresh: false, apps: 1 },
+    };
+    assert.ok(!buildPipelinePlan(detection).actions.some((a) => a.template === "hyperion-product-ci.yml"));
+  });
+});
+
+describe("readCiGatesFromProjectYml", () => {
+  it("parses nested gates with js-yaml and ignores files without them", async () => {
+    const { readCiGatesFromProjectYml } = await import("./pipeline-lib.mjs");
+    const text = "ci:\n  policy: detect\n  gates:\n    defaults:\n      coverage: { mode: block, min: 85 }\n    apps:\n      api:\n        path: apps/api\n";
+    const gates = await readCiGatesFromProjectYml(text);
+    assert.equal(gates.defaults.coverage.min, 85);
+    assert.equal(gates.apps.api.path, "apps/api");
+    assert.equal(await readCiGatesFromProjectYml("ci:\n  policy: detect\n"), null);
+  });
 });
 
 describe("renderSyncCardsWorkflow", () => {
@@ -186,6 +254,40 @@ describe("renderSyncCardsWorkflow", () => {
   it("honors custom default branch", () => {
     const yaml = renderSyncCardsWorkflow({ defaultBranch: "master" });
     assert.match(yaml, /branches: \[master\]/);
+  });
+
+  it("auto mode: valid triggers, loop guard, commit with rebase retry + PR fallback", async () => {
+    const yaml = renderSyncCardsWorkflow({ syncMode: "auto", kitRootRel: "Hyperion" });
+    const { load } = await import("js-yaml");
+    const doc = load(yaml);
+    assert.deepEqual(Object.keys(doc.on).sort(), ["issues", "push", "schedule", "workflow_dispatch"]);
+    assert.doesNotMatch(yaml, /projects_v2_item/);
+    assert.equal(doc.concurrency["cancel-in-progress"], false);
+    assert.equal(doc.permissions.contents, "write");
+    assert.match(doc.jobs.sync.if, /\[cards-sync\]/);
+    assert.equal(doc.jobs.sync.defaults.run["working-directory"], "Hyperion");
+    const steps = doc.jobs.sync.steps;
+    assert.ok(steps.some((s) => /sync\.mjs --auto/.test(s.run || "")));
+    const commit = steps.find((s) => /git commit/.test(s.run || ""));
+    assert.match(commit.run, /\[cards-sync\]/);
+    assert.match(commit.run, /git pull --rebase/);
+    assert.match(commit.run, /gh pr create/);
+    assert.ok(steps.every((s) => !/secrets\./.test(String(s.if || ""))), "secrets are not allowed in step if");
+    assert.equal(auditSyncCardsWorkflow(yaml, { kitRootRel: "Hyperion", syncMode: "auto" }).ok, true);
+  });
+
+  it("audit flags a template that does not match cards_sync_mode", () => {
+    const pullForward = renderSyncCardsWorkflow();
+    const auto = renderSyncCardsWorkflow({ syncMode: "auto" });
+    assert.ok(auditSyncCardsWorkflow(pullForward, { syncMode: "auto" }).issues.includes("sync_mode_mismatch"));
+    assert.ok(auditSyncCardsWorkflow(auto, { syncMode: "pull-forward" }).issues.includes("sync_mode_mismatch"));
+    assert.equal(auditSyncCardsWorkflow(auto).ok, true);
+  });
+
+  it("readCiFromProjectYml reads cards_sync_mode (default pull-forward)", () => {
+    const base = "ci:\n  provider: github-actions\n  hyperion:\n    cards_sync: true\n";
+    assert.equal(readCiFromProjectYml(base).hyperion.cards_sync_mode, "pull-forward");
+    assert.equal(readCiFromProjectYml(`${base}    cards_sync_mode: auto\n`).hyperion.cards_sync_mode, "auto");
   });
 });
 

@@ -377,6 +377,10 @@ CARDS_SYNC_BACKEND=jira node scripts/cards-sync/sync.mjs --reverse
 # Reverse dry-run
 node scripts/cards-sync/sync.mjs --reverse --dry-run
 
+# Two-way reconcile (GitHub only) — see "Auto reconcile" below
+npm run cards:auto -- --dry-run
+npm run cards:auto
+
 # PR board guard (CI / local — reverse + diff, blocks merge on drift)
 npm run cards:pr-guard
 
@@ -435,6 +439,30 @@ Mark **Hyperion — Cards PR Board Guard** as a required status check in GitHub 
 
 Disable auto-discovery: set `"autoDiscoverProject": false` in `projects-map.json`.
 
+### Auto reconcile (`cards:auto`, `cards_sync_mode: auto`)
+
+The default flow (`pull-forward`) treats git as the source of truth and blocks PRs when the board moved. Auto mode instead reconciles both sides, so moving a card on the board ends up in the markdown without a manual `cards:reverse`.
+
+| Owner | Fields |
+|-------|--------|
+| Board | `status`, `sprint` |
+| Git | `title`, `type`, `priority`, `story_points`, `reporter`, `parent`, `due_date` |
+
+- **One-sided change** → flows to the other side. **Same field edited on both sides** → the owner wins and the conflict is listed in the report.
+- **Ancestor:** `.github/plans/cards/last-state.json` (commit it). Without it, board fields only flow back when the issue changed after the card's last commit (or file mtime when the card is dirty/untracked).
+- **No resurrection:** a card in the snapshot, in `tombstones`, or deleted in git history is reported as *deleted locally* — its issue is not turned back into a card. Closed issues without a card are reported, not imported.
+- **Duplicates:** when several issues carry the same `CARD_ID`, the open/lowest one is canonical; each extra gets one comment (pt/en per `projects-map.json` / `project.yml` locale, marker `<!-- hyperion-duplicate-of:#N -->`). Nothing is closed or deleted.
+- **Report:** `.github/plans/cards/last-reconcile.md` — plan counts, duplicates, conflicts, forward failures, deleted/closed issues, open issues without `CARD_ID`.
+- **Tokens:** issue writes use `GITHUB_TOKEN` (events from it don't retrigger workflows); Project writes need `PROJECT_SYNC_TOKEN`.
+
+In CI, set `ci.hyperion.cards_sync_mode: auto` in `project.yml` and run `npm run hyperion:pipeline-apply -- --refresh-sync --yes`. The rendered `hyperion-sync-cards.yml` then:
+
+- runs on card pushes, issue events (`opened/edited/closed/reopened`, only issues with `CARD_ID`), a 30-minute schedule (Projects v2 has no workflow trigger) and manual dispatch;
+- commits reconciled cards as `chore(cards): reconcile board and markdown [cards-sync]` — commits with that marker don't retrigger the job; a rejected push is retried with `git pull --rebase`, then opened as a PR;
+- makes the PR board guard ignore `status`/`sprint`/`board_sync_at` drift (it reads the mode from `project.yml`; `CARDS_SYNC_MODE` env overrides).
+
+Limits: GitHub backend only (other backends fall back to forward sync); pushing to a protected branch needs `PROJECT_SYNC_TOKEN` with bypass rights, otherwise every run ends in a PR.
+
 ### Running the PR board guard outside GitHub Actions
 
 The guard itself (`pr-board-guard.mjs`) doesn't hard-depend on GitHub Actions — the two env vars that matter for CI wiring already have generic names:
@@ -479,7 +507,8 @@ On GitHub, explicit `status` in frontmatter always applies. Safe mode only appli
 | DRY_RUN | Optional | "true" to simulate |
 | CARDS_SYNC_CONCURRENCY | Optional | Max cards processed in flight at once per sync phase (default `4`). Lower it if a large board's first sync trips GitHub's secondary rate limits; `1` reproduces the old fully-sequential behavior. |
 | CARDS_SYNC_YES | Optional | "true" to skip the interactive "type yes" confirmation before a live (non-dry-run) sync at a terminal — same effect as `--yes`. Never needed in CI (no TTY, never prompts). |
-| SYNC_DIRECTION | Optional | "forward" or "reverse" |
+| SYNC_DIRECTION | Optional | "forward", "reverse" or "auto" (two-way reconcile, same as `--auto`) |
+| CARDS_SYNC_MODE | Optional | "auto" makes the board guard ignore status/sprint drift; overrides `ci.hyperion.cards_sync_mode` |
 | CREATE_MISSING_LABELS | Optional | "true" (default) to auto-create labels |
 | CARDS_SYNC_BACKEND | Optional | `github` (default), `jira`, `azure-devops`, `linear`, `gitlab` |
 | JIRA_URL | Required for Jira | Jira base URL |

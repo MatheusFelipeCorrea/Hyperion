@@ -124,7 +124,7 @@ Skill `plantuml-generator` — writes `.puml` / `.mmd` sources (PNG export is ma
 
 | Say this | Result |
 |----------|--------|
-| **`/diagram`** + *"Complete package"* | 11 diagrams in recommended order (approval between each) |
+| **`/diagram`** + *"Complete package"* | 12 diagrams in recommended order (approval between each) |
 | *"Sequence diagram for login"* | `Sequencia/sequencia-login.puml` |
 | *"ER model for the database"* | `Modelo de Dados/modelo-dados.puml` |
 | *"Order state machine"* | `Estado/estado-pedido.puml` |

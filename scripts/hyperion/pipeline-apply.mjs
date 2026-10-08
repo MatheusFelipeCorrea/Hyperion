@@ -6,6 +6,7 @@
  * Flags:
  *   --yes              Write planned files (and refresh targets when combined with --refresh-sync)
  *   --refresh-sync     Refresh hyperion-sync-cards.yml and CI snippets when outdated (safe overwrite)
+ *   --refresh-gates    Re-render hyperion-product-ci.yml when ci.gates changed (skips files with hyperion:no-auto-refresh)
  *   --migrate-legacy   Remove legacy ci.yml / sync-cards.yml after hyperion-* exist
  */
 import fs from "node:fs/promises";
@@ -30,11 +31,13 @@ import {
   auditAzureHyperionCi,
   resolvePipelineRenderOptions,
 } from "./pipeline-lib.mjs";
+import { renderProductCiForRepo } from "./product-ci-render.mjs";
 import { workspaceRoot, log, ok, warn, fail, readTextIfExists } from "./lib.mjs";
 
 const argYes = process.argv.includes("--yes");
 const argMigrateLegacy = process.argv.includes("--migrate-legacy");
 const argRefreshSync = process.argv.includes("--refresh-sync");
+const argRefreshGates = process.argv.includes("--refresh-gates");
 
 const REFRESH_TARGETS = [
   {
@@ -78,7 +81,14 @@ function renderForTemplate(template, renderOpts) {
   return null;
 }
 
-async function readTemplate(action, renderOpts) {
+async function readTemplate(action, renderOpts, detection) {
+  if (action.render === "gates") {
+    return renderProductCiForRepo(workspaceRoot, {
+      gates: detection.config.gates,
+      kitRootRel: renderOpts.kitRootRel,
+      defaultBranch: renderOpts.defaultBranch,
+    }).content;
+  }
   const rendered = renderForTemplate(action.template, renderOpts);
   if (rendered) return rendered;
 
@@ -155,7 +165,7 @@ async function main() {
     }
   }
 
-  if (plan.actions.length === 0 && !argMigrateLegacy && !argRefreshSync) {
+  if (plan.actions.length === 0 && !argMigrateLegacy && !argRefreshSync && !argRefreshGates) {
     warn("Nothing to apply. Run pipeline-detect to review policy.");
     process.exit(0);
   }
@@ -165,6 +175,7 @@ async function main() {
     for (const a of plan.actions) log("", `  ${a.file}`);
     log("", "  npm run hyperion:pipeline-apply -- --yes");
     log("", "  npm run hyperion:pipeline-apply -- --refresh-sync --yes  # update outdated sync workflow");
+    log("", "  npm run hyperion:pipeline-apply -- --refresh-gates --yes # re-render product CI from ci.gates");
     process.exit(0);
   }
 
@@ -179,12 +190,17 @@ async function main() {
       /* new */
     }
 
-    if (exists && !argRefreshSync) {
+    if (exists && action.replace) {
+      if (!argRefreshGates) {
+        warn(`Exists — skipped: ${action.file} (ci.gates changed; add --refresh-gates to re-render)`);
+        continue;
+      }
+    } else if (exists && !argRefreshSync) {
       warn(`Exists — skipped: ${action.file}`);
       continue;
     }
 
-    if (exists && argRefreshSync) {
+    if (exists && argRefreshSync && !action.replace) {
       const target = REFRESH_TARGETS.find((t) => t.file === action.file);
       if (target) {
         const existing = await readTextIfExists(abs);
@@ -196,7 +212,7 @@ async function main() {
       }
     }
 
-    const content = await readTemplate(action, renderOpts);
+    const content = await readTemplate(action, renderOpts, detection);
     await fs.mkdir(path.dirname(abs), { recursive: true });
     await fs.writeFile(abs, content, "utf8");
     ok(`Wrote ${action.file}`);
