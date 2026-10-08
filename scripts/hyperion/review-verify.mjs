@@ -7,6 +7,7 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { keyVariants } from "./i18n.mjs";
 import { recordEvent } from "./telemetry-lib.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -23,7 +24,8 @@ function usage() {
   npm run hyperion:review-verify -- --review <path.md>
   npm run hyperion:review-verify -- --latest
 
-Requires frontmatter/body: verdict, ## Summary, tests_ran (yes|no|skipped).
+Requires frontmatter/body: verdict, ## Summary, ## Findings, tests_ran (yes|no|skipped).
+Headings may be in the repo language (## Resumo / ## Achados, ## Resumen / ## Hallazgos…).
 `);
 }
 
@@ -47,6 +49,14 @@ function parseFrontmatter(text) {
     if (kv) out[kv[1]] = kv[2].trim().replace(/^["']|["']$/g, "");
   }
   return out;
+}
+
+const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/** `## Summary` in any catalog language (Resumo, Resumen…). */
+function hasHeading(text, key) {
+  const names = keyVariants(key, { root }).map(escapeRe).join("|");
+  return new RegExp(`^##\\s+(?:[\\p{Extended_Pictographic}\\u{FE0F}\\u{200D}]+\\s*)?(${names})(?![\\p{L}\\p{N}])`, "imu").test(text);
 }
 
 function main() {
@@ -86,18 +96,16 @@ function main() {
     console.log(`OK verdict: ${verdict}`);
   }
 
-  if (!/^##\s+Summary\b/m.test(text)) {
-    console.error("FAIL: missing ## Summary");
-    failed++;
-  } else {
-    console.log("OK ## Summary");
-  }
-
-  if (!/^##\s+Findings\b/im.test(text)) {
-    console.error("FAIL: missing ## Findings");
-    failed++;
-  } else {
-    console.log("OK ## Findings");
+  for (const [key, label] of [
+    ["review.summary", "Summary"],
+    ["review.findings", "Findings"],
+  ]) {
+    if (!hasHeading(text, key)) {
+      console.error(`FAIL: missing ## ${label} (or ${keyVariants(key, { root }).filter((v) => v !== label).join(" / ")})`);
+      failed++;
+    } else {
+      console.log(`OK ## ${label}`);
+    }
   }
 
   const testsRan =
@@ -114,7 +122,7 @@ function main() {
     console.log(`OK tests_ran: ${testsRan}`);
   }
 
-  if (!/^##\s+Test output\b/im.test(text) && String(testsRan).toLowerCase() === "yes") {
+  if (!hasHeading(text, "review.testOutput") && String(testsRan).toLowerCase() === "yes") {
     console.warn("WARN: tests_ran=yes but no ## Test output section");
   }
 

@@ -51,6 +51,7 @@ Se você usa Cursor, Copilot ou Claude Code, **não precisa rodar npm**. Diga:
 | **`/refine`** ou *"Refina em cards"* | Gera cards estruturados |
 | **`/audit`** ou *"Auditoria completa"* | 6 dimensões de auditoria |
 | **`/review`** | Code review |
+| **`/pr`** | Abre o PR no idioma do repo (`locale`; multilíngue se `languages` tiver mais de um) |
 | **`/pr-review`** | Revisão de PR aberto (diff + testes) |
 | **`/deps`** | Saúde de dependências (audit + outdated) |
 | **`/implement`** | Plano de implementação de um card |

@@ -92,6 +92,7 @@ This product uses the Hyperion kit in \`./${kitName}/\`.
 - Agents: \`${kitName}/.github/agents/\`
 - Cards: \`${kitName}/.github/cards/\`
 - Product contract: \`.github/project.yml\` (\`kit.root: ${kitName}\`)
+- Language: written artifacts follow \`locale\` / \`languages\` in \`.github/project.yml\` (see the Language section of \`${kitName}/CLAUDE.md\`)
 
 Prefer chat commands (\`/setup\`, \`/refine\`, \`/sync\`, …). Do not scatter kit files into the product root.
 `;
@@ -113,6 +114,7 @@ Before planning or coding with Hyperion commands:
 2. Open skills under \`${kitName}/.github/skills/**/SKILL.md\`.
 3. Write cards under \`${kitName}/.github/cards/\` (nested by parent card_id).
 4. Do not copy kit files into the product root — keep artifacts inside \`${kitName}/\`.
+5. Write cards, PRs and docs in \`locale\` (plus \`languages\` extras); code, branches and commit types stay in English.
 
 Full command map: \`${kitName}/CLAUDE.md\` and \`${kitName}/.github/commands.yml\`.
 `;

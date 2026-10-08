@@ -8,6 +8,7 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import { join, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { readProjectCommands } from "./repo-detect.mjs";
+import { hasCatalog, validateLanguageConfig } from "./i18n.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -221,6 +222,20 @@ async function main() {
     warnings.push("no commands.test — /execute and /pr-review will struggle");
   } else {
     console.log(`OK commands.test: ${cmds.test}`);
+  }
+
+  const lang = validateLanguageConfig(text);
+  for (const e of lang.errors) {
+    console.error(`FAIL language: ${e}`);
+    failed++;
+  }
+  warnings.push(...lang.warnings);
+  if (lang.config.locale) {
+    const extra = (lang.config.languages || []).filter((l) => l !== lang.config.locale);
+    console.log(`OK language: ${lang.config.locale}${extra.length ? ` + ${extra.join(", ")}` : ""}`);
+    for (const tag of [lang.config.locale, ...extra]) {
+      if (!hasCatalog(tag, { root })) warnings.push(`no message catalog for ${tag} — CI/CLI strings fall back to English (add .github/i18n/${tag}.json)`);
+    }
   }
 
   if (!/^uncertainties:/m.test(text) && !/uncertainties:\s*\[/m.test(text)) {

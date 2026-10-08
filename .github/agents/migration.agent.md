@@ -29,6 +29,7 @@ Bring **Hyperion into an existing repo** without breaking what works. Detect fir
 | Existing CI | `.github/workflows/`, `.gitlab-ci.yml` |
 | PM backend | git remote, Jira URL in README, env vars |
 | Test/lint/build | package scripts → `project.yml` → `commands` |
+| Team language(s) | `npm run hyperion:detect-language` (README, commits, PR titles) — **ask the person to confirm**, primary first, extras optional |
 
 Write or merge `.github/project.yml` with discovered values. **Preserve** user edits — merge, don't blind overwrite.
 
@@ -93,7 +94,7 @@ If exit ≠ 0 → fix paths/`name`/`version` (and list `uncertainties:` for unkn
 
 - **Never delete** existing workflows, cards, or product code
 - **Never commit** without user approval
-- Use `locale` from user preference or repo README language
+- Ask which language(s) the team uses before writing `project.yml` (suggestion from `hyperion:detect-language`); persist `locale` and, for several, `languages` (primary first). From then on the migration report, cards and PRs follow them
 - If Hyperion already configured, run in **refresh mode** — update project.yml commands only
 
 ## Handoff

@@ -49,6 +49,8 @@ function parseFrontmatter(text) {
 }
 
 const OUTPUT_RE = /^## Output(\b|\s|\()/m;
+/** Fixed language choices (`${OUTPUT_LANGUAGE="pt-BR|en"}`) — skills must read locale/languages from project.yml. */
+const FIXED_LANGUAGE_RE = /\$\{[A-Z_]*LANG[A-Z_]*\s*=|\b(?:pt-BR|en|es)\|(?:pt-BR|en|es)\b/;
 
 function walkSkillFiles(dir, files = []) {
   for (const name of readdirSync(dir)) {
@@ -87,6 +89,12 @@ for (const file of files) {
   }
   if (!OPS_SKILLS.has(fm.name) && !OUTPUT_RE.test(text)) {
     errors.push(`${rel}: missing "## Output" section`);
+  }
+  const fixedLang = text.match(FIXED_LANGUAGE_RE);
+  if (fixedLang) {
+    errors.push(
+      `${rel}: fixed language choice "${fixedLang[0]}" — use \`locale\` / \`languages\` from project.yml (see .github/docs/meta/language-policy-en.md)`
+    );
   }
   if (fm.name) {
     const prev = names.get(fm.name);

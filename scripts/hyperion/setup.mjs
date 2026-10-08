@@ -1,4 +1,5 @@
-﻿import process from "node:process";
+﻿import fs from "node:fs";
+import process from "node:process";
 import {
   collectHyperionHealth,
   fail,
@@ -7,12 +8,53 @@ import {
   runHyperionScript,
   runNodeScript,
   warn,
+  workspaceRoot,
 } from "./lib.mjs";
+import { applyLanguageConfig, normalizeTag, resolveLanguages } from "./i18n.mjs";
+import { detectRepoLanguage } from "./detect-language.mjs";
 
 const argYes = process.argv.includes("--yes");
 const argSkipSync = process.argv.includes("--skip-sync");
 const argInstallHook = process.argv.includes("--install-hook");
 const argSkipCards = process.argv.includes("--skip-cards");
+
+function argValue(name) {
+  const i = process.argv.indexOf(name);
+  if (i >= 0) return process.argv[i + 1] ?? null;
+  return process.argv.find((a) => a.startsWith(`${name}=`))?.slice(name.length + 1) ?? null;
+}
+
+/** --locale pt-BR / --languages pt-BR,en → project.yml; otherwise suggest one when locale is unset. */
+function applyLanguageFlags() {
+  const locale = argValue("--locale");
+  const languagesRaw = argValue("--languages");
+  const settings = resolveLanguages(workspaceRoot);
+  if (!locale && !languagesRaw) {
+    if (settings.source !== "project.yml") {
+      const det = detectRepoLanguage(workspaceRoot, { gh: false });
+      warn(
+        `Team language not set — detected ${det.suggestion} (${det.confidence}). ` +
+          `Confirm with /setup or: npm run hyperion:setup -- --locale ${det.suggestion}`
+      );
+    }
+    return;
+  }
+  const languages = languagesRaw ? languagesRaw.split(",").map((s) => s.trim()).filter(Boolean) : null;
+  const invalid = [locale, ...(languages || [])].filter((tag) => tag && !normalizeTag(tag));
+  if (invalid.length) {
+    fail(`Invalid language tag(s): ${invalid.join(", ")} (use BCP 47, e.g. en, pt-BR, es)`);
+    process.exit(1);
+  }
+  if (!settings.projectYmlPath) {
+    warn("project.yml missing — run /setup first; --locale/--languages not saved.");
+    return;
+  }
+  const before = fs.readFileSync(settings.projectYmlPath, "utf8");
+  const after = applyLanguageConfig(before, { locale, languages });
+  if (after !== before) fs.writeFileSync(settings.projectYmlPath, after, "utf8");
+  const saved = resolveLanguages(workspaceRoot);
+  ok(`Language saved: ${saved.languages.join(", ")} (primary ${saved.primary})`);
+}
 
 function printAgentSteps(health) {
   log("", "");
@@ -32,6 +74,7 @@ async function main() {
   log("", "Hyperion setup — full bootstrap");
   log("", "");
 
+  applyLanguageFlags();
   const health = await collectHyperionHealth();
 
   for (const msg of health.issues) fail(msg);

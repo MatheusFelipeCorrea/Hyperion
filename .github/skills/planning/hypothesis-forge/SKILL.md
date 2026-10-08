@@ -104,4 +104,4 @@ Naming: `DISC-{NNN}-{slug}` (e.g. `DISC-001-user-onboarding-friction`)
 - One discovery per DISC-ID. Do not mix different problems.
 - Discovery is valid even if the decision is Discard — knowledge is preserved.
 - "Build" without a clear hypothesis means the discovery isn't done.
-- Match the user's language (Portuguese or English).
+- Talk with the person in their language; the saved discovery file uses the primary `locale` from `.github/project.yml`.

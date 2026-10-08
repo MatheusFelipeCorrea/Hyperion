@@ -12,6 +12,8 @@ export const AGENTS_MARKER_START = "<!-- HYPERION:AGENTS:START -->";
 export const AGENTS_MARKER_END = "<!-- HYPERION:AGENTS:END -->";
 export const SKILLS_MARKER_START = "<!-- HYPERION:SKILLS:START -->";
 export const SKILLS_MARKER_END = "<!-- HYPERION:SKILLS:END -->";
+export const LANGUAGE_MARKER_START = "<!-- HYPERION:LANGUAGE:START -->";
+export const LANGUAGE_MARKER_END = "<!-- HYPERION:LANGUAGE:END -->";
 
 const SKILL_CATEGORIES = ["planning", "setup", "quality", "docs"];
 
@@ -276,6 +278,23 @@ export function buildAgentsSection(root = repoRoot) {
   lines.push("");
   lines.push("See `.github/agents/README.md` for catalog and recommended flow.");
   return lines.join("\n");
+}
+
+/** Same text in every runtime target: the language contract for written artifacts. */
+export function buildLanguageSection() {
+  return [
+    "Read `locale` (primary language) and `languages` (primary first) from `.github/project.yml`. No `locale` → ask the team language(s) via `/setup` before writing artifacts; until then use `en`.",
+    "",
+    "| What | Language |",
+    "|------|----------|",
+    "| Chat replies | The person's language |",
+    "| Cards, specs, plans, ADRs, memory, audits, reports | Primary (`locale`) |",
+    "| PR title/body, PR/review comments, release notes | Primary; when `languages` has more than one and the surface is in `i18n.multilingual` (default `pr`, `comments`, `release`), add one `<details><summary>Language name</summary>` block per extra language |",
+    "| Commit messages | Conventional type/scope in English + subject in the primary language (`feat(auth): adiciona login com Google`) |",
+    "| Code, identifiers, branches, CARD_ID, paths, CLI flags, CI job/step names | Always English |",
+    "",
+    "Fixed script messages (CI comments, board guard, coverage) come from `scripts/hyperion/i18n/<tag>.json` (+ `.github/i18n/<tag>.json` override) — never hand-translate them. Policy: `.github/docs/meta/language-policy-en.md`.",
+  ].join("\n");
 }
 
 export function replaceMarkedSection(content, rows, start = MARKER_START, end = MARKER_END) {

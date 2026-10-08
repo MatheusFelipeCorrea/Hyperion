@@ -54,7 +54,7 @@ For each "Stop" or "Start" item, create a concrete action:
 | Retro document | `.github/docs/retros/retro-{sprint}-{date}.md` |
 | Optional action cards | `.github/cards/tasks/` (only if user asks to create cards from action items) |
 
-Create `docs/retros/` if missing. Language matches user preference or `project.yml` locale.
+Create `docs/retros/` if missing. Write the retro in the primary `locale` from `.github/project.yml` — the template below is pt-BR; translate headings for other locales.
 
 ## Step 5 — Document
 

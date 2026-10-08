@@ -1,8 +1,8 @@
-## Summary
+## 📋 Summary
 
 <!-- What does this PR change and why? -->
 
-## Type
+## 🏷️ Type
 
 - [ ] Bug fix
 - [ ] New skill / agent behavior
@@ -10,7 +10,7 @@
 - [ ] Scripts / CI / tooling
 - [ ] Other
 
-## Test plan
+## ✅ Test plan
 
 - [ ] `npm run docs:check` (if docs/links changed)
 - [ ] `npm run skills:validate` (if skills changed)
@@ -19,6 +19,6 @@
 - [ ] `npm test` and/or `npm run cards:test` (if scripts changed)
 - [ ] Manual smoke: `/doctor` or relevant chat command (if user-facing)
 
-## Notes
+## 📝 Notes
 
 <!-- Screenshots, breaking changes, follow-ups -->

@@ -57,6 +57,7 @@ Override: read `project.yml` → `outputs` and `docs.*` first; fall back to path
 | **readme-updater** | Updated README(s) | In place at detected README/docs files (root + apps) |
 | **changelog-generator** | Changelog | `CHANGELOG.md` (repo root) |
 | **release-manager** | Release checklist | `.github/plans/releases/release-{version}-checklist.md` + `CHANGELOG.md` |
+| **pr-writer** | PR body draft + opened PR (repo language) | `.github/plans/prs/pr-{branch}.md` |
 
 ## Agents (not skills, but produce files)
 
@@ -88,6 +89,7 @@ Override: read `project.yml` → `outputs` and `docs.*` first; fall back to path
 │   ├── cards/          ← card-refiner rollup + last-sync.md
 │   ├── specs/          ← acceptance-spec, testing-strategy
 │   ├── reviews/        ← spec-review, pr-reviewer
+│   ├── prs/            ← pr-writer
 │   ├── migrations/     ← migration agent, repo-migration
 │   ├── releases/       ← release-manager, release agent
 │   └── implementations/← implementation-plan, refactor-guide

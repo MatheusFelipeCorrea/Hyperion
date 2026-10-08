@@ -25,6 +25,7 @@ async function main() {
   log("", `Repository: ${health.repo || "not detected"}`);
   log("", `GitHub token: ${health.token ? "available" : "missing"}`);
   log("", `project.yml: ${health.hasProjectYml ? "present" : "missing"}`);
+  log("", health.languageSummary);
   log("", `memory/PROJECT.md: ${health.memoryFilled ? "filled" : "template/empty"}`);
   log("", `CI policy: ${detection.config.policy} · stack: ${detection.stack} · product CI: ${detection.hasProductCi ? "yes" : "no"}`);
   log("", "");

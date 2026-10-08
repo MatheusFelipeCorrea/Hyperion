@@ -34,10 +34,10 @@ Run `npm run hyperion:doctor` (or `./bin/hyperion doctor`) and report blockers v
 
 ### Step 1 — Project contract
 
-If `.github/project.yml` is missing or user asked to refresh:
+If `.github/project.yml` is missing, has no `locale`, or user asked to refresh:
 
-1. Read and follow `.github/skills/setup/project-discovery/SKILL.md` in **Configure** mode
-2. Write validated `project.yml` (show diff if overwriting)
+1. Read and follow `.github/skills/setup/project-discovery/SKILL.md` in **Configure** mode — it **asks the team language(s) first** (suggestion from `npm run hyperion:detect-language`)
+2. Write validated `project.yml` (show diff if overwriting), including `locale` and, for several languages, `languages`
 3. Confirm `management.backend` (default `github` when `.github/` present)
 4. Run `npm run hyperion:project-verify` — fix until exit 0 before continuing
 
@@ -111,7 +111,7 @@ Report a checklist:
 
 - **You run npm** — user should not need terminal literacy for setup.
 - Never sync `_examples/`, `*.template.md`, or EXAMPLE/TEMPLATE/SAMPLE card IDs.
-- Match user language; keep skill paths and commands in English.
+- Chat follows the person's language; files, PRs and cards follow `locale` / `languages`. Skill paths, commands and flags stay in English.
 - If a step fails, fix or explain, then continue — do not restart from zero.
 
 ## Related
