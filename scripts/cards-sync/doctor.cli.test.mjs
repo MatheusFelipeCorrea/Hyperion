@@ -304,11 +304,18 @@ test("doctor: projectNumber unset + interactive 'y' → runs the kit's sync.mjs 
     assert.match(run.stdout, /Running sync\.mjs \(real mode\) to auto-create project\/fields\/labels/);
     assert.match(run.stdout, SYNC_RAN);
 
-    // Reverse sync's first GraphQL call (the issue lookup) has no route, so sync exits 1.
-    const failing = runCli("doctor.mjs", [], { ws, tty: true, chain: true, input: "y\n", env: { ...SYNC_ENV, SYNC_DIRECTION: "reverse" }, state: { github: {} } });
+    // GitHub answers 502: doctor's discovery shrugs it off, reverse sync's issue lookup fails (exit 1).
+    const failing = runCli("doctor.mjs", [], {
+      ws,
+      tty: true,
+      chain: true,
+      input: "y\n",
+      env: { ...SYNC_ENV, SYNC_DIRECTION: "reverse" },
+      state: { responses: [{ url: "https://api.github.com/graphql", status: 502, body: { message: "upstream unavailable" } }] },
+    });
     assert.equal(failing.status, 1, failing.out);
     assert.match(failing.stderr, /\[cards-sync\] FATAL ERROR/);
-    assert.match(failing.stderr, /unmocked POST https:\/\/api\.github\.com\/graphql/, "reverse sync's issue lookup hit the fetch mock");
+    assert.match(failing.stderr, /upstream unavailable/, "reverse sync's issue lookup hit the fetch mock");
   }));
 
 // ---------------------------------------------------------------------------

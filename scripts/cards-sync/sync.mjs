@@ -2693,10 +2693,16 @@ export function shouldPromptBeforeLiveSync({
 
 async function confirmLiveSync() {
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  // On stdin EOF the interface closes and a pending question() may never settle — answer "no".
+  const closed = new Promise((resolve) => rl.once("close", () => resolve(null)));
   try {
-    const answer = await rl.question(
-      `[cards-sync] This will write to your LIVE board (no --dry-run). Type "yes" to continue: `
-    );
+    const prompt = `[cards-sync] This will write to your LIVE board (no --dry-run). Type "yes" to continue: `;
+    const answer = await Promise.race([rl.question(prompt).catch(() => null), closed]);
+    if (answer === null) {
+      console.log("");
+      log('No answer (stdin closed) — treating it as "no".');
+      return false;
+    }
     return answer.trim().toLowerCase() === "yes";
   } finally {
     rl.close();
