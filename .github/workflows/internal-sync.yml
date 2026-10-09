@@ -14,11 +14,16 @@ name: Internal branch sync (main → internal)
 # products. Runs only in MatheusFelipeCorrea/Hyperion (never in forks), and is
 # a no-op when the repository has no `internal` branch.
 #
-# Merge path: direct merge through the API. GITHUB_TOKEN can't push commits that
-# touch .github/workflows, so when main changed a workflow (or the merge
-# conflicts) this opens a main → internal PR to merge by hand instead. Set an
-# INTERNAL_SYNC_TOKEN secret (fine-grained PAT: Contents + Workflows write on
-# this repo) to make those merges automatic too.
+# Merge path: direct merge through the API; when that fails (a workflow changed
+# and the token can't write workflows, or the merge conflicts) this opens a
+# main → internal PR to merge by hand instead.
+#
+# Token: the INTERNAL_SYNC_TOKEN secret (fine-grained PAT or GitHub App token
+# on this repo with Contents, Pull requests and Workflows: read & write) when
+# set, GITHUB_TOKEN otherwise. GitHub fires no workflow for events created with
+# GITHUB_TOKEN, so without the secret the sync PR gets no checks, the merge
+# commit doesn't run internal's push workflows, and every workflow change from
+# main ends up as a manual PR. The run warns about it.
 
 on:
   push:
@@ -42,6 +47,7 @@ jobs:
       - name: Merge main into internal
         env:
           GH_TOKEN: ${{ secrets.INTERNAL_SYNC_TOKEN || github.token }}
+          HAS_SYNC_TOKEN: ${{ secrets.INTERNAL_SYNC_TOKEN != '' }}
           REPO: ${{ github.repository }}
         run: |
           set -uo pipefail
@@ -57,6 +63,14 @@ jobs:
               echo "::error::Could not check whether $REPO has an internal branch (HTTP $branch${detail:+: $detail}). Not merging; re-run once the API answers 200 (branch exists) or 404 (no branch)."
               exit 1 ;;
           esac
+
+          token_note=""
+          if [ "$HAS_SYNC_TOKEN" != "true" ]; then
+            echo "::warning title=INTERNAL_SYNC_TOKEN not set::Syncing with GITHUB_TOKEN. GitHub runs no workflow for events created by GITHUB_TOKEN: a main → internal PR opened here gets no checks, a direct merge doesn't run internal's push workflows (internal-cards-sync.yml), and merges that touch .github/workflows fall back to a manual PR. Add a fine-grained PAT or GitHub App token for $REPO with Contents, Pull requests and Workflows (read & write) as the INTERNAL_SYNC_TOKEN secret (Settings → Secrets and variables → Actions)."
+            token_note="
+
+          Opened with \`GITHUB_TOKEN\`, so no checks ran on this PR: close and reopen it to trigger them. Set the \`INTERNAL_SYNC_TOKEN\` secret to avoid this (see CONTRIBUTING, branch \`internal\`)."
+          fi
 
           code=$(curl -sS -o merge.json -w '%{http_code}' -X POST "${auth[@]}" "$api/merges" \
             -d '{"base":"internal","head":"main","commit_message":"chore(internal): sync main into internal"}')
@@ -77,4 +91,4 @@ jobs:
             --title "chore(internal): sync main into internal" \
             --body "Automatic sync after a release to \`main\` (direct merge failed: HTTP $code — $reason).
 
-          Merge with **Create a merge commit**. If it conflicts, resolve keeping \`main\`'s kit files and \`internal\`'s own files (cards, \`internal-*.yml\`). Never merge \`internal\` back into \`dev\`/\`qa\`/\`main\`."
+          Merge with **Create a merge commit**. If it conflicts, resolve keeping \`main\`'s kit files and \`internal\`'s own files (cards, \`internal-*.yml\`). Never merge \`internal\` back into \`dev\`/\`qa\`/\`main\`.$token_note"
