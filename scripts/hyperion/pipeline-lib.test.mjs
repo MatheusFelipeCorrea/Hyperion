@@ -562,7 +562,7 @@ describe("workflow audits (failing shapes)", () => {
 });
 
 describe("nested-kit renderers", () => {
-  it("PR guard, recheck, Azure and the deprecated fork job honor kit.root", () => {
+  it("PR guard and Azure honor kit.root and the default branch; the deprecated fork job honors kit.root", () => {
     const guard = renderPrBoardGuardWorkflow({ kitRootRel: "Hyperion", defaultBranch: "dev" });
     assert.equal(auditPrBoardGuardWorkflow(guard, { kitRootRel: "Hyperion" }).ok, true);
     assert.match(guard, /branches: \[dev\]/);
@@ -581,8 +581,22 @@ describe("nested-kit renderers", () => {
     assert.match(appended, /\n {2}board-guard-fork:\n/);
     const { load } = await import("js-yaml");
     assert.deepEqual(Object.keys(load(appended).jobs), ["board-guard", "board-guard-fork"]);
+    assert.equal(load(appended).jobs["board-guard-fork"].defaults, undefined);
+  });
+
+  it("appendForkGuardJob runs the fork job inside kit.root when given one", async () => {
+    const { load } = await import("js-yaml");
     const nested = load(appendForkGuardJob("jobs:\n  board-guard:\n    runs-on: x\n", { kitRootRel: "Hyperion" }));
     assert.equal(nested.jobs["board-guard-fork"].defaults.run["working-directory"], "Hyperion");
+    assert.equal(nested.jobs["board-guard"].defaults, undefined);
+  });
+
+  it("PR recheck lists PRs against the configured base branch, not main", async () => {
+    const { load } = await import("js-yaml");
+    const script = (opts) => load(renderPrRecheckWorkflow(opts)).jobs["list-open-prs"].steps[0].with.script;
+    assert.match(script({ defaultBranch: "trunk" }), /base: "trunk"/);
+    assert.doesNotMatch(script({ defaultBranch: "trunk" }), /base: "main"/);
+    assert.match(script(), /base: "main"/);
   });
 
   it("PR recheck runs inside kit.root and lists PRs against the default branch", async () => {
