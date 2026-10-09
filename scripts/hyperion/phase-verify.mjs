@@ -21,14 +21,14 @@ function argValue(flag) {
 function usage() {
   console.log(`Usage:
   npm run hyperion:phase-verify -- --plan <path-to-plan.md> [--phase N]
-  npm run hyperion:phase-verify -- --latest
+  npm run hyperion:phase-verify -- --latest [--root <repo-root>]
 
 Checks that each completed phase (or --phase N) has a Verification block with tests_result: PASS.
 `);
 }
 
-function findLatestPlan() {
-  const dir = join(root, ".github/plans/implementations");
+function findLatestPlan(repoRoot) {
+  const dir = join(repoRoot, ".github/plans/implementations");
   if (!existsSync(dir)) return null;
   const files = readdirSync(dir)
     .filter((f) => f.endsWith(".md") && !f.startsWith("."))
@@ -74,7 +74,7 @@ function main() {
 
   let planPath = argValue("--plan");
   if (process.argv.includes("--latest") || !planPath) {
-    if (!planPath) planPath = findLatestPlan();
+    if (!planPath) planPath = findLatestPlan(resolve(argValue("--root") || root));
   }
   if (!planPath) {
     console.error("No plan specified and none found under .github/plans/implementations/");
@@ -124,7 +124,6 @@ function main() {
       console.error("- tested_at: ISO-8601");
       process.exit(1);
     }
-    targets = blocks;
   }
 
   let failed = 0;

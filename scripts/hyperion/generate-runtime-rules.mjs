@@ -3,9 +3,10 @@
  * Sync runtime command tables from .github/commands.yml
  * Run: npm run hyperion:generate-rules
  * Check: npm run hyperion:check-rules
+ *        npm run hyperion:check-rules -- --root <kit-root>
  */
 import { readFileSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   AGENTS_MARKER_END,
@@ -20,7 +21,7 @@ import {
   normalizeEol,
   replaceMarkedSection,
   replaceTextSection,
-  RUNTIME_TARGETS,
+  runtimeTargets,
   SKILLS_MARKER_END,
   SKILLS_MARKER_START,
   buildSkillsSection,
@@ -28,29 +29,31 @@ import {
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const checkOnly = process.argv.includes("--check");
+const rootArg = process.argv.indexOf("--root");
+const root = rootArg === -1 ? join(__dirname, "../..") : resolve(process.argv[rootArg + 1] || ".");
 
-const { commands, npmShortcuts } = loadCommands();
-const skillIndex = buildSkillIndex();
+const { commands, npmShortcuts } = loadCommands(root);
+const skillIndex = buildSkillIndex(root);
 
 function applyCatalogSections(content, syncCatalog) {
   if (!syncCatalog) return content;
   let next = replaceTextSection(
     content,
-    buildSkillsSection(),
+    buildSkillsSection(root),
     SKILLS_MARKER_START,
     SKILLS_MARKER_END
   );
-  next = replaceTextSection(next, buildAgentsSection(), AGENTS_MARKER_START, AGENTS_MARKER_END);
+  next = replaceTextSection(next, buildAgentsSection(root), AGENTS_MARKER_START, AGENTS_MARKER_END);
   next = replaceTextSection(next, buildLanguageSection(), LANGUAGE_MARKER_START, LANGUAGE_MARKER_END);
   return next;
 }
 
 const outputs = [
   {
-    path: join(__dirname, "help.mjs"),
+    path: join(root, "scripts/hyperion/help.mjs"),
     content: normalizeEol(buildHelpContent(commands, npmShortcuts)),
   },
-  ...RUNTIME_TARGETS.map((target) => {
+  ...runtimeTargets(root).map((target) => {
     const current = readFileSync(target.path, "utf8");
     const rows = target.buildRows(commands, skillIndex);
     let content = replaceMarkedSection(current, rows);
