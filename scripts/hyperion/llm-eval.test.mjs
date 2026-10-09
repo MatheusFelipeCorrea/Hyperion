@@ -103,6 +103,20 @@ test("callOpenAI sends chat completions payload and reads the message content", 
   }
 });
 
+test("hashFile ignores line endings, so a CRLF checkout and an LF one hash the same", () => {
+  // Regression: hashes recorded from a Windows working copy (CRLF) never matched CI's LF checkout.
+  const dir = mkdtempSync(join(tmpdir(), "llm-eval-eol-"));
+  try {
+    const lf = join(dir, "lf.md");
+    const crlf = join(dir, "crlf.md");
+    writeFileSync(lf, "# Skill\n\n## Output\n- x\n", "utf8");
+    writeFileSync(crlf, "# Skill\r\n\r\n## Output\r\n- x\r\n", "utf8");
+    assert.equal(hashFile(lf), hashFile(crlf));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("hashFile is deterministic and content-sensitive", () => {
   const dir = mkdtempSync(join(tmpdir(), "llm-eval-hash-"));
   try {
@@ -245,8 +259,8 @@ describe("llm-eval CLI --root", () => {
     });
     const r = run(root);
     assert.equal(r.status, 1, r.stdout + r.stderr);
-    assert.match(r.stdout, /OK ok \(fixture\)/);
-    assert.match(r.stdout, /OK custom \(fixture\)/);
+    assert.match(r.stdout, /OK ok \(fixture schema check\)/);
+    assert.match(r.stdout, /OK custom \(fixture schema check\)/);
     assert.match(r.stderr, /FAIL bad: missing "Nope"/);
     assert.match(r.stderr, /FAIL nogolden: golden missing \.github[\\/]skills[\\/]eval[\\/]golden[\\/]nogolden\.txt/);
     assert.match(r.stderr, /llm-eval FAILED — 2\/4 cases/);
@@ -254,7 +268,7 @@ describe("llm-eval CLI --root", () => {
 
     const pass = run(kit({ cases: [{ id: "ok", mustContain: ["Hello"] }], golden: { "ok.txt": "Hello\n", "z.txt": "" } }));
     assert.equal(pass.status, 0, pass.stdout + pass.stderr);
-    assert.match(pass.stdout, /llm-eval OK — 1 cases, 2 golden fixtures \(fixture-only\)/);
+    assert.match(pass.stdout, /llm-eval OK — 1 cases, 2 golden fixtures. This checked fixture consistency and skill drift, not real model output/);
   });
 
   it("live mode calls Anthropic first and scores the reply", () => {
@@ -265,8 +279,8 @@ describe("llm-eval CLI --root", () => {
     });
     const r = run(root, { HYPERION_LLM_EVAL_LIVE: "1", ANTHROPIC_API_KEY: "fake-a", OPENAI_API_KEY: "fake-o" }, { text: "Hello there" });
     assert.equal(r.status, 0, r.stdout + r.stderr);
-    assert.match(r.stdout, /OK a \(live\)/);
-    assert.match(r.stdout, /llm-eval OK — 1 cases, 1 golden fixtures \(live\)/);
+    assert.match(r.stdout, /OK a \(live — real model output verified\)/);
+    assert.match(r.stdout, /llm-eval OK — 1 cases verified against real model output/);
     assert.equal(r.calls.length, 1);
     assert.equal(r.calls[0].url, "https://api.anthropic.com/v1/messages");
     assert.equal(r.calls[0].headers["x-api-key"], "fake-a");

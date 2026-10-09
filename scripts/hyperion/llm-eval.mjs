@@ -42,8 +42,9 @@ const goldenDir = join(evalRoot, "golden");
 
 const live = String(process.env.HYPERION_LLM_EVAL_LIVE || "").toLowerCase() === "1";
 
+/** Line endings are normalized so a CRLF checkout (Windows) and an LF one (CI) hash the same. */
 export function hashFile(absPath) {
-  return createHash("sha256").update(readFileSync(absPath, "utf8")).digest("hex");
+  return createHash("sha256").update(readFileSync(absPath, "utf8").replace(/\r\n/g, "\n")).digest("hex");
 }
 
 /** Returns null if the case has no skillHash to check (nothing to compare),
