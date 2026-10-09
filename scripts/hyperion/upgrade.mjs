@@ -19,6 +19,9 @@ import { pathExists, fail, log, ok, warn } from "./lib.mjs";
 import {
   applyUpgradePlan,
   buildUpgradePlan,
+  detectLeakedKitWorkflows,
+  formatLeakedKitWorkflowsHelp,
+  formatWorkflowRefreshHelp,
   summarizePlan,
 } from "./upgrade-lib.mjs";
 import {
@@ -66,7 +69,16 @@ function printHelp() {
   log("", "Origin file: .github/hyperion-origin.json");
   log("", "Pin file:    .github/hyperion-kit.json (written after --yes)");
   log("", "");
-  log("", "Preserved: project.yml, memory/, cards/, plans/, .env");
+  log("", "Preserved: project.yml, memory/, cards/, plans/, .env, .github/workflows/");
+}
+
+async function reportLeakedKitWorkflows(targetRoot) {
+  const help = formatLeakedKitWorkflowsHelp(await detectLeakedKitWorkflows(targetRoot));
+  if (!help.length) return;
+  log("", "");
+  warn(help[0]);
+  for (const line of help.slice(1)) log("", line);
+  log("", "");
 }
 
 async function main() {
@@ -112,6 +124,7 @@ async function main() {
       const local = await readLocalKitMeta(targetRoot);
       if (local?.commit && sameCommit(local.commit, tip.sha)) {
         ok(`Already up to date (pinned ${String(local.commit).slice(0, 12)})`);
+        await reportLeakedKitWorkflows(targetRoot);
         if (args.check) process.exit(0);
         process.exit(0);
       }
@@ -160,6 +173,8 @@ async function main() {
       `Plan: +${counts.add} add · ~${counts.update} update · =${counts.unchanged} same · ⊘${counts.preserve} preserve`
     );
 
+    await reportLeakedKitWorkflows(targetRoot);
+
     if (!args.yes) {
       warn("Dry-run only. Re-run with --yes to fetch/apply (remote) or apply (--from).");
       ok("hyperion:upgrade dry-run complete");
@@ -176,6 +191,7 @@ async function main() {
     });
     ok(`Applied ${applied.length} paths`);
     log("", "Next: npm run hyperion:doctor");
+    for (const line of formatWorkflowRefreshHelp()) log("", line);
     ok("hyperion:upgrade complete");
   } finally {
     cleanupTemp(tempParent);

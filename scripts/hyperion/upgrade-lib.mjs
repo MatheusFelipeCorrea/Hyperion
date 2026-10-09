@@ -6,6 +6,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import crypto from "node:crypto";
 import { spawnSync } from "node:child_process";
+import { HYPERION_WORKFLOWS, NO_AUTO_REFRESH_MARKER, WORKFLOWS_DIR } from "./pipeline-lib.mjs";
 
 /** Directories overwritten from the kit (recursive). */
 export const MANAGED_DIRS = [
@@ -68,15 +69,6 @@ export function isPreserved(rel) {
   return PRESERVE_PREFIXES.some((pre) => n === pre.slice(0, -1) || n.startsWith(pre));
 }
 
-export function isHyperionWorkflow(rel) {
-  const n = normalizeRel(rel);
-  return (
-    n.startsWith(".github/workflows/") &&
-    path.posix.basename(n).startsWith("hyperion-") &&
-    (n.endsWith(".yml") || n.endsWith(".yaml"))
-  );
-}
-
 async function pathExists(p) {
   try {
     await fs.access(p);
@@ -125,10 +117,8 @@ export async function collectManagedRels(kitRoot) {
     if (await pathExists(abs)) rels.add(normalizeRel(file));
   }
 
-  const wfDir = path.join(kitRoot, ".github", "workflows");
-  for (const rel of await walkFiles(wfDir, ".github/workflows")) {
-    if (isHyperionWorkflow(rel)) rels.add(rel);
-  }
+  // No .github/workflows here: those are the kit's own CI. Product workflows are
+  // rendered from scripts/hyperion/templates/workflows by /pipeline (pipeline-apply).
 
   // Any extra .cursor/rules/*.mdc from kit (not only hyperion.mdc)
   const cursorRules = path.join(kitRoot, ".cursor", "rules");
@@ -371,6 +361,92 @@ export async function recordUpgradeChangelog(targetRoot, meta, pathCount) {
     `${header}\n\n## [Unreleased]\n\n### Changed\n${line}\n`,
     "utf8"
   );
+}
+
+const REQUIRE_PROJECT_OFF_RE = /CARDS_CI_REQUIRE_PROJECT:\s*["']?false/;
+
+/**
+ * The kit's own CI workflows, which hyperion:upgrade used to copy into products.
+ * `isKitCopy` tells the kit's copy apart from a product file of the same name
+ * rendered by /pipeline (templates never carry these fingerprints).
+ */
+export const KIT_ONLY_WORKFLOWS = [
+  {
+    file: HYPERION_WORKFLOWS.validate,
+    why: "the kit's CI: runs distribution-purity-check, which fails on a product's real cards and projectNumber",
+    isKitCopy: (text) => text.includes("distribution-purity-check"),
+  },
+  {
+    file: HYPERION_WORKFLOWS.syncCards,
+    why: `the kit's dispatch-only copy: never syncs on push, and --refresh-sync skips it when it carries ${NO_AUTO_REFRESH_MARKER}`,
+    isKitCopy: (text) => text.includes("This repo's own copy is workflow_dispatch-only"),
+  },
+  {
+    file: HYPERION_WORKFLOWS.cardsPrGuard,
+    why: "the kit's copy: CARDS_CI_REQUIRE_PROJECT is false, so the board guard passes without a linked GitHub Project",
+    isKitCopy: (text) => REQUIRE_PROJECT_OFF_RE.test(text),
+  },
+  {
+    file: HYPERION_WORKFLOWS.cardsPrRecheck,
+    why: "the kit's copy: CARDS_CI_REQUIRE_PROJECT is false, so the recheck passes without a linked GitHub Project",
+    isKitCopy: (text) => REQUIRE_PROJECT_OFF_RE.test(text),
+  },
+  {
+    file: "hyperion-docker-publish.yml",
+    why: "publishes the kit's own hyperion-cli image; no product template exists",
+    isKitCopy: () => true,
+  },
+  {
+    file: "hyperion-e2e-cards.yml",
+    why: "the kit's opt-in end-to-end test against a disposable GitHub repo; no product template exists",
+    isKitCopy: () => true,
+  },
+];
+
+/**
+ * Kit-only workflows a previous hyperion:upgrade copied into targetRoot.
+ * Only repos with the .github/hyperion-kit.json pin (written by every applied
+ * upgrade) qualify, so the kit's own checkout never reports its own CI.
+ * @returns {Promise<{ rel: string, why: string }[]>}
+ */
+export async function detectLeakedKitWorkflows(targetRoot) {
+  if (!(await pathExists(path.join(targetRoot, ".github", "hyperion-kit.json")))) return [];
+  const found = [];
+  for (const wf of KIT_ONLY_WORKFLOWS) {
+    const rel = `${WORKFLOWS_DIR}/${wf.file}`;
+    let text;
+    try {
+      text = await fs.readFile(path.join(targetRoot, ...rel.split("/")), "utf8");
+    } catch {
+      continue;
+    }
+    if (wf.isKitCopy(text)) found.push({ rel, why: wf.why });
+  }
+  return found;
+}
+
+/** Remediation lines for detectLeakedKitWorkflows results (empty when nothing leaked). */
+export function formatLeakedKitWorkflowsHelp(found) {
+  if (!found.length) return [];
+  return [
+    `${found.length} workflow(s) in .github/workflows/ are the kit's own CI, copied by an earlier hyperion:upgrade:`,
+    ...found.map((f) => `  - ${f.rel} — ${f.why}`),
+    "Delete them, then regenerate the workflows your project.yml (ci.hyperion) asks for from the templates:",
+    `  git rm ${found.map((f) => f.rel).join(" ")}`,
+    "  npm run hyperion:pipeline-apply -- --yes",
+    "pipeline-apply --yes only writes missing files, so nothing else is overwritten. The Docker publish and e2e workflows are kit-only and are not regenerated.",
+  ];
+}
+
+/** What pipeline-apply's refresh flags rewrite. Must match REFRESH_TARGETS and --refresh-gates in pipeline-apply.mjs. */
+export function formatWorkflowRefreshHelp() {
+  const wf = (key) => HYPERION_WORKFLOWS[key];
+  return [
+    "Upgrade never touches .github/workflows/. To bring existing workflows up to the new templates:",
+    `  npm run hyperion:pipeline-apply -- --refresh-sync --yes   # rewrites ${wf("syncCards")}, ${wf("cardsPrGuard")}, ${wf("cardsPrRecheck")} (and the GitLab/Azure snippets) when outdated; ${wf("syncCards")} with ${NO_AUTO_REFRESH_MARKER} is left alone`,
+    `  npm run hyperion:pipeline-apply -- --refresh-gates --yes  # re-renders ${wf("productCi")} when ci.gates changed (unless it has ${NO_AUTO_REFRESH_MARKER})`,
+    `Neither refreshes ${wf("security")} or ${wf("validate")}: to update one, delete it and run npm run hyperion:pipeline-apply -- --yes.`,
+  ];
 }
 
 export function summarizePlan(items) {

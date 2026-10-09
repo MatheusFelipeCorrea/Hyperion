@@ -151,6 +151,23 @@ export async function checkNotManagedFiles(root, fail) {
   }
 }
 
+/**
+ * hyperion:upgrade must never copy .github/workflows: those are the kit's own CI
+ * (purity check, Docker publish, e2e). Products render theirs via /pipeline.
+ */
+export async function checkNoWorkflowsManaged(root, fail) {
+  const rel = "scripts/hyperion/upgrade-lib.mjs";
+  const abs = join(root, rel);
+  if (!existsSync(abs)) return; // checkNotManagedFiles already reports it missing
+  const { collectManagedRels } = await import(pathToFileURL(abs).href);
+  if (typeof collectManagedRels !== "function") return;
+  for (const managed of await collectManagedRels(root)) {
+    if (managed.startsWith(".github/workflows/")) {
+      fail(managed, "would be copied into products by hyperion:upgrade — the kit's own CI must never propagate (products get workflows from /pipeline)");
+    }
+  }
+}
+
 /** No real backlog cards — only the template and _examples/ ship on a distributed branch. */
 export function checkNoRealCards(root, fail) {
   const cardsDir = join(root, ".github", "cards");
@@ -357,6 +374,7 @@ async function main() {
     ["projects-map.json has no real projectNumber", checkNoProjectNumber],
     ["hyperion-sync-cards.yml has no push trigger", checkSyncCardsNoPushTrigger],
     ["CODEOWNERS/FUNDING.yml/dependabot.yml not in MANAGED_FILES", checkNotManagedFiles],
+    ["hyperion:upgrade copies no workflow", checkNoWorkflowsManaged],
     ["no real cards outside _examples/", checkNoRealCards],
     [".github/plans/ has no leaked planning docs", checkNoLeakedPlans],
     ["no leaked absolute personal paths", checkNoLeakedPaths],

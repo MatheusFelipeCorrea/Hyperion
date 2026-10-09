@@ -9,6 +9,7 @@ import {
   checkNoProjectNumber,
   checkSyncCardsNoPushTrigger,
   checkNotManagedFiles,
+  checkNoWorkflowsManaged,
   checkNoRealCards,
   checkNoLeakedPlans,
   checkNoLeakedPaths,
@@ -144,6 +145,35 @@ test("checkNotManagedFiles passes normally, fails if CODEOWNERS/FUNDING.yml/depe
   await checkNotManagedFiles(dir, fail);
   assert.equal(failures.length, 1);
   assert.match(failures[0].why, /dependabot\.yml/);
+});
+
+test("checkNoWorkflowsManaged fails when upgrade would copy a workflow", async () => {
+  // One repo per case: ESM caches a module by URL, so rewriting the same file
+  // and importing it again would return the first version.
+  const withLib = (rels) => {
+    const dir = makeRepo();
+    mkdirSync(join(dir, "scripts", "hyperion"), { recursive: true });
+    writeFileSync(
+      join(dir, "scripts", "hyperion", "upgrade-lib.mjs"),
+      `export async function collectManagedRels() { return ${JSON.stringify(rels)}; }\n`
+    );
+    return dir;
+  };
+
+  let { failures, fail } = makeFailCollector();
+  await checkNoWorkflowsManaged(withLib(["scripts/hyperion/doctor.mjs"]), fail);
+  assert.equal(failures.length, 0);
+
+  ({ failures, fail } = makeFailCollector());
+  await checkNoWorkflowsManaged(withLib([".github/workflows/hyperion-validate.yml"]), fail);
+  assert.equal(failures.length, 1);
+  assert.match(failures[0].where, /hyperion-validate\.yml/);
+});
+
+test("checkNoWorkflowsManaged passes on this kit (real upgrade-lib)", async () => {
+  const { failures, fail } = makeFailCollector();
+  await checkNoWorkflowsManaged(join(__dirname, "..", ".."), fail);
+  assert.deepEqual(failures, []);
 });
 
 test("checkNoRealCards passes for template/_examples, fails for a real card", () => {

@@ -82,9 +82,15 @@ npm run hyperion:upgrade -- --from /caminho/Hyperion-novo --yes
 
 Origem padrão: repo/ref em `hyperion-origin.json` (override: `--repo`, `--ref`, ou env `HYPERION_ORIGIN_REPO`).
 
-**Atualiza:** `scripts/hyperion`, `scripts/cards-sync`, skills, agents, audits, docs, workflows `hyperion-*`, rules, merge de scripts `hyperion:`/`cards:` no `package.json`.
+**Atualiza:** `scripts/hyperion` (inclusive os templates de workflow), `scripts/cards-sync`, skills, agents, audits, docs, rules, merge de scripts `hyperion:`/`cards:` no `package.json`.
 
-**Preserva:** `.github/project.yml`, `memory/`, `cards/`, `plans/`, pastas de board, `.env`, workflows do produto.
+**Preserva:** `.github/project.yml`, `memory/`, `cards/`, `plans/`, pastas de board, `.env`, **todos** os workflows (`.github/workflows/`). Os `hyperion-*.yml` do produto vêm do `/pipeline`. Depois do upgrade, para levar os que já existem aos templates novos:
+
+- `npm run hyperion:pipeline-apply -- --refresh-sync --yes` reescreve, quando desatualizados, `hyperion-sync-cards.yml`, `hyperion-cards-pr-check.yml`, `hyperion-cards-pr-recheck.yml` e os snippets de GitLab/Azure. Um `hyperion-sync-cards.yml` com o marcador `hyperion:no-auto-refresh` fica como está.
+- `npm run hyperion:pipeline-apply -- --refresh-gates --yes` re-renderiza `hyperion-product-ci.yml` quando o `ci.gates` mudou (exceto se tiver `hyperion:no-auto-refresh`).
+- Nenhum dos dois mexe em `hyperion-security.yml` nem em `hyperion-validate.yml`: para atualizar um deles, apague o arquivo e rode `npm run hyperion:pipeline-apply -- --yes` (só escreve o que falta).
+
+Se um upgrade antigo copiou os workflows do próprio kit para o produto, o `hyperion:doctor` (como aviso) e o `hyperion:upgrade` listam quais são e o que fazer: apagar esses arquivos e rodar `npm run hyperion:pipeline-apply -- --yes`.
 
 Grava `.github/hyperion-kit.json` com `commit` + timestamp (pin para o próximo check).
 
