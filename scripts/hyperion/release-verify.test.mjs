@@ -1,6 +1,6 @@
-import { describe, it } from "node:test";
+import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { tmpdir } from "node:os";
 import { spawnSync } from "node:child_process";
@@ -129,5 +129,59 @@ describe("release-verify", () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe("release-verify CLI branches", () => {
+  const env = { ...process.env, HYPERION_TELEMETRY: "false" };
+  const run = (args) => spawnSync(process.execPath, [script, ...args], { encoding: "utf8", env });
+  let dir;
+  before(() => {
+    dir = mkdtempSync(join(tmpdir(), "rlv-cli-"));
+  });
+  after(() => rmSync(dir, { recursive: true, force: true }));
+
+  it("--help prints usage and exits 0", () => {
+    const r = run(["--help"]);
+    assert.equal(r.status, 0);
+    assert.match(r.stdout, /Usage:[\s\S]*--changelog <path>/);
+  });
+
+  it("fails when CHANGELOG.md is missing", () => {
+    const r = run(["--root", join(dir, "nowhere")]);
+    assert.equal(r.status, 1);
+    assert.match(r.stderr, /FAIL: CHANGELOG not found at /);
+  });
+
+  it("fails with usage when no version is given and package.json is missing, invalid or versionless", () => {
+    const root = join(dir, "noversion");
+    mkdirSync(root, { recursive: true });
+    writeFileSync(join(root, "CHANGELOG.md"), "## [1.0.0]\n- x\n");
+    for (const pkg of [null, "{ not json", JSON.stringify({ name: "x" })]) {
+      if (pkg === null) rmSync(join(root, "package.json"), { force: true });
+      else writeFileSync(join(root, "package.json"), pkg);
+      const r = run(["--root", root]);
+      assert.equal(r.status, 1, `${pkg}\n${r.stdout}${r.stderr}`);
+      assert.match(r.stderr, /FAIL: no --version given and no version found in package\.json/);
+      assert.match(r.stdout, /Usage:/);
+    }
+  });
+
+  it("--changelog points at an explicit file; warns when [Unreleased] still has entries", () => {
+    const file = join(dir, "notes", "HISTORY.md");
+    mkdirSync(dirname(file), { recursive: true });
+    writeFileSync(file, "# Changelog\n\n## [Unreleased]\n### Added\n- pending thing\n\n## [2.1.0] — 2026-10-01\n### Fixed\n- bug\n");
+    const r = run(["--changelog", file, "--version", "2.1.0"]);
+    assert.equal(r.status, 0, r.stdout + r.stderr);
+    assert.match(r.stderr, /WARN: \[Unreleased\] section still has entries/);
+    assert.match(r.stdout, /OK: version section has content/);
+  });
+
+  it("does not warn for an [Unreleased] section with no bullet entries", () => {
+    const file = join(dir, "notes", "CLEAN.md");
+    writeFileSync(file, "## [Unreleased]\n### Added\n\n## [2.2.0]\n- shipped\n");
+    const r = run(["--changelog", file, "--version", "2.2.0"]);
+    assert.equal(r.status, 0, r.stdout + r.stderr);
+    assert.doesNotMatch(r.stderr, /WARN/);
   });
 });

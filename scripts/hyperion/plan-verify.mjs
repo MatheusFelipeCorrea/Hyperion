@@ -26,15 +26,15 @@ function argValue(flag) {
 function usage() {
   console.log(`Usage:
   npm run hyperion:plan-verify -- --plan <path-to-plan.md>
-  npm run hyperion:plan-verify -- --latest
+  npm run hyperion:plan-verify -- --latest [--root <repo-root>]
 
 Checks the plan has frontmatter (goal, card_id, status), at least one "### Phase"
 section, and a Verification section (## 7. Verification or ## Verification).
 `);
 }
 
-function findLatestPlan() {
-  const dir = join(root, ".github/plans/implementations");
+function findLatestPlan(repoRoot) {
+  const dir = join(repoRoot, ".github/plans/implementations");
   if (!existsSync(dir)) return null;
   const files = readdirSync(dir)
     .filter((f) => f.endsWith(".md") && !f.startsWith("."))
@@ -63,7 +63,7 @@ function main() {
 
   let planPath = argValue("--plan");
   if (process.argv.includes("--latest") || !planPath) {
-    if (!planPath) planPath = findLatestPlan();
+    if (!planPath) planPath = findLatestPlan(resolve(argValue("--root") || root));
   }
   if (!planPath) {
     console.error("No plan specified and none found under .github/plans/implementations/");

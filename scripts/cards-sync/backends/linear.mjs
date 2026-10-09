@@ -26,11 +26,6 @@ import {
   countReverseWrite,
 } from "../sync.mjs";
 
-// eslint-disable-next-line no-unused-vars -- kept identical to the pre-extraction sync.mjs (unused there too)
-function linearCardSearchMarker(card) {
-  return `CARD_ID: ${card.cardId}`;
-}
-
 /**
  * Parent-child hierarchy: Linear has real sub-issues, unlike GitLab Free —
  * setting parentId on the child is a first-class relationship, not just a

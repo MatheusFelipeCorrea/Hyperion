@@ -228,6 +228,8 @@ For Azure DevOps backend, provide:
 - `AZDO_PAT` (Azure DevOps PAT)
 - optional `AZDO_WORK_ITEM_TYPE` (default: `Task`)
 
+Azure sync finds work items with one WIQL query scoped to `AZDO_PROJECT`. WIQL returns at most 20,000 work items, so a project with more than 20,000 work items carrying a `CARD_ID` fails with `VS402337` instead of syncing a partial list.
+
 For Linear backend, provide:
 - `LINEAR_TEAM_ID` (team identifier)
 - `LINEAR_API_TOKEN` (Linear API token)

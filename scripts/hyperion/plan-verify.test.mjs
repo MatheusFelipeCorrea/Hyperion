@@ -1,6 +1,6 @@
-import { describe, it } from "node:test";
+import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { tmpdir } from "node:os";
 import { spawnSync } from "node:child_process";
@@ -101,5 +101,71 @@ table here
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe("plan-verify CLI branches", () => {
+  const env = { ...process.env, HYPERION_TELEMETRY: "false" };
+  const run = (args) => spawnSync(process.execPath, [script, ...args], { encoding: "utf8", env });
+  let dir;
+  const write = (rel, text) => {
+    mkdirSync(dirname(join(dir, rel)), { recursive: true });
+    writeFileSync(join(dir, rel), text);
+    return join(dir, rel);
+  };
+  before(() => {
+    dir = mkdtempSync(join(tmpdir(), "pv-cli-"));
+  });
+  after(() => rmSync(dir, { recursive: true, force: true }));
+
+  it("--help prints usage and exits 0", () => {
+    const r = run(["--help"]);
+    assert.equal(r.status, 0);
+    assert.match(r.stdout, /Usage:[\s\S]*--latest \[--root <repo-root>\]/);
+  });
+
+  it("--latest --root picks the last plan by name", () => {
+    write("repo/.github/plans/implementations/a.md", "garbage\n");
+    write(
+      "repo/.github/plans/implementations/b.md",
+      "---\ngoal: G\ncard_id: C-1\nstatus: In progress\n---\n### Phase 1: x\n## Verification\n"
+    );
+    write("repo/.github/plans/implementations/.c.md", "garbage\n");
+    const r = run(["--latest", "--root", join(dir, "repo")]);
+    assert.equal(r.status, 0, r.stdout + r.stderr);
+    assert.match(r.stdout, /OK frontmatter\.status: In progress/);
+    assert.match(r.stdout, /plan-verify OK/);
+  });
+
+  it("fails with usage when no plan can be found", () => {
+    write("empty/.github/plans/implementations/.gitkeep", "");
+    for (const root of [join(dir, "empty"), join(dir, "nothing")]) {
+      const r = run(["--root", root]);
+      assert.equal(r.status, 1, r.stdout + r.stderr);
+      assert.match(r.stderr, /No plan specified and none found/);
+      assert.match(r.stdout, /Usage:/);
+    }
+  });
+
+  it("fails when the plan file does not exist", () => {
+    const r = run(["--plan", join(dir, "missing.md")]);
+    assert.equal(r.status, 1);
+    assert.match(r.stderr, /Plan not found: /);
+  });
+
+  it("reports a missing frontmatter block and a missing Verification section", () => {
+    const r = run(["--plan", write("nofm.md", "# Plan\n### Phase 1\n")]);
+    assert.equal(r.status, 1, r.stdout + r.stderr);
+    assert.match(r.stderr, /FAIL: no frontmatter block found/);
+    assert.match(r.stderr, /FAIL: missing Verification section/);
+    assert.match(r.stderr, /plan-verify FAILED \(2\)/);
+  });
+
+  it("reports missing goal/card_id/status frontmatter fields", () => {
+    const r = run(["--plan", write("partial.md", "---\nversion: 1\n---\n### Phase 1\n## Verification\n")]);
+    assert.equal(r.status, 1, r.stdout + r.stderr);
+    assert.match(r.stderr, /FAIL frontmatter: missing "goal:"/);
+    assert.match(r.stderr, /FAIL frontmatter: missing "card_id:"/);
+    assert.match(r.stderr, /FAIL frontmatter\.status: got "\(missing\)"/);
   });
 });

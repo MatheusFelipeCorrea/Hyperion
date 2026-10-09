@@ -22,15 +22,15 @@ function argValue(flag) {
 function usage() {
   console.log(`Usage:
   npm run hyperion:review-verify -- --review <path.md>
-  npm run hyperion:review-verify -- --latest
+  npm run hyperion:review-verify -- --latest [--root <repo-root>]
 
 Requires frontmatter/body: verdict, ## Summary, ## Findings, tests_ran (yes|no|skipped).
 Headings may be in the repo language (## Resumo / ## Achados, ## Resumen / ## Hallazgos…).
 `);
 }
 
-function findLatestReview() {
-  const dir = join(root, ".github/plans/reviews");
+function findLatestReview(repoRoot) {
+  const dir = join(repoRoot, ".github/plans/reviews");
   if (!existsSync(dir)) return null;
   const files = readdirSync(dir)
     .filter((f) => f.endsWith(".md") && !f.startsWith("."))
@@ -67,7 +67,7 @@ function main() {
 
   let reviewPath = argValue("--review");
   if (process.argv.includes("--latest") || !reviewPath) {
-    if (!reviewPath) reviewPath = findLatestReview();
+    if (!reviewPath) reviewPath = findLatestReview(resolve(argValue("--root") || root));
   }
   if (!reviewPath) {
     console.error("No review specified and none under .github/plans/reviews/");

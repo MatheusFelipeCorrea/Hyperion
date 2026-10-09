@@ -22,6 +22,7 @@ import {
   parseCardIdFromRemoteDescription,
   assertCiProjectConfigured,
   readSyncBackendHint,
+  parseProjectYmlBackend,
   parseLabelsCatalogJson,
   normalizeLabelEntry,
   labelNamesFromCatalog,
@@ -348,6 +349,21 @@ test("readSyncBackendHint reads CARDS_SYNC_BACKEND env", async () => {
     if (prev === undefined) delete process.env.CARDS_SYNC_BACKEND;
     else process.env.CARDS_SYNC_BACKEND = prev;
   }
+});
+
+test("parseProjectYmlBackend tolerates inline comments, quotes, trailing spaces and CRLF", () => {
+  for (const yml of [
+    "management:\n  backend: jira\n",
+    "management:\n  backend: jira # tracker\n",
+    "management:\n  backend: \"Jira\"   # tracker\n",
+    "management:\n  enabled: true\n  backend: 'jira'  \n",
+    "management:\r\n  backend: jira # tracker\r\n",
+    "management:\n  backend: jira",
+  ]) {
+    assert.equal(parseProjectYmlBackend(yml), "jira", JSON.stringify(yml));
+  }
+  assert.equal(parseProjectYmlBackend("project:\n  name: app\n"), null);
+  assert.equal(parseProjectYmlBackend("management:\n  backend:\n  url: x\n"), null);
 });
 
 test("parseLabelsCatalogJson accepts v1 string array", () => {

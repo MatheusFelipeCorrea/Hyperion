@@ -2,13 +2,16 @@
 /**
  * Validate all SKILL.md files under .github/skills/
  * Run: npm run skills:validate
+ *      npm run skills:validate -- --root <kit-root>
  */
 import { readFileSync, readdirSync, statSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { ciErrorList } from "./ci-annotate.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const root = join(__dirname, "../..");
+const rootArg = process.argv.indexOf("--root");
+const root = rootArg === -1 ? join(__dirname, "../..") : resolve(process.argv[rootArg + 1] || ".");
 const skillsRoot = join(root, ".github/skills");
 
 const OPS_SKILLS = new Set(["hyperion-ops"]);
@@ -109,6 +112,11 @@ for (const file of files) {
 if (errors.length) {
   console.error("skills:validate failed:\n");
   for (const err of errors) console.error(`  - ${err}`);
+  ciErrorList(
+    "Invalid skill",
+    errors,
+    `${errors.length} problem(s) in .github/skills/**/SKILL.md. Every skill needs frontmatter with name (equal to its folder) and description, plus a "## Output" section. Reproduce: npm run skills:validate`
+  );
   process.exit(1);
 }
 

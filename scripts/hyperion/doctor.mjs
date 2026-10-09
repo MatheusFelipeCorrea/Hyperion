@@ -9,6 +9,7 @@ import {
   workspaceRoot,
 } from "./lib.mjs";
 import { detectPipeline, buildPipelinePlan, auditHyperionPipelineFiles } from "./pipeline-lib.mjs";
+import { ciError, ciErrorList } from "./ci-annotate.mjs";
 
 const argYes = process.argv.includes("--yes");
 const argSkipCards = process.argv.includes("--skip-cards");
@@ -57,17 +58,11 @@ async function main() {
     log("", "");
     log("", "Running cards-sync doctor...");
     const cards = await runNodeScriptAsync("doctor.mjs", argYes ? ["--yes"] : []);
-    const cardsOutputOk =
-      cards.stdout.includes("Doctor finished.") &&
-      !cards.stdout.includes("Missing required Project fields");
     cardsWarningCount = (cards.stdout.match(/\[doctor\] ⚠️/g) || []).length;
     if (cards.code !== 0) {
-      if (process.platform === "win32" && cardsOutputOk) {
-        warn("cards-sync doctor: Windows Node cleanup quirk — output OK, continuing.");
-      } else {
-        fail("cards-sync doctor reported issues.");
-        process.exit(cards.code);
-      }
+      fail(`cards-sync doctor reported issues (exit ${cards.code}).`);
+      ciError("The cards-sync doctor found problems (see its output above). Reproduce: npm run cards:doctor", { title: "Hyperion doctor" });
+      process.exit(cards.code);
     }
   }
 
@@ -77,6 +72,11 @@ async function main() {
   if (health.issues.length > 0) {
     fail(`Doctor finished with ${health.issues.length} blocking issue(s).`);
     log("", "Fix blockers, then re-run: npm run hyperion:doctor");
+    ciErrorList(
+      "Hyperion doctor",
+      health.issues,
+      `${health.issues.length} blocking issue(s) in the Hyperion setup (listed above). Fix them, then re-run: npm run hyperion:doctor`
+    );
     process.exit(1);
   }
 
@@ -91,5 +91,6 @@ async function main() {
 
 main().catch((error) => {
   fail(`FATAL: ${error.message}`);
+  ciError(`${error.message} — likely a Hyperion bug; open an issue with the log.`, { title: "Hyperion doctor crashed" });
   process.exit(1);
 });

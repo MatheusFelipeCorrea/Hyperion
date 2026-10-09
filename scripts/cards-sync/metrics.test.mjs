@@ -1,9 +1,10 @@
 import test, { after } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { spawnSync } from "node:child_process";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { extractStatus, extractCardId, statusSegments, statusHistoryForFile } from "./metrics.mjs";
 
 const createdDirs = [];
@@ -114,4 +115,63 @@ test("statusHistoryForFile mines real git history and only records distinct stat
 test("statusHistoryForFile returns an empty array for a file with no git history", () => {
   const dir = makeRepo();
   assert.deepEqual(statusHistoryForFile(dir, ".github/cards/tasks/NEVER-COMMITTED.md"), []);
+});
+
+const metricsScript = join(dirname(fileURLToPath(import.meta.url)), "metrics.mjs");
+const runMetrics = (cwd, args = [], execArgv = [], env = {}) =>
+  spawnSync(process.execPath, [...execArgv, metricsScript, ...args], {
+    cwd,
+    encoding: "utf8",
+    env: { ...process.env, HYPERION_ROOT: "", ...env },
+  });
+
+test("CLI: WIP by status and average time per closed status segment (text and --json); renames are followed", () => {
+  const dir = makeRepo();
+  const card = (id, status) => [`.github/cards/tasks/_orphan/${id}.md`, `---\ncard_id: ${id}\nstatus: ${status}\n---\n`];
+  commitCardAt(dir, ...card("A", "Backlog"), "2026-01-01T00:00:00+00:00");
+  commitCardAt(dir, ...card("B", "null"), "2026-01-02T00:00:00+00:00");
+  commitCardAt(dir, ...card("C", "Backlog"), "2026-01-02T00:00:00+00:00");
+  commitCardAt(dir, ...card("A", "In Progress"), "2026-01-03T00:00:00+00:00");
+  commitCardAt(dir, "old/D.md", card("D", "In Tests")[1], "2026-01-04T00:00:00+00:00");
+  spawnSync("git", ["mv", "old/D.md", card("D")[0]], { cwd: dir });
+  commitCardAt(dir, ...card("C", "Done"), "2026-01-05T00:00:00+00:00");
+  writeFileSync(join(dir, ".github/cards/tasks/_orphan/UNCOMMITTED.md"), "---\ncard_id: U\n---\n");
+
+  // --follow lists the pre-rename commit too; the new path doesn't exist there and is skipped.
+  const renamed = statusHistoryForFile(dir, card("D")[0]);
+  assert.deepEqual(renamed.map((h) => h.status), ["In Tests"]);
+  assert.match(renamed[0].date, /^2026-01-05/);
+
+  const json = runMetrics(dir, ["--json"]);
+  assert.equal(json.status, 0, json.stderr);
+  assert.deepEqual(JSON.parse(json.stdout), {
+    currentWip: { "In Progress": 1, "In Tests": 1, Done: 1 },
+    cycleTimeByStatus: { Backlog: { avgDays: 2.5, samples: 2 } },
+    cardCount: 5,
+  });
+
+  const text = runMetrics(dir);
+  assert.equal(text.status, 0, text.stderr);
+  assert.match(text.stdout, /\[cards-metrics\] 5 card\(s\) with git history/);
+  assert.match(text.stdout, /WIP now, by status:\n {4}1 {2}/);
+  for (const status of ["In Progress", "In Tests", "Done"]) assert.match(text.stdout, new RegExp(`\\n {4}1 {2}${status}\\n`));
+  assert.match(text.stdout, / {3}2\.5d avg {2}Backlog {2}\(2 samples\)/);
+});
+
+test("CLI: no cards / no history prints placeholders", () => {
+  const r = runMetrics(makeRepo());
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /0 card\(s\)/);
+  assert.match(r.stdout, /\(no cards with a status set\)/);
+  assert.match(r.stdout, /\(not enough history yet/);
+});
+
+test("CLI: unexpected errors are reported as FATAL", () => {
+  const dir = mkdtempSync(join(tmpdir(), "hyperion-metrics-fatal-"));
+  createdDirs.push(dir);
+  const preload = join(dir, "throw.mjs");
+  writeFileSync(preload, `console.log = () => { throw new Error("injected"); };\n`);
+  const r = runMetrics(dir, [], ["--import", pathToFileURL(preload).href]);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /\[cards-metrics\] FATAL: injected/);
 });

@@ -5,10 +5,11 @@
  *      npm run hyperion:project-verify -- --root .
  */
 import { existsSync, readFileSync, statSync } from "node:fs";
-import { join, resolve, dirname } from "node:path";
+import { join, resolve, dirname, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { readProjectCommands } from "./repo-detect.mjs";
 import { hasCatalog, validateLanguageConfig } from "./i18n.mjs";
+import { ciError, ciErrorList } from "./ci-annotate.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -79,6 +80,16 @@ function pathExists(root, rel) {
   return existsSync(abs);
 }
 
+/** Scalar YAML value: a quoted value keeps any `#`; a plain one loses its inline ` # comment`. */
+function scalarValue(raw) {
+  const s = raw.trim();
+  if (s[0] === '"' || s[0] === "'") {
+    const close = s.indexOf(s[0], 1);
+    if (close > 0) return s.slice(1, close);
+  }
+  return s.replace(/(^|\s)#.*$/, "").trim().replace(/^["']|["']$/g, "");
+}
+
 function extractTopKey(text, key) {
   const re = new RegExp(`^${key}:\\s*(.+)$`, "m");
   const m = text.match(re);
@@ -109,14 +120,9 @@ function extractAppPaths(text) {
     }
     if (!currentApp) continue;
     const rootM = line.match(/^\s{4}root:\s*(.+)$/);
-    if (rootM) paths.push({ kind: `apps.${currentApp}.root`, rel: rootM[1].trim().replace(/^["']|["']$/g, "") });
+    if (rootM) paths.push({ kind: `apps.${currentApp}.root`, rel: scalarValue(rootM[1]) });
     const manM = line.match(/^\s{4}manifest:\s*(.+)$/);
-    if (manM) paths.push({ kind: `apps.${currentApp}.manifest`, rel: manM[1].trim().replace(/^["']|["']$/g, "") });
-    const srcM = line.match(/^\s{6}-\s+(.+)$/);
-    // source_dirs list items — only if previous context was source_dirs; heuristic: indented list under apps
-    if (srcM && /source_dirs:/.test(lines[lines.indexOf(line) - 1] || "")) {
-      paths.push({ kind: `apps.${currentApp}.source_dirs`, rel: srcM[1].trim().replace(/^["']|["']$/g, "") });
-    }
+    if (manM) paths.push({ kind: `apps.${currentApp}.manifest`, rel: scalarValue(manM[1]) });
   }
   // Second pass for source_dirs blocks
   let app = null;
@@ -150,7 +156,7 @@ function extractAppPaths(text) {
       if (item) {
         paths.push({
           kind: `apps.${app}.source_dirs`,
-          rel: item[1].trim().replace(/^["']|["']$/g, ""),
+          rel: scalarValue(item[1]),
         });
       }
     }
@@ -159,13 +165,18 @@ function extractAppPaths(text) {
 }
 
 function extractDocsPaths(text) {
-  const block = text.match(/^docs:\s*\n([\s\S]*?)(?=\n[a-zA-Z_]|\n*$)/m);
-  if (!block) return [];
   const out = [];
-  for (const line of block[1].split(/\r?\n/)) {
+  let inDocs = false;
+  for (const line of text.split(/\r?\n/)) {
+    if (/^docs:\s*$/.test(line)) {
+      inDocs = true;
+      continue;
+    }
+    if (/^[a-zA-Z_]/.test(line)) inDocs = false;
+    if (!inDocs) continue;
     const m = line.match(/^\s{2}(\w+):\s*(.+)$/);
     if (!m) continue;
-    const val = m[2].trim().replace(/^["']|["']$/g, "");
+    const val = scalarValue(m[2]);
     if (!val || val === "null" || val === "~") continue;
     out.push({ kind: `docs.${m[1]}`, rel: val });
   }
@@ -182,10 +193,14 @@ async function main() {
   const ymlPath = join(root, ".github", "project.yml");
   if (!existsSync(ymlPath)) {
     console.error("FAIL: missing .github/project.yml — run /discover Configure or /migrate");
+    ciError("There is no .github/project.yml. Create it with /discover (Configure) or /migrate, or copy .github/project.example.yml.", {
+      title: "project.yml missing",
+    });
     process.exit(1);
   }
 
   const text = readFileSync(ymlPath, "utf8");
+  const problems = [];
   let failed = 0;
   const warnings = [];
 
@@ -195,6 +210,7 @@ async function main() {
   } else if (!schemaResult.ok) {
     for (const e of schemaResult.errors) {
       console.error(`FAIL schema: ${e}`);
+      problems.push(`schema: ${e}`);
       failed++;
     }
   } else {
@@ -204,6 +220,7 @@ async function main() {
   const version = extractTopKey(text, "version");
   if (!version || !/^\d+$/.test(version)) {
     console.error("FAIL: project.yml must have integer `version:`");
+    problems.push("`version:` must be an integer");
     failed++;
   } else {
     console.log(`OK version: ${version}`);
@@ -212,6 +229,7 @@ async function main() {
   const name = extractTopKey(text, "name");
   if (!name) {
     console.error("FAIL: project.yml must have `name:`");
+    problems.push("`name:` is required");
     failed++;
   } else {
     console.log(`OK name: ${name}`);
@@ -227,6 +245,7 @@ async function main() {
   const lang = validateLanguageConfig(text);
   for (const e of lang.errors) {
     console.error(`FAIL language: ${e}`);
+    problems.push(`language: ${e}`);
     failed++;
   }
   warnings.push(...lang.warnings);
@@ -245,6 +264,7 @@ async function main() {
   for (const { kind, rel } of [...extractAppPaths(text), ...extractDocsPaths(text)]) {
     if (!pathExists(root, rel)) {
       console.error(`FAIL ${kind}: path missing → ${rel}`);
+      problems.push(`${kind}: path ${rel} does not exist in the repository`);
       failed++;
     } else {
       try {
@@ -260,6 +280,12 @@ async function main() {
 
   if (failed) {
     console.error(`\nproject-verify FAILED (${failed})`);
+    const rel = relative(root, ymlPath);
+    ciErrorList(
+      "project.yml invalid",
+      problems.map((message) => ({ file: rel, message })),
+      `${failed} problem(s) in .github/project.yml (rules: .github/project.schema.json, example: .github/project.example.yml). Reproduce: npm run hyperion:project-verify`
+    );
     process.exit(1);
   }
   console.log("project-verify OK");
@@ -267,5 +293,6 @@ async function main() {
 
 main().catch((err) => {
   console.error(`FAIL: unexpected error — ${err.message}`);
+  ciError(`${err.message} — likely a Hyperion bug; open an issue with the log.`, { title: "project-verify crashed" });
   process.exit(1);
 });

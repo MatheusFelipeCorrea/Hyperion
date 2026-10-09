@@ -1,4 +1,5 @@
-﻿import fs from "node:fs/promises";
+﻿import "./load-env.mjs";
+import fs from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
 import { execSync } from "node:child_process";
@@ -9,6 +10,7 @@ import {
   resolveRepoConfig,
   detectProjectLocaleFromYml,
   loadLabelsCatalog,
+  parseProjectYmlBackend,
 } from "./lib.mjs";
 import { resolveHyperionPaths } from "../hyperion/paths.mjs";
 
@@ -28,9 +30,8 @@ async function detectBackend(repoConfig) {
   if (cfgBackend) return String(cfgBackend).toLowerCase();
 
   try {
-    const raw = await fs.readFile(projectYmlPath, "utf8");
-    const backendMatch = raw.match(/management:\s*[\s\S]*?backend\s*:\s*([^\s#]+)\s*(?:\n|$)/m);
-    if (backendMatch?.[1]) return String(backendMatch[1]).toLowerCase();
+    const backend = parseProjectYmlBackend(await fs.readFile(projectYmlPath, "utf8"));
+    if (backend) return backend;
   } catch {}
 
   return "github";
@@ -146,11 +147,10 @@ async function gitlabFetch(gitlabBase, token, endpoint, method = "GET", body = u
     body: body ? JSON.stringify(body) : undefined,
   });
   const text = await response.text();
-  const payload = text ? JSON.parse(text) : null;
   if (!response.ok) {
-    throw new Error(`GitLab request failed (${response.status}): ${text}`);
+    throw new Error(`GitLab request failed (${response.status}): ${text.replace(/\s+/g, " ").trim().slice(0, 200)}`);
   }
-  return payload;
+  return text ? JSON.parse(text) : null;
 }
 
 async function listProjectLabelsGitLab(gitlabBase, token, projectId) {

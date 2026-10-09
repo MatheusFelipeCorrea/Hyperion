@@ -73,10 +73,13 @@ async function main() {
   } else {
     const raw = await fs.readFile(projectYml, "utf8");
     if (!/^\s*kit\s*:/m.test(raw)) {
-      const next = raw.replace(/^version:\s*(\d+)\s*$/m, `version: $1\n\nkit:\n  root: ${kitName}\n`);
-      if (force || next !== raw) {
+      let next = raw.replace(/^version:\s*(\d+)\s*$/m, `version: $1\n\nkit:\n  root: ${kitName}\n`);
+      if (next === raw && force) next = `kit:\n  root: ${kitName}\n\n${raw}`;
+      if (next !== raw) {
         await fs.writeFile(projectYml, next, "utf8");
         ok("Added kit.root to existing .github/project.yml");
+      } else {
+        warn("project.yml has no version: line — kit.root not added (re-run with --force to prepend it)");
       }
     } else {
       warn("project.yml already has kit: — leave as-is");

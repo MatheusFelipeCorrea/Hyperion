@@ -548,8 +548,6 @@ export async function readSyncBackendHint({ projectYmlPath, projectsMapPath, rep
       const raw = await fs.readFile(projectYmlPath, "utf8");
       const m = raw.match(/^\s*backend\s*:\s*(\S+)/m);
       if (m?.[1]) return m[1].trim().replace(/^["']|["']$/g, "").toLowerCase();
-      const mgmt = raw.match(/^\s*management\s*:\s*\n[\s\S]*?^\s{2}backend\s*:\s*(\S+)/m);
-      if (mgmt?.[1]) return mgmt[1].trim().replace(/^["']|["']$/g, "").toLowerCase();
     } catch {
       /* ignore */
     }
@@ -720,6 +718,14 @@ export async function detectProjectLocaleFromYml(projectYmlPath) {
     if (match?.[1]) return match[1];
   } catch {}
   return null;
+}
+
+/** `management.backend` from project.yml text, lowercased; tolerates quotes, an inline `# comment` and CRLF. */
+export function parseProjectYmlBackend(raw) {
+  const match = String(raw).match(
+    /management:\s*[\s\S]*?backend[^\S\n]*:[^\S\n]*["']?([^\s#"']+)["']?[^\S\n]*(?:#[^\n]*)?$/m
+  );
+  return match ? match[1].toLowerCase() : null;
 }
 
 export function resolveLabelsCatalogFilePath(cardsRoot, repoConfig, locale) {
