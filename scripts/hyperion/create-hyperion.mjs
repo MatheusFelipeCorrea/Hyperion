@@ -24,7 +24,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
 import { spawnSync } from "node:child_process";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { pathExists, fail, log, ok, warn } from "./lib.mjs";
 import {
   cleanupTemp,
@@ -47,6 +47,23 @@ const SKIP_RELATIVE_DIRS = new Set([".github/plans", ".github/audits/results"]);
 // project.example.yml (already a plain file, not skipped) is the real
 // starting point; /setup or /migrate generates the product's own.
 const SKIP_RELATIVE_FILES = new Set([".github/project.yml"]);
+
+// The Hyperion repo's own tooling (scripts/kit, `kit:*` npm scripts) and its own
+// CI (every workflow not named hyperion-*: QA gate, branch flow, internal sync…)
+// never belong in a product.
+export function isKitOnly(rel) {
+  const n = rel.replace(/\\/g, "/");
+  if (n === "scripts/kit" || n.startsWith("scripts/kit/")) return true;
+  const wf = n.match(/^\.github\/workflows\/([^/]+)$/);
+  return Boolean(wf) && !wf[1].startsWith("hyperion-");
+}
+
+export function stripKitScripts(packageJsonText) {
+  const pkg = JSON.parse(packageJsonText);
+  if (!pkg.scripts) return packageJsonText;
+  for (const name of Object.keys(pkg.scripts)) if (name.startsWith("kit:")) delete pkg.scripts[name];
+  return `${JSON.stringify(pkg, null, 2)}\n`;
+}
 
 function parseArgs(argv) {
   const positional = [];
@@ -107,12 +124,15 @@ async function copyKitTree(from, to, { relBase = "" } = {}) {
     if (entry.isDirectory()) {
       if (SKIP_DIR_NAMES.has(entry.name)) continue;
       if (SKIP_RELATIVE_DIRS.has(rel.replace(/\\/g, "/"))) continue;
+      if (isKitOnly(rel)) continue;
       await fs.mkdir(toPath, { recursive: true });
       count += await copyKitTree(fromPath, toPath, { relBase: rel });
     } else if (entry.isFile()) {
       if (SKIP_RELATIVE_FILES.has(rel.replace(/\\/g, "/"))) continue;
+      if (isKitOnly(rel)) continue;
       await fs.mkdir(to, { recursive: true });
-      await fs.copyFile(fromPath, toPath);
+      if (rel === "package.json") await fs.writeFile(toPath, stripKitScripts(await fs.readFile(fromPath, "utf8")));
+      else await fs.copyFile(fromPath, toPath);
       count += 1;
     }
   }
@@ -128,9 +148,11 @@ async function countKitTreeFiles(from, { relBase = "" } = {}) {
     if (entry.isDirectory()) {
       if (SKIP_DIR_NAMES.has(entry.name)) continue;
       if (SKIP_RELATIVE_DIRS.has(rel.replace(/\\/g, "/"))) continue;
+      if (isKitOnly(rel)) continue;
       count += await countKitTreeFiles(path.join(from, entry.name), { relBase: rel });
     } else if (entry.isFile()) {
       if (SKIP_RELATIVE_FILES.has(rel.replace(/\\/g, "/"))) continue;
+      if (isKitOnly(rel)) continue;
       count += 1;
     }
   }
@@ -230,7 +252,10 @@ async function main() {
   }
 }
 
-main().catch((err) => {
-  fail(err.message);
-  process.exit(1);
-});
+const isMain = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
+if (isMain) {
+  main().catch((err) => {
+    fail(err.message);
+    process.exit(1);
+  });
+}

@@ -103,6 +103,17 @@ jobs:
             echo "::error title=create-hyperion wrote product workflows::Found $(ls ../.github/workflows | tr '\n' ' ')in the new product's .github/workflows. Installing must not add CI on its own; product workflows come from /pipeline (pipeline-apply)."
             exit 1
           fi
+          leaked=""
+          [ -e scripts/kit ] && leaked="$leaked scripts/kit/"
+          for f in .github/workflows/*; do
+            [ -e "$f" ] || continue
+            case "$(basename "$f")" in hyperion-*) ;; *) leaked="$leaked $f" ;; esac
+          done
+          if grep -q '"kit:' package.json; then leaked="$leaked package.json(kit:*)"; fi
+          if [ -n "$leaked" ]; then
+            echo "::error title=create-hyperion copied kit-only files::The nested kit got$leaked. scripts/kit, kit:* npm scripts and non-hyperion-* workflows are the Hyperion repo's own tooling; keep them excluded in isKitOnly/stripKitScripts (scripts/hyperion/create-hyperion.mjs)."
+            exit 1
+          fi
 
       - name: Existing product on main → upgrade to this candidate
         run: |
@@ -133,7 +144,10 @@ jobs:
             exit 1
           fi
 
-      - name: Flat layout upgrade never copies workflows
+      # Requires PR #91 (fix/upgrade-kit-workflows): upgrade no longer touches
+      # .github/workflows at all — no kit workflow (hyperion-* included) is added,
+      # and the product's own are neither changed nor removed.
+      - name: Flat layout upgrade leaves .github/workflows untouched and ships nothing kit-only
         run: |
           set -euo pipefail
           P="$RUNNER_TEMP/flat"
@@ -141,13 +155,18 @@ jobs:
           cd "$P" && git init -q
           printf '{ "name": "acme-app", "version": "1.0.0" }\n' > package.json
           echo 'name: product-ci' > .github/workflows/ci.yml
+          echo 'name: product-hyperion-named' > .github/workflows/hyperion-validate.yml
+          ( find .github/workflows -type f -print0 | sort -z | xargs -0 sha256sum ) > "$RUNNER_TEMP/flat-workflows.sha"
           node "$CANDIDATE/scripts/hyperion/upgrade.mjs" --from "$CANDIDATE" --yes
-          extra=""
-          for f in .github/workflows/*; do
-            [ "$(basename "$f")" = "ci.yml" ] || extra="$extra $(basename "$f")"
-          done
-          if [ -n "$extra" ]; then
-            echo "::error title=Upgrade copied kit workflows::hyperion:upgrade put$extra into a flat-layout product. The kit's own CI must never propagate; check MANAGED_DIRS in scripts/hyperion/upgrade-lib.mjs."
+          if ! ( find .github/workflows -type f -print0 | sort -z | xargs -0 sha256sum ) | diff "$RUNNER_TEMP/flat-workflows.sha" -; then
+            echo "::error title=Upgrade touched product workflows::hyperion:upgrade added, changed or removed files under .github/workflows of a flat-layout product (diff above). Upgrade must never touch workflows, not even hyperion-*; product workflows come from /pipeline (pipeline-apply). Keep .github/workflows out of collectManagedRels in scripts/hyperion/upgrade-lib.mjs."
+            exit 1
+          fi
+          leaked=""
+          [ -e scripts/kit ] && leaked="$leaked scripts/kit/"
+          if grep -q '"kit:' package.json; then leaked="$leaked package.json(kit:*)"; fi
+          if [ -n "$leaked" ]; then
+            echo "::error title=Upgrade copied kit-only files::hyperion:upgrade put$leaked into a flat-layout product. scripts/kit and kit:* npm scripts are the Hyperion repo's own tooling; keep them out of MANAGED_DIRS and KIT_SCRIPT_PREFIXES in scripts/hyperion/upgrade-lib.mjs."
             exit 1
           fi
           node scripts/hyperion/adopt-check.mjs --root .
