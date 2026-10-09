@@ -115,5 +115,7 @@
   "review.summary": "Resumen",
   "review.findings": "Hallazgos",
   "review.suggested": "Cambios sugeridos",
-  "review.testOutput": "Salida de las pruebas"
+  "review.testOutput": "Salida de las pruebas",
+
+  "setup.languagesEmpty": "--languages tiene una entrada vacía ('{value}') — indica etiquetas BCP 47 separadas por comas, p. ej. --languages es,en"
 }

@@ -115,5 +115,7 @@
   "review.summary": "Summary",
   "review.findings": "Findings",
   "review.suggested": "Suggested changes",
-  "review.testOutput": "Test output"
+  "review.testOutput": "Test output",
+
+  "setup.languagesEmpty": "--languages has an empty entry ('{value}') — pass comma-separated BCP 47 tags, e.g. --languages pt-BR,en"
 }
