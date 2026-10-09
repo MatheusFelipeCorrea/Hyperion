@@ -70,7 +70,7 @@ describe("ci-sync.mjs", { concurrency: 6 }, () => {
   test("missing projectNumber is fatal when CARDS_CI_REQUIRE_PROJECT=true", async () => {
     const r = await run({ env: { CARDS_CI_REQUIRE_PROJECT: "true" } });
     assert.equal(r.status, 1);
-    assert.match(r.stderr, /FATAL: CI pull-before-push requires projectNumber/);
+    assert.match(r.stderr, /FATAL: CI pull-before-push requires a GitHub Project: set projectNumber in projects-map.json or the PROJECT_NUMBER env/);
     assert.equal(stubCalls(r.stdout).length, 0);
   });
 

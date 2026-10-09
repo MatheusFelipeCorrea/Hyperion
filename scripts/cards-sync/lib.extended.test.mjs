@@ -314,7 +314,7 @@ test("assertCiProjectConfigured: off by default, ok with a projectNumber", async
     assert.deepEqual(await lib.assertCiProjectConfigured(configPath, "other/repo"), {
       ok: false,
       reason: "missing_project_number",
-      message: "CI pull-before-push requires projectNumber in projects-map.json. Run: npm run cards:doctor",
+      message: "CI pull-before-push requires a GitHub Project: set projectNumber in projects-map.json or the PROJECT_NUMBER env (a repository variable only reaches this step if the workflow maps it: `PROJECT_NUMBER: ${{ vars.PROJECT_NUMBER }}`). Run: npm run cards:doctor",
     });
   });
   const noOwner = writeFile(root, "p2.json", JSON.stringify({ default: { projectNumber: 1 } }));

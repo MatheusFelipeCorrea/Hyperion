@@ -67,7 +67,7 @@ describe("pr-board-guard.mjs", { concurrency: 6 }, () => {
   test("missing projectNumber is fatal when required", async () => {
     const r = await run({ env: { CARDS_CI_REQUIRE_PROJECT: "true" } });
     assert.equal(r.status, 1);
-    assert.match(r.stderr, /\[pr-guard\] FATAL: CI pull-before-push requires projectNumber/);
+    assert.match(r.stderr, /\[pr-guard\] FATAL: CI pull-before-push requires a GitHub Project: set projectNumber in projects-map\.json or the PROJECT_NUMBER env/);
   });
 
   test("validation failure is fatal with the validator's exit code", async () => {
