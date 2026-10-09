@@ -74,25 +74,22 @@ describe("hyperion doctor.mjs", { concurrency: true }, () => {
   it("a failing cards-sync doctor fails the kit doctor", async () => {
     const r = await run(kitWorkspace({}, { backend: "azure" }));
     assert.equal(r.status, 1, r.out);
-    assert.match(r.stdout, /cards-sync doctor reported issues\./);
+    assert.match(r.stdout, /cards-sync doctor reported issues \(exit 1\)\./);
   });
 
-  it("a cards-sync doctor that finished but exited non-zero is tolerated only on Windows", async () => {
+  it("a cards-sync doctor that finished but exited non-zero fails the kit doctor on every platform", async () => {
     const cwd = kitWorkspace(githubMap({ projectNumber: 1 }));
     const r = await run(cwd, [], { ...GITHUB, ...fetchMockEnv(PROJECT_ROUTE) });
     assert.match(r.stdout, /Status field is missing Hyperion options/);
-    if (process.platform === "win32") {
-      assert.equal(r.status, 0, r.out);
-      assert.match(r.stdout, /Windows Node cleanup quirk/);
-    } else {
-      assert.equal(r.status, 1, r.out);
-      assert.match(r.stdout, /cards-sync doctor reported issues\./);
-    }
+    assert.match(r.stdout, /Doctor finished\./, "the cards doctor ran to completion");
+    assert.equal(r.status, 1, r.out);
+    assert.match(r.stdout, /❌ cards-sync doctor reported issues \(exit 1\)\./);
+    assert.doesNotMatch(r.stdout, /Doctor complete|warning\(s\) — kit usable/);
   });
 
   it("reports unexpected errors as FATAL", async () => {
     const r = await run(kitWorkspace({ ".github/workflows": "not a directory\n" }), ["--skip-cards"]);
     assert.equal(r.status, 1);
-    assert.match(r.stdout, /FATAL: .*ENOTDIR|FATAL: /);
+    assert.match(r.stdout, /❌ FATAL: ENOTDIR: not a directory, scandir '.*workflows'/);
   });
 });

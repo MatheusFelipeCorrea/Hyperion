@@ -46,7 +46,8 @@ describe("hyperion sync.mjs", { concurrency: true }, () => {
 
   it("propagates a failing cards sync", async () => {
     const r = await run(kitWorkspace({}, { backend: "azure" }), [], { GITHUB_REPOSITORY: "acme/app", PROJECT_SYNC_TOKEN: "test-token" });
-    assert.notEqual(r.status, 0, r.out);
+    assert.equal(r.status, 1, r.out);
+    assert.match(r.stderr, /Azure DevOps backend requires AZDO_ORG_URL, AZDO_PROJECT, and AZDO_PAT/);
     assert.doesNotMatch(r.stdout, /Sync complete\./);
   });
 

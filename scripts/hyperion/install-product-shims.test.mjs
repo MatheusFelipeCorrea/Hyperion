@@ -163,16 +163,24 @@ describe("install-product-shims (relocated into a temp product)", { concurrency:
     assert.match(again.stdout, /Skip existing Cursor rules shim/);
   });
 
-  it("an existing project.yml without a version line is only rewritten with --force", async () => {
+  it("an existing project.yml without a version line only gets kit.root with --force", async () => {
     const dir = product({ ".github/project.yml": "name: App\n", "CLAUDE.md": "# mine\n" });
     let r = await shims(dir);
     assert.equal(r.status, 0);
     assert.doesNotMatch(r.stdout, /Added kit\.root/);
+    assert.match(r.stdout, /no version: line — kit\.root not added \(re-run with --force/);
+    assert.equal(read(dir, ".github/project.yml"), "name: App\n");
     assert.equal(read(dir, "CLAUDE.md"), "# mine\n");
 
     r = await shims(dir, ["--force"]);
     assert.equal(r.status, 0);
+    assert.match(r.stdout, /Added kit\.root/);
+    assert.equal(read(dir, ".github/project.yml"), "kit:\n  root: Kit\n\nname: App\n");
     assert.match(read(dir, "CLAUDE.md"), /Hyperion \(shim\)/, "--force overwrites the CLAUDE.md shim");
+
+    r = await shims(dir, ["--force"]);
+    assert.match(r.stdout, /already has kit:/, "--force is idempotent once kit: exists");
+    assert.equal(read(dir, ".github/project.yml"), "kit:\n  root: Kit\n\nname: App\n");
   });
 
   it("defaults the kit folder to Hyperion/", async () => {

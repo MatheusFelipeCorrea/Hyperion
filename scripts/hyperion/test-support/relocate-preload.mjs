@@ -18,9 +18,10 @@ import { isMainThread } from "node:worker_threads";
 
 const from = process.env.HYPERION_RELOCATE_FROM;
 const to = process.env.HYPERION_RELOCATE_TO;
-const fromUrl = from ? pathToFileURL(from).href : null;
+// Also evaluated in the hooks thread, where load() below compares against it.
+const fromUrl = pathToFileURL(String(from)).href;
 
-if (isMainThread && fromUrl && to) {
+if (isMainThread && from && to) {
   globalThis.__RU = pathToFileURL(to).href;
   if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(from)) process.argv[1] = to;
   register(import.meta.url);

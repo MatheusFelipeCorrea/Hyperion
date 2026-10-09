@@ -10,7 +10,7 @@ import { syncBuiltinESMExports } from "node:module";
 import path from "node:path";
 
 const only = process.env.HYPERION_FAULT_ENTRY;
-if (!only || path.basename(process.argv[1] || "") === only) {
+if (!only || path.basename(process.argv[1]) === only) {
   childProcess.spawnSync = () => {
     throw new Error("injected spawnSync failure");
   };

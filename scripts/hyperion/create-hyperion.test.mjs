@@ -2,7 +2,17 @@ import { after, before, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { cleanupTmp, gitCommitAll, githubToLocalEnv, hyperionDir, makeBin, makeTmp, runNodeAsync, writeFiles } from "./test-support/cli-harness.mjs";
+import {
+  cleanupTmp,
+  gitCommitAll,
+  githubToLocalEnv,
+  hyperionDir,
+  makeBin,
+  makeTmp,
+  relocateEnv,
+  runNodeAsync,
+  writeFiles,
+} from "./test-support/cli-harness.mjs";
 
 const create = join(hyperionDir, "create-hyperion.mjs");
 
@@ -73,10 +83,15 @@ describe("create-hyperion.mjs local scaffold", { concurrency: true }, () => {
     assert.equal(existsSync(join(cwd, "app")), false);
   });
 
-  it("dry-run from this checkout (default source) succeeds", async () => {
-    const r = await runNodeAsync(create, ["app"], { cwd: makeTmp() });
+  it("without --from/--repo the source is the kit the script lives in", async () => {
+    // Relocated into a mini kit: the real checkout (or an adopter's whole repo after
+    // an upgrade) would otherwise be walked as the source.
+    const kit = miniKit();
+    const env = relocateEnv(create, join(kit, "scripts", "hyperion", "create-hyperion.mjs"));
+    const r = await runNodeAsync(create, ["app"], { cwd: makeTmp(), env });
     assert.equal(r.status, 0, r.out);
-    assert.match(r.stdout, /Source: local checkout/);
+    assert.ok(r.stdout.includes(`Source: local checkout (${kit})`), r.stdout);
+    assert.match(r.stdout, new RegExp(`Would copy ~${KIT_FILES} file\\(s\\)`));
   });
 
   it("--yes --skip-install --skip-adopt copies the kit minus runtime/output paths", async () => {

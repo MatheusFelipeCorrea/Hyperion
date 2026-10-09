@@ -10,7 +10,7 @@ import {
   warn,
   workspaceRoot,
 } from "./lib.mjs";
-import { applyLanguageConfig, normalizeTag, resolveLanguages } from "./i18n.mjs";
+import { applyLanguageConfig, normalizeTag, resolveLanguages, t } from "./i18n.mjs";
 import { detectRepoLanguage } from "./detect-language.mjs";
 
 const argYes = process.argv.includes("--yes");
@@ -29,7 +29,7 @@ function applyLanguageFlags() {
   const locale = argValue("--locale");
   const languagesRaw = argValue("--languages");
   const settings = resolveLanguages(workspaceRoot);
-  if (!locale && !languagesRaw) {
+  if (!locale && languagesRaw === null) {
     if (settings.source !== "project.yml") {
       const det = detectRepoLanguage(workspaceRoot, { gh: false });
       warn(
@@ -39,7 +39,11 @@ function applyLanguageFlags() {
     }
     return;
   }
-  const languages = languagesRaw ? languagesRaw.split(",").map((s) => s.trim()).filter(Boolean) : null;
+  const languages = languagesRaw === null ? null : languagesRaw.split(",").map((s) => s.trim());
+  if (languages?.some((tag) => !tag)) {
+    fail(t("setup.languagesEmpty", { value: languagesRaw }, settings.primary, { root: workspaceRoot }));
+    process.exit(1);
+  }
   const invalid = [locale, ...(languages || [])].filter((tag) => tag && !normalizeTag(tag));
   if (invalid.length) {
     fail(`Invalid language tag(s): ${invalid.join(", ")} (use BCP 47, e.g. en, pt-BR, es)`);
