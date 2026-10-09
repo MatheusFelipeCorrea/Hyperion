@@ -94,9 +94,10 @@ try {
     const locale = localeMatch?.[1];
     const backend = parseProjectYmlBackend(projectRaw);
 
-    if (backend && backend !== "github" && backend !== "jira") {
-      console.log(`[validate] ⚠️  management.backend is set to "${backend}".`);
-      console.log("[validate] This kit currently performs real sync for GitHub and Jira. Other backends remain roadmap.");
+    const SUPPORTED_BACKENDS = ["github", "jira", "azure-devops", "azure", "gitlab", "linear"];
+    if (backend && !SUPPORTED_BACKENDS.includes(backend)) {
+      console.log(`[validate] ⚠️  management.backend is set to "${backend}", which this kit doesn't recognize.`);
+      console.log(`[validate] Supported backends: ${SUPPORTED_BACKENDS.join(", ")}.`);
     }
 
     if (locale) {

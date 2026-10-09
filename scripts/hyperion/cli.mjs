@@ -67,7 +67,7 @@ export const COMMANDS = {
 // anyone catching it. See cli.test.mjs for the parity test that now
 // guards this.
 
-const CARDS_COMMANDS = {
+export const CARDS_COMMANDS = {
   sync: { script: "sync.mjs", desc: "cards:sync" },
   "dry-run": { script: "sync.mjs", desc: "cards dry-run", args: ["--dry-run"] },
   reverse: { script: "sync.mjs", desc: "cards reverse", args: ["--reverse"] },
@@ -79,6 +79,13 @@ const CARDS_COMMANDS = {
   metrics: { script: "metrics.mjs", desc: "cards:metrics" },
   history: { script: "history.mjs", desc: "cards:history" },
   notify: { script: "notify.mjs", desc: "cards:notify" },
+  "ci-sync": { script: "ci-sync.mjs", desc: "cards:ci-sync" },
+  "pr-guard": { script: "pr-board-guard.mjs", desc: "cards:pr-guard" },
+  "pr-recheck": { script: "report-pr-guard-check.mjs", desc: "cards:pr-recheck" },
+  hook: { script: "install-hook.mjs", desc: "cards:hook" },
+  "labels-reset": { script: "labels-reset.mjs", desc: "cards:labels-reset" },
+  "migrate-layout": { script: "migrate-layout.mjs", desc: "cards:migrate-layout" },
+  "project-fields-apply": { script: "project-fields-apply.mjs", desc: "cards:project-fields-apply" },
 };
 
 export function resolveCommand(argv) {

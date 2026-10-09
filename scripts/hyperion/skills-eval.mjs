@@ -56,6 +56,16 @@ const bad = (c, path, message) => {
   problems.push({ file: path ? relative(root, path) : undefined, message: `${caseLabel(c)}: ${message}` });
   failed++;
 };
+
+const coveredSkills = new Set(cases.filter((c) => c.skill).map((c) => c.skill));
+for (const folder of skills.keys()) {
+  if (!coveredSkills.has(folder)) {
+    console.error(`FAIL ${folder}: no case in cases.json covers this skill`);
+    problems.push({ file: undefined, message: `${folder}: no case in cases.json covers this skill` });
+    failed++;
+  }
+}
+
 for (const c of cases) {
   const path = resolveCasePath(c, skills);
   if (!path) {

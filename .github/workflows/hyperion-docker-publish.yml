@@ -107,6 +107,15 @@ jobs:
             echo "  -- $cmd --help"
             docker run --rm -v "$PWD:/workspace" "$IMAGE_TAG" "$cmd" --help
           done
+          # The `cards <sub>` dispatch (a distinct code path from the plain
+          # hyperion:*/docs:*/skills:* commands above — see cli.mjs's
+          # resolveCommand) never ran inside the real container before,
+          # which is exactly how 7 of the 18 cards:* scripts went
+          # unreachable via `docker run` without the smoke test noticing.
+          # cards validate is real (not --help) but read-only/local-only —
+          # safe to run for real against this checkout.
+          echo "  -- cards validate"
+          docker run --rm -v "$PWD:/workspace" "$IMAGE_TAG" cards validate
 
       - name: Push image (smoke test passed)
         run: |

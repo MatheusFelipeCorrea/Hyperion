@@ -19,6 +19,10 @@
 .github/plans/cards/sync-history.jsonl
 .github/plans/telemetry/usage.jsonl
 
+# hyperion:upgrade backs up any managed file it's about to overwrite here
+# before applying — see PRESERVE_PREFIXES / backup-before-overwrite in upgrade-lib.mjs
+.hyperion-upgrade-backup/
+
 # OS files
 .DS_Store
 Thumbs.db

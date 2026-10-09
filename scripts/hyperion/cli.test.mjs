@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { resolveCommand, COMMANDS } from "./cli.mjs";
+import { resolveCommand, COMMANDS, CARDS_COMMANDS } from "./cli.mjs";
 
 describe("hyperion cli resolveCommand", () => {
   it("maps doctor", () => {
@@ -76,6 +76,31 @@ describe("cli.mjs / package.json parity", () => {
     assert.deepEqual(missing, [], `package.json scripts with no cli.mjs COMMANDS entry: ${missing.join(", ")}`);
   });
 
+  // Same class of bug, same fix — but for `cards:*`, which the check above
+  // never covered (its regex is anchored to hyperion|docs|skills only).
+  // This is exactly how the CLI/Docker entrypoint ended up unable to reach
+  // 7 of 18 cards:* scripts (ci-sync, pr-guard, pr-recheck, hook,
+  // labels-reset, migrate-layout, project-fields-apply) with nothing
+  // catching it — the parity test that exists specifically to prevent
+  // "command escaping the registry" had a blind spot for this prefix.
+  it("every cards:* npm script has a matching CARDS_COMMANDS entry", async () => {
+    const { readFile } = await import("node:fs/promises");
+    const { fileURLToPath } = await import("node:url");
+    const path = await import("node:path");
+    const here = path.dirname(fileURLToPath(import.meta.url));
+    const pkg = JSON.parse(await readFile(path.join(here, "..", "..", "package.json"), "utf8"));
+
+    const missing = [];
+    for (const name of Object.keys(pkg.scripts)) {
+      if (!name.startsWith("cards:")) continue;
+      if (EXCLUDED_SCRIPTS.has(name)) continue;
+      const key = name.replace(/^cards:/, "");
+      if (!CARDS_COMMANDS[key]) missing.push(name);
+    }
+
+    assert.deepEqual(missing, [], `package.json cards:* scripts with no CARDS_COMMANDS entry: ${missing.join(", ")}`);
+  });
+
   it("every COMMANDS entry's backing script actually exists on disk", async () => {
     const { existsSync } = await import("node:fs");
     const { fileURLToPath } = await import("node:url");
@@ -84,6 +109,20 @@ describe("cli.mjs / package.json parity", () => {
 
     const missing = Object.entries(COMMANDS)
       .filter(([, spec]) => !existsSync(path.join(hyperionDir, spec.script)))
+      .map(([key]) => key);
+
+    assert.deepEqual(missing, []);
+  });
+
+  it("every CARDS_COMMANDS entry's backing script actually exists on disk", async () => {
+    const { existsSync } = await import("node:fs");
+    const { fileURLToPath } = await import("node:url");
+    const path = await import("node:path");
+    const hyperionDir = path.dirname(fileURLToPath(import.meta.url));
+    const cardsDir = path.join(hyperionDir, "..", "cards-sync");
+
+    const missing = Object.entries(CARDS_COMMANDS)
+      .filter(([, spec]) => !existsSync(path.join(cardsDir, spec.script)))
       .map(([key]) => key);
 
     assert.deepEqual(missing, []);
