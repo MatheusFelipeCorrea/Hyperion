@@ -182,7 +182,7 @@ function warnIfGhCliFallback() {
 }
 
 function readManagementHintsFromProjectYml(content) {
-  const blockMatch = content.match(/^\s*management\s*:\s*\n([\s\S]*?)(?:^\S|\Z)/m);
+  const blockMatch = content.match(/^\s*management\s*:\s*\n([\s\S]*?)(?:^\S|(?![\s\S]))/m);
   if (!blockMatch) return {};
 
   const block = blockMatch[1];
@@ -348,7 +348,7 @@ function enrichBodySubIssues(body, issueByCardId, owner, name) {
 function enrichBodyWithParentSection(body, card, issueByCardId, owner, name) {
   if (!card.parent || !issueByCardId?.has(card.parent)) return body;
 
-  if (/^##\s+.*\b[Pp]arent\b/i.test(body)) {
+  if (/^##\s+.*\b[Pp]arent\b/im.test(body)) {
     const lines = splitBodyLines(body);
     let inSection = false;
     return lines
@@ -375,7 +375,7 @@ function enrichBodyWithParentSection(body, card, issueByCardId, owner, name) {
   if (subMatch?.index !== undefined) {
     return `${body.slice(0, subMatch.index)}\n${block}${body.slice(subMatch.index + 1)}`;
   }
-  const resumoMatch = body.match(/\n##\s+(?:Resumo|Summary|Resumen)/i);
+  const resumoMatch = body.match(/\n##\s+(?:[\u{1F300}-\u{1FAFF}]\uFE0F?\s+)?(?:Resumo|Summary|Resumen)/iu);
   if (resumoMatch?.index !== undefined) {
     return `${body.slice(0, resumoMatch.index)}\n${block}${body.slice(resumoMatch.index + 1)}`;
   }
@@ -1508,7 +1508,7 @@ async function detectProjectLocale() {
 // Dry-run table output
 // ---------------------------------------------------------------------------
 
-export function printDryRunTable(cards, edges) {
+export function printDryRunTable(cards, edges, existedByCardId = new Map()) {
   log("");
   log("=== DRY-RUN REPORT ===");
   log("");
@@ -1521,7 +1521,7 @@ export function printDryRunTable(cards, edges) {
   for (const card of cards) {
     const id = card.cardId.padEnd(22);
     const type = (card.type || "Story").padEnd(8);
-    const action = "CREATE ".padEnd(6);
+    const action = (existedByCardId.get(card.cardId) ? "UPDATE" : "CREATE").padEnd(6);
     const parent = (card.parent || "—").padEnd(19);
     const cats = (card.categories || []).join(", ").slice(0, 23).padEnd(23);
     log(`| ${id} | ${type} | ${action} | ${parent} | ${cats} |`);
@@ -1899,7 +1899,7 @@ async function runForwardSync() {
 
   // Print summary
   if (dryRun) {
-    printDryRunTable(cardsToSync, edges);
+    printDryRunTable(cardsToSync, edges, issueExistedByCardId);
   } else {
     log("");
     log("=== SYNC COMPLETE ===");

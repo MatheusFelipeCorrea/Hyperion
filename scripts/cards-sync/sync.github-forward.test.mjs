@@ -339,8 +339,43 @@ test("forward --dry-run with a token reads the board, prints the plan and sends 
       assert.ok(run.logs.includes(line), `missing log: ${line}`);
     }
     assert.ok(run.logs.some((l) => /^\| APP-2 +\| Story +\| CREATE +\| — +\| Backend +\|$/.test(l)), run.stdout);
-    assert.ok(run.logs.some((l) => /^\| APP-1 +\| Story +\| \w+ +\| APP-2 +\| +\|$/.test(l)), run.stdout);
+    assert.ok(run.logs.some((l) => /^\| APP-1 +\| Story +\| UPDATE +\| APP-2 +\| +\|$/.test(l)), run.stdout);
   });
+});
+
+test("forward keeps a single Parent section and places a new one above the decorated Summary", () => {
+  const cards = {
+    "epics/APP-E.md": card({ id: "APP-E", type: "Epic" }),
+    "stories/APP-A.md": card({ id: "APP-A", parent: "APP-E", body: "# A\n\nIntro\n\n## Parent\n\n- APP-E\n" }),
+    "stories/APP-B.md": card({ id: "APP-B", parent: "APP-E", body: "# B\n\n## Summary\n\nText\n\n## Notes\n\nmore\n" }),
+  };
+  withWorkspace({ cards, config: projectsMap({ autoCreateProject: false, autoDiscoverProject: false }) }, (ws) => {
+    const run = runSync(ws);
+    assert.equal(run.status, 0, run.output);
+    const epic = issueByCard(run.state, "APP-E");
+    const link = `[APP-E (#${epic.number})](https://github.com/acme/app/issues/${epic.number})`;
+
+    const a = issueByCard(run.state, "APP-A").body;
+    assert.equal(a.match(/^## .*Parent/gm).length, 1, a);
+    assert.ok(a.includes(`## 👆 Parent\n\n- ${link}`), a);
+
+    const b = issueByCard(run.state, "APP-B").body;
+    assert.ok(b.includes(`# B\n\n## 👆 Parent\n\n- ${link}\n\n## 📋 Summary`), b);
+  });
+});
+
+test("forward reads management hints from project.yml when the block is last or a value contains Z", () => {
+  const cards = { "stories/APP-1.md": card({ id: "APP-1" }) };
+  for (const projectYml of [
+    "name: app\nlocale: en\nmanagement:\n  backend: azure-devops\n",
+    "management:\n  org: https://dev.azure.com/Zenith\n  backend: azure-devops\nlocale: en\n",
+  ]) {
+    withWorkspace({ cards, files: { ".github/project.yml": projectYml } }, (ws) => {
+      const run = runSync(ws);
+      assert.equal(run.status, 1, run.output);
+      assert.ok(run.logs.includes("Backend: azure-devops"), run.stdout);
+    });
+  }
 });
 
 test("forward with several candidate Projects neither guesses nor auto-creates", () => {
