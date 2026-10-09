@@ -30,10 +30,11 @@
  *      npm run hyperion:distribution-purity-check -- --fix --yes    # apply
  *      … --assume-kit   treat the checkout as the kit (tests / fixtures)
  */
-import { appendFileSync, copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { execFileSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
+import { load } from "js-yaml";
 
 const KIT_PACKAGE_NAME = "hyperion";
 const KIT_REPOSITORY = /github\.com[/:]MatheusFelipeCorrea\/Hyperion(?:\.git)?\/?$/i;
@@ -133,6 +134,36 @@ export function checkSyncCardsNoPushTrigger(root, fail) {
     fail(rel, "has a `push:` trigger — this repo has no real GitHub Project to sync to, a push-triggered run will always fail (or worse, auto-create one)", {
       hint: `git restore --source=${devRef(root)} -- ${rel}`,
     });
+  }
+}
+
+/** internal-*.yml workflows that legitimately live on main (they act on internal from there). */
+export const DISTRIBUTED_INTERNAL_WORKFLOWS = new Set(["internal-sync.yml"]);
+
+/**
+ * internal-*.yml workflows and workflows triggered by a push to `internal`
+ * only exist on that branch (the repo using its own kit). Finding one here
+ * means internal was merged back.
+ */
+export function checkNoInternalOnlyWorkflows(root, fail) {
+  const dir = join(root, ".github", "workflows");
+  if (!existsSync(dir)) return;
+  for (const name of readdirSync(dir).filter((f) => /\.ya?ml$/.test(f))) {
+    const rel = `.github/workflows/${name}`;
+    if (/^internal-/.test(name) && !DISTRIBUTED_INTERNAL_WORKFLOWS.has(name)) {
+      fail(rel, "internal-*.yml workflows only exist on the `internal` branch — internal-only files never leave that branch (internal only pulls from main)");
+      continue;
+    }
+    let doc;
+    try {
+      doc = load(readFileSync(join(dir, name), "utf8"));
+    } catch {
+      continue; // malformed YAML is actionlint's job, not this gate's
+    }
+    const branches = [doc?.on?.push?.branches].flat().filter(Boolean);
+    if (branches.includes("internal")) {
+      fail(rel, "runs on push to `internal` — internal-only files never leave that branch (internal only pulls from main)");
+    }
   }
 }
 
@@ -356,6 +387,7 @@ async function main() {
   const checks = [
     ["projects-map.json has no real projectNumber", checkNoProjectNumber],
     ["hyperion-sync-cards.yml has no push trigger", checkSyncCardsNoPushTrigger],
+    ["no internal-only workflow (internal-*.yml or push to internal)", checkNoInternalOnlyWorkflows],
     ["CODEOWNERS/FUNDING.yml/dependabot.yml not in MANAGED_FILES", checkNotManagedFiles],
     ["no real cards outside _examples/", checkNoRealCards],
     [".github/plans/ has no leaked planning docs", checkNoLeakedPlans],
