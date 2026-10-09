@@ -28,10 +28,10 @@ Cards remain in `.github/cards/` — sync engine reads from there regardless of 
 | Backend | Connection method | Card sync | Bidirectional |
 |---------|------------------|-----------|---------------|
 | **GitHub** (default) | GitHub API / gh CLI | Full (Issues + Projects + fields) | Yes (`--reverse`) |
-| **Jira** | MCP (Atlassian Rovo) or REST API | Forward + reverse (`backends/jira.mjs`) | Yes (`--reverse` rebuilds Markdown) |
-| **Azure DevOps** | MCP (`@azure-devops/mcp`) or REST API | Forward + reverse; `System.State` via `status_map` | Yes (`--reverse`) |
-| **Linear** | MCP (Linear's official server) or GraphQL | Forward + reverse; workflow state via `status_map` | Yes (`--reverse`) |
-| **GitLab** | MCP (GitLab's official server) or REST API | Forward + reverse; open/close + `status:` label | Yes (`--reverse`) |
+| **Jira** | Sync: REST API + `JIRA_*` token. Reading: optional Atlassian Rovo MCP (Jira Cloud only) | Forward + reverse (`backends/jira.mjs`) | Yes (`--reverse` rebuilds Markdown) |
+| **Azure DevOps** | Sync: REST API + `AZDO_PAT`. Reading: optional `@azure-devops/mcp` | Forward + reverse; `System.State` via `status_map` | Yes (`--reverse`) |
+| **Linear** | Sync: GraphQL + `LINEAR_API_TOKEN`. Reading: optional Linear MCP | Forward + reverse; workflow state via `status_map` | Yes (`--reverse`) |
+| **GitLab** | Sync: REST API + `GITLAB_TOKEN`. Reading: optional GitLab MCP (18.6+) | Forward + reverse; open/close + `status:` label | Yes (`--reverse`) |
 
 ## Step 1 — Detect current backend
 
@@ -54,9 +54,11 @@ If you have MCP tool access in this runtime:
 ### For GitHub (default)
 Already configured via `projects-map.json`. No extra setup needed.
 
+> **MCP reads, sync writes.** A connected board MCP server only helps the agent *read* the board (find the project, issue types, existing issues). Cards sync never uses it: every backend below still needs its token and settings in `.env` locally and as CI secrets, whether or not MCP is connected. MCP servers are listed in [mcp/README.md](../../../mcp/README.md).
+
 ### For Jira
-1. Verify the Atlassian MCP server is available, OR ask for API token
-2. Gather: Jira URL, project key, email
+1. If the Atlassian MCP server is connected, use it to look up the project key and issue types. It is **Jira Cloud only** and each call consumes Rovo credits; on Jira Data Center / Server skip it and rely on cards sync alone.
+2. Ask for an API token anyway: sync needs it. Gather: Jira URL, project key, email
 3. Update `project.yml`:
    ```yaml
    management:
@@ -64,7 +66,7 @@ Already configured via `projects-map.json`. No extra setup needed.
      url: https://org.atlassian.net
      project_key: PROJ
    ```
-4. Configure runtime env vars for Jira sync:
+4. Configure runtime env vars for Jira sync in `.env` (required even with MCP connected):
    - `JIRA_URL`
    - `JIRA_PROJECT_KEY`
    - `JIRA_EMAIL`
@@ -85,8 +87,8 @@ Already configured via `projects-map.json`. No extra setup needed.
    ```
 
 ### For Azure DevOps
-1. Verify MCP `@azure-devops/mcp` is available, OR ask for PAT
-2. Gather: organization URL, project name
+1. If `@azure-devops/mcp` is connected, use it to look up the project and work item types.
+2. Ask for a PAT anyway: sync needs `AZDO_ORG_URL`, `AZDO_PROJECT` and `AZDO_PAT` in `.env`. Gather: organization URL, project name
 3. Update `project.yml`:
    ```yaml
    management:
@@ -101,8 +103,8 @@ Already configured via `projects-map.json`. No extra setup needed.
    - Task → Task
 
 ### For Linear
-1. Verify the Linear MCP server is available, OR ask for API key
-2. Gather: team identifier
+1. If the Linear MCP server is connected, use it to look up the team.
+2. Ask for an API key anyway: sync needs `LINEAR_API_TOKEN` and `LINEAR_TEAM_ID` in `.env`. Gather: team identifier
 3. Update `project.yml`:
    ```yaml
    management:
@@ -111,8 +113,8 @@ Already configured via `projects-map.json`. No extra setup needed.
    ```
 
 ### For GitLab
-1. Verify the GitLab MCP server is available, OR ask for token
-2. Gather: project URL
+1. If the GitLab MCP server is connected (GitLab 18.6+, enabled by a group owner or instance admin), use it to look up the project.
+2. Ask for a token anyway: sync needs `GITLAB_TOKEN` and `GITLAB_PROJECT_ID` (+ `GITLAB_URL` when self-managed) in `.env`. Gather: project URL
 3. Update `project.yml`:
    ```yaml
    management:
@@ -173,7 +175,13 @@ issues). Don't create, edit or move board issues through MCP: cards in
 instead — a direct board edit is overwritten or duplicated by the next forward
 sync.
 
-If no MCP is available, fall back to REST API calls via the sync script.
+Only Linear has a read-only endpoint (`/mcp/readonly`). Atlassian and GitLab
+don't, so their servers can do whatever the signed-in account can: suggest a
+least-privilege account (read access to the project only) for the MCP sign-in.
+
+If no MCP is available, ask the user for the same details. Sync behaves the
+same either way: it calls the backend's REST/GraphQL API with the tokens in
+`.env`.
 
 ## Rules
 

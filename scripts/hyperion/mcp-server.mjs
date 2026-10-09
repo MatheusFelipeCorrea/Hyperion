@@ -2,9 +2,8 @@
 /**
  * Minimal, first-party MCP server exposing Hyperion's own read-only
  * commands (doctor, project-verify) as MCP tools — no mutations, no board
- * writes. Motivation: 3 of the 4 backend MCP servers this kit documents in
- * .github/mcp/README.md are single-maintainer community packages; this one
- * needs no third-party dependency at all.
+ * writes. The backend servers in .github/mcp/README.md are the vendors'
+ * own; this one covers the kit itself and needs no third-party dependency.
  *
  * Implements the MCP stdio JSON-RPC transport by hand (newline-delimited
  * JSON-RPC 2.0 messages, no @modelcontextprotocol/sdk dependency) — this
@@ -14,8 +13,9 @@
  *
  * Run: node scripts/hyperion/mcp-server.mjs
  *      npm run hyperion:mcp-server
- * Config (e.g. .cursor/mcp.json, Claude Desktop config):
- *   { "command": "node", "args": ["scripts/hyperion/mcp-server.mjs"] }
+ * Config (.cursor/mcp.json; Claude Desktop needs an absolute path instead
+ * of ${workspaceFolder}):
+ *   { "command": "node", "args": ["${workspaceFolder}/scripts/hyperion/mcp-server.mjs"] }
  *
  * Protocol notes:
  *   - Every response goes to STDOUT, one JSON object per line. Every log
