@@ -29,7 +29,7 @@ Use an absolute path: a relative path is resolved from wherever the client
 starts the server, which isn't always the repo root. `${workspaceFolder}` is a
 Cursor variable; Claude Desktop doesn't expand it, so there write the full path
 (for example `C:/code/my-product/scripts/hyperion/mcp-server.mjs` or
-`/home/me/my-product/scripts/hyperion/mcp-server.mjs`). If the kit lives in a
+`/opt/code/my-product/scripts/hyperion/mcp-server.mjs`). If the kit lives in a
 subfolder (for example `Hyperion/`), add it to the path.
 
 Tools exposed: `hyperion_doctor` (kit + cards-sync health check — may make
