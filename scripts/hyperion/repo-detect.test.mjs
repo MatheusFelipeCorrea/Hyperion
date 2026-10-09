@@ -214,8 +214,12 @@ describe("repo-detect command matrix", () => {
 });
 
 describe("repo-detect CLI", () => {
+  const env = { ...process.env, GIT_CEILING_DIRECTORIES: tmpdir() };
+  delete env.HYPERION_ROOT;
+  delete env.GIT_DIR;
+  delete env.GIT_WORK_TREE;
   const run = (cwd, args = []) => {
-    const r = spawnSync(process.execPath, [SCRIPT, ...args], { cwd, encoding: "utf8" });
+    const r = spawnSync(process.execPath, [SCRIPT, ...args], { cwd, env, encoding: "utf8" });
     assert.equal(r.status, 0, r.stderr);
     return r.stdout;
   };

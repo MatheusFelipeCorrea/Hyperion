@@ -252,9 +252,7 @@ describe("coverage-gate CLI extras", () => {
     assert.doesNotMatch(zero.stdout, /####/);
   });
 
-  // Known bug: the CLI's top-level `await import("./diff-coverage.mjs")` deadlocks because
-  // diff-coverage.mjs statically imports coverage-gate.mjs (still evaluating) — exit code 13.
-  it("diff coverage: skipped outside git, reported when no line report exists", { todo: "coverage-gate ↔ diff-coverage import cycle under top-level await" }, () => {
+  it("diff coverage: skipped outside git, reported when no line report exists", () => {
     const lcovDir = repo({ "coverage/lcov.info": LCOV });
     const skipped = run(["--dir", lcovDir, "--diff-base", "hyperion-no-such-ref", "--diff-min", "80"]);
     assert.equal(skipped.status, 0, skipped.stdout + skipped.stderr);
@@ -269,7 +267,18 @@ describe("coverage-gate CLI extras", () => {
     assert.match(missing.stdout, /::warning title=Coverage gate::/);
   });
 
-  it("appends the summary to --summary-out and GITHUB_STEP_SUMMARY, ignoring unwritable targets", () => {
+  it("appends the summary to --summary-out and GITHUB_STEP_SUMMARY", () => {
+    const dir = repo({ "coverage/lcov.info": LCOV, "step-summary.md": "# earlier step\n" });
+    const out = path.join(dir, "summary.md");
+    const stepSummary = path.join(dir, "step-summary.md");
+    const r = run(["--dir", dir, "--summary-out", out], { GITHUB_STEP_SUMMARY: stepSummary });
+    assert.equal(r.status, 0, r.stderr);
+    const written = fs.readFileSync(out, "utf8");
+    assert.match(written, /### Coverage/);
+    assert.equal(fs.readFileSync(stepSummary, "utf8"), `# earlier step\n${written}`, "appended, not overwritten");
+  });
+
+  it("ignores an unwritable summary target", () => {
     const dir = repo({ "coverage/lcov.info": LCOV });
     const out = path.join(dir, "summary.md");
     const r = run(["--dir", dir, "--summary-out", out], { GITHUB_STEP_SUMMARY: dir });

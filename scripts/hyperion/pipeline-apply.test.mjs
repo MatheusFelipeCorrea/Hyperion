@@ -5,7 +5,9 @@ import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { load } from "js-yaml";
 import { inspectProductCiGates } from "./pipeline-lib.mjs";
+import { renderProductCiForRepo } from "./product-ci-render.mjs";
 
 const SCRIPT = fileURLToPath(new URL("./pipeline-apply.mjs", import.meta.url));
 const env = { ...process.env, GIT_CEILING_DIRECTORIES: os.tmpdir() };
@@ -34,10 +36,12 @@ const FAKE_GIT = {
   ".git/objects/.keep": "",
 };
 
-function makeRepo(files = {}, { templates = true, kitDir = "" } = {}) {
+function makeRepo(files = {}, { templates = true, kitDir = "", defaultBranch = "main" } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "hyperion-apply-"));
   roots.push(root);
   const all = { ...FAKE_GIT, ...files };
+  if (defaultBranch) all[".git/refs/remotes/origin/HEAD"] = `ref: refs/remotes/origin/${defaultBranch}\n`;
+  else delete all[".git/refs/remotes/origin/HEAD"];
   if (templates) {
     for (const [name, text] of Object.entries(TEMPLATES)) {
       all[path.posix.join(kitDir, "scripts/hyperion/templates/workflows", name)] = text;
@@ -155,16 +159,57 @@ describe("pipeline-apply: policies, legacy migration and failures", () => {
     assert.match(r.out, /❌ .*ENOENT.*hyperion-security\.yml/);
   });
 
-  it(
-    "nested kit layout reads static templates from kit.root",
-    { todo: "BUG: readTemplate joins process.cwd() + scripts/hyperion/templates, ignoring kit.root" },
-    () => {
-      const root = makeRepo({ "Hyperion/.github/cards/.keep": "" }, { kitDir: "Hyperion" });
-      const r = apply(root, "--yes");
-      assert.equal(r.status, 0, r.out);
-      assert.equal(read(root, `${WF}/hyperion-security.yml`), TEMPLATES["hyperion-security.yml"]);
+  it("nested kit layout reads static templates from kit.root and renders the recheck inside it", () => {
+    const root = makeRepo({ "Hyperion/.github/cards/.keep": "" }, { kitDir: "Hyperion" });
+    const r = apply(root, "--yes");
+    assert.equal(r.status, 0, r.out);
+    assert.equal(read(root, `${WF}/hyperion-security.yml`), TEMPLATES["hyperion-security.yml"]);
+    assert.match(read(root, `${WF}/hyperion-cards-pr-recheck.yml`), /working-directory: Hyperion/);
+
+    write(root, `${WF}/hyperion-cards-pr-recheck.yml`, read(root, `${WF}/hyperion-cards-pr-recheck.yml`).replace(/\n {4}defaults:\n.*\n.*working-directory: Hyperion/, ""));
+    const refreshed = apply(root, "--refresh-sync", "--yes");
+    assert.equal(refreshed.status, 0, refreshed.out);
+    assert.match(refreshed.out, /Refreshed \.github\/workflows\/hyperion-cards-pr-recheck\.yml \(missing_working_directory\)/);
+    assert.match(read(root, `${WF}/hyperion-cards-pr-recheck.yml`), /working-directory: Hyperion/);
+  });
+
+  it("passes the detected default branch to the recheck workflow on apply and --refresh-sync", () => {
+    const root = makeRepo({}, { defaultBranch: "dev" });
+    const recheck = `${WF}/hyperion-cards-pr-recheck.yml`;
+    const r = apply(root, "--yes");
+    assert.equal(r.status, 0, r.out);
+    const written = load(read(root, recheck));
+    assert.match(written.jobs["list-open-prs"].steps[0].with.script, /base: "dev"/);
+    assert.doesNotMatch(read(root, recheck), /base: "main"/);
+    assert.equal(written.jobs.recheck.defaults, undefined, "root kit → no working-directory");
+
+    write(root, recheck, read(root, recheck).replace('base: "dev"', 'base: "main"'));
+    const refreshed = apply(root, "--refresh-sync", "--yes");
+    assert.equal(refreshed.status, 0, refreshed.out);
+    assert.match(refreshed.out, /Refresh sync \(default branch: dev, kit: root\)/);
+    assert.match(refreshed.out, /Refreshed \.github\/workflows\/hyperion-cards-pr-recheck\.yml \(base_branch_mismatch\)/);
+    assert.match(read(root, recheck), /base: "dev"/);
+  });
+
+  it("a fresh repo on feature/x without origin/HEAD never targets feature/x and keeps a correct recheck", () => {
+    const root = makeRepo({ ".git/HEAD": "ref: refs/heads/feature/x\n" }, { defaultBranch: null });
+    const recheck = `${WF}/hyperion-cards-pr-recheck.yml`;
+    const r = apply(root, "--yes");
+    assert.equal(r.status, 0, r.out);
+    assert.match(r.out, /origin\/HEAD is not set — generated workflows target "main"/);
+    for (const name of ["hyperion-sync-cards.yml", "hyperion-cards-pr-check.yml", "hyperion-cards-pr-recheck.yml"]) {
+      assert.doesNotMatch(read(root, `${WF}/${name}`), /feature\/x/, name);
     }
-  );
+    assert.match(read(root, recheck), /base: "main"/);
+
+    const correct = read(root, recheck).replace('base: "main"', 'base: "dev"');
+    write(root, recheck, correct);
+    const refreshed = apply(root, "--refresh-sync", "--yes");
+    assert.equal(refreshed.status, 0, refreshed.out);
+    assert.match(refreshed.out, /= \.github\/workflows\/hyperion-cards-pr-recheck\.yml \(up to date\)/);
+    assert.doesNotMatch(refreshed.out, /base_branch_mismatch/);
+    assert.equal(read(root, recheck), correct);
+  });
 });
 
 describe("pipeline-apply: ci.gates product CI", () => {
@@ -191,16 +236,48 @@ describe("pipeline-apply: ci.gates product CI", () => {
     assert.match(read(root, productCi), /^# hyperion:gates-hash [0-9a-f]+$/m);
   });
 
-  it(
-    "a generated product CI is not treated as pinned (so --refresh-gates can re-render it)",
-    { todo: "BUG: the generated header mentions `hyperion:no-auto-refresh`, so inspectProductCiGates always reports it as pinned" },
-    async () => {
-      const state = await inspectProductCiGates(root, { defaults: { coverage: { mode: "warn", min: 90 } } });
-      assert.equal(state.exists, true);
-      assert.notEqual(state.currentHash, state.expectedHash);
-      assert.equal(state.noAutoRefresh, false);
-    }
-  );
+  const gatesObj = (min) => ({ defaults: { coverage: { mode: "warn", min } } });
+  const hash = (text) => text.match(/^# hyperion:gates-hash ([0-9a-f]+)$/m)?.[1] ?? null;
+  // Own repo per test: project.yml at `min` and a product CI freshly generated from it.
+  function generatedRepo(min, header = "") {
+    const repo = makeRepo({
+      ".github/project.yml": gates(min),
+      "package.json": JSON.stringify({ name: "app", scripts: { test: "node --test" } }),
+      "package-lock.json": "{}",
+    });
+    write(repo, productCi, `${header}${renderProductCiForRepo(repo, { gates: gatesObj(min) }).content}`);
+    return repo;
+  }
+
+  it("a generated product CI is not treated as pinned (so --refresh-gates can re-render it)", async () => {
+    const repo = generatedRepo(70);
+    const generated = read(repo, productCi);
+    assert.match(generated, /hyperion:no-auto-refresh/, "the header mentions the marker in prose");
+    const fresh = await inspectProductCiGates(repo, gatesObj(70));
+    assert.deepEqual([fresh.exists, fresh.noAutoRefresh, fresh.currentHash], [true, false, fresh.expectedHash]);
+
+    write(repo, ".github/project.yml", gates(90));
+    const stale = await inspectProductCiGates(repo, gatesObj(90));
+    assert.equal(stale.noAutoRefresh, false);
+    assert.notEqual(stale.currentHash, stale.expectedHash);
+    const rerendered = apply(repo, "--refresh-gates", "--yes");
+    assert.equal(rerendered.status, 0, rerendered.out);
+    assert.match(rerendered.out, /Wrote \.github\/workflows\/hyperion-product-ci\.yml/);
+    assert.equal(hash(read(repo, productCi)), stale.expectedHash);
+  });
+
+  it("a product CI the user pinned with the opt-out marker is skipped by --refresh-gates", async () => {
+    const repo = generatedRepo(70, "# hyperion:no-auto-refresh — hand-tuned\n");
+    write(repo, ".github/project.yml", gates(50));
+    const state = await inspectProductCiGates(repo, gatesObj(50));
+    assert.equal(state.noAutoRefresh, true);
+    assert.notEqual(state.currentHash, state.expectedHash, "stale, so only the marker prevents a refresh");
+    const pinned = read(repo, productCi);
+    const r = apply(repo, "--refresh-gates", "--yes");
+    assert.equal(r.status, 0, r.out);
+    assert.doesNotMatch(r.out, /Wrote \.github\/workflows\/hyperion-product-ci\.yml/);
+    assert.equal(read(repo, productCi), pinned);
+  });
 });
 
 describe("pipeline-apply: GitLab and Azure snippets", () => {

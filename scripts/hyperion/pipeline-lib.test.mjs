@@ -32,6 +32,7 @@ import {
   auditGitLabHyperionCi,
   auditAzureHyperionCi,
   detectDefaultBranch,
+  detectWorkflowBaseBranch,
 } from "./pipeline-lib.mjs";
 
 describe("classifyWorkflows", () => {
@@ -482,6 +483,29 @@ describe("detectDefaultBranch (temp repos)", () => {
     assert.equal(detectDefaultBranch(fakeGit({ head: SHA, branches: ["master"] })), "master");
     assert.equal(detectDefaultBranch(makeRepo({}, { git: false })), "main");
   });
+
+  it("detectWorkflowBaseBranch only trusts origin/HEAD and never returns the checked-out branch", () => {
+    assert.deepEqual(detectWorkflowBaseBranch(fakeGit({ head: "ref: refs/heads/feature/x", originHead: "develop" })), {
+      branch: "develop",
+      known: true,
+    });
+    assert.deepEqual(detectWorkflowBaseBranch(fakeGit({ head: "ref: refs/heads/feature/x" })), { branch: "main", known: false });
+    assert.deepEqual(detectWorkflowBaseBranch(fakeGit({ head: "ref: refs/heads/feature/x", branches: ["master"] })), {
+      branch: "master",
+      known: false,
+    });
+  });
+
+  it("a fresh repo on feature/x without origin/HEAD: no base mismatch, and refresh renders main, not feature/x", () => {
+    const repo = fakeGit({ head: "ref: refs/heads/feature/x" });
+    const opts = resolvePipelineRenderOptions(repo);
+    assert.deepEqual([opts.defaultBranch, opts.defaultBranchKnown], ["main", false]);
+    const onDev = renderPrRecheckWorkflow({ defaultBranch: "dev" });
+    assert.equal(auditPrRecheckWorkflow(onDev, opts).ok, true, "a correct recheck file is not flagged");
+    assert.match(renderPrRecheckWorkflow(opts), /base: "main"/);
+    assert.doesNotMatch(renderPrRecheckWorkflow(opts), /feature\/x/);
+    assert.deepEqual(auditPrRecheckWorkflow(onDev, { defaultBranch: "main" }).issues, ["base_branch_mismatch"]);
+  });
 });
 
 describe("workflow audits (failing shapes)", () => {
@@ -562,7 +586,7 @@ describe("workflow audits (failing shapes)", () => {
 });
 
 describe("nested-kit renderers", () => {
-  it("PR guard, recheck, Azure and the deprecated fork job honor kit.root", () => {
+  it("PR guard and Azure honor kit.root and the default branch; the deprecated fork job honors kit.root", () => {
     const guard = renderPrBoardGuardWorkflow({ kitRootRel: "Hyperion", defaultBranch: "dev" });
     assert.equal(auditPrBoardGuardWorkflow(guard, { kitRootRel: "Hyperion" }).ok, true);
     assert.match(guard, /branches: \[dev\]/);
@@ -576,15 +600,50 @@ describe("nested-kit renderers", () => {
     assert.equal(appendForkGuardJob(appended), appended);
   });
 
-  // Known bug: appendForkGuardJob trimStart()s the job, so it lands at column 0 instead of under jobs:.
-  it("appendForkGuardJob nests the fork job under jobs:", { todo: "appendForkGuardJob loses job indentation" }, () => {
-    assert.match(appendForkGuardJob("jobs:\n  board-guard:\n    runs-on: x\n"), /\n {2}board-guard-fork:\n/);
+  it("appendForkGuardJob nests the fork job under jobs:", async () => {
+    const appended = appendForkGuardJob("jobs:\n  board-guard:\n    runs-on: x\n");
+    assert.match(appended, /\n {2}board-guard-fork:\n/);
+    const { load } = await import("js-yaml");
+    assert.deepEqual(Object.keys(load(appended).jobs), ["board-guard", "board-guard-fork"]);
+    assert.equal(load(appended).jobs["board-guard-fork"].defaults, undefined);
   });
 
-  // Known bug: renderPrRecheckWorkflow computes wdBlock but never interpolates it, so nested kits
-  // run scripts/cards-sync/report-pr-guard-check.mjs from the product root.
-  it("PR recheck runs inside kit.root", { todo: "renderPrRecheckWorkflow drops kitRootRel" }, () => {
-    assert.match(renderPrRecheckWorkflow({ kitRootRel: "Hyperion" }), /working-directory: Hyperion/);
+  it("appendForkGuardJob runs the fork job inside kit.root when given one", async () => {
+    const { load } = await import("js-yaml");
+    const nested = load(appendForkGuardJob("jobs:\n  board-guard:\n    runs-on: x\n", { kitRootRel: "Hyperion" }));
+    assert.equal(nested.jobs["board-guard-fork"].defaults.run["working-directory"], "Hyperion");
+    assert.equal(nested.jobs["board-guard"].defaults, undefined);
+  });
+
+  it("PR recheck lists PRs against the configured base branch, not main", async () => {
+    const { load } = await import("js-yaml");
+    const script = (opts) => load(renderPrRecheckWorkflow(opts)).jobs["list-open-prs"].steps[0].with.script;
+    assert.match(script({ defaultBranch: "trunk" }), /base: "trunk"/);
+    assert.doesNotMatch(script({ defaultBranch: "trunk" }), /base: "main"/);
+    assert.match(script(), /base: "main"/);
+  });
+
+  it("PR recheck runs inside kit.root and lists PRs against the default branch", async () => {
+    const yaml = renderPrRecheckWorkflow({ kitRootRel: "Hyperion/", defaultBranch: "dev" });
+    const { load } = await import("js-yaml");
+    const doc = load(yaml);
+    assert.equal(doc.jobs.recheck.defaults.run["working-directory"], "Hyperion");
+    assert.equal(doc.jobs["list-open-prs"].defaults, undefined);
+    assert.match(doc.jobs["list-open-prs"].steps[0].with.script, /base: "dev"/);
+    assert.doesNotMatch(yaml, /base: "main"/);
+    assert.equal(auditPrRecheckWorkflow(yaml, { kitRootRel: "Hyperion", defaultBranch: "dev" }).ok, true);
+    assert.doesNotMatch(renderPrRecheckWorkflow(), /working-directory/);
+  });
+
+  it("auditPrRecheckWorkflow flags a root-level or main-pinned recheck for nested / non-main repos", () => {
+    const legacy = renderPrRecheckWorkflow();
+    assert.deepEqual(auditPrRecheckWorkflow(legacy, { kitRootRel: "Hyperion", defaultBranch: "dev" }).issues, [
+      "missing_working_directory",
+      "base_branch_mismatch",
+    ]);
+    assert.equal(auditPrRecheckWorkflow(legacy, { defaultBranch: "main" }).ok, true);
+    const dynamicBase = legacy.replace('base: "main"', "base: defaultBranch");
+    assert.equal(auditPrRecheckWorkflow(dynamicBase, { defaultBranch: "dev" }).ok, true);
   });
 });
 
@@ -756,6 +815,7 @@ describe("render options and file audit", () => {
     const opts = resolvePipelineRenderOptions(auto, { kitRootRel: "Kit\\" });
     assert.equal(opts.kitRootRel, "Kit");
     assert.equal(opts.defaultBranch, "main");
+    assert.equal(opts.defaultBranchKnown, true);
     assert.equal(opts.syncMode, "auto");
     assert.ok(Array.isArray(opts.i18n.languages));
     const nested = makeRepo({ ".github/project.yml": "kit:\n  root: Hyperion\n" });
@@ -775,7 +835,7 @@ describe("render options and file audit", () => {
       "hyperion-azure-pipelines.yml": "jobs: []\n",
     });
     const { renderOpts, findings } = await auditHyperionPipelineFiles(stale, { defaultBranch: "main" });
-    assert.deepEqual(renderOpts, { kitRootRel: "", defaultBranch: "main", syncMode: "pull-forward" });
+    assert.deepEqual(renderOpts, { kitRootRel: "", defaultBranch: "main", defaultBranchKnown: true, syncMode: "pull-forward" });
     assert.deepEqual(findings.map((f) => f.kind), [
       "github-sync-cards",
       "github-cards-pr-guard",
