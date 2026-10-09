@@ -5,21 +5,35 @@
  * (dev → qa → main → internal). Any other PR into qa/main/internal fails with
  * a message that says where the PR should go instead.
  *
- * CI: BASE_REF, HEAD_REF, HEAD_REPO, BASE_REPO come from the pull_request event.
+ * CI: BASE_REF, HEAD_REF, HEAD_REPO, BASE_REPO come from the pull_request_target
+ * event (branch-flow.yml runs this file from the base branch, never the PR's head).
+ * An empty HEAD_REPO (deleted fork) is treated as a fork.
  * Local: node scripts/kit/branch-flow.mjs --base qa --head feat/x
  */
 import { appendFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
+import { errorAnnotation } from "./annotations.mjs";
 
 export const PROMOTIONS = { qa: "dev", main: "qa", internal: "main" };
+
+/** @returns {true | false | "unknown"} */
+export function headRepoRelation(headRepo, baseRepo) {
+  if (!headRepo || !baseRepo) return "unknown";
+  return headRepo.toLowerCase() === baseRepo.toLowerCase();
+}
 
 /** @returns {{ ok: boolean, title?: string, message: string }} */
 export function checkBranchFlow({ base, head, sameRepo = true }) {
   const expected = PROMOTIONS[base];
   if (!expected) return { ok: true, message: `PR into ${base}: no promotion rule, nothing to check.` };
-  if (sameRepo && head === expected) return { ok: true, message: `${expected} → ${base}: allowed promotion.` };
+  if (sameRepo === true && head === expected) return { ok: true, message: `${expected} → ${base}: allowed promotion.` };
 
-  const from = sameRepo ? `'${head}'` : `a fork ('${head}')`;
+  const from =
+    sameRepo === true
+      ? `'${head}'`
+      : sameRepo === "unknown"
+        ? `'${head}' of an unknown repository (the head fork was deleted or is not visible, so it is treated as a fork)`
+        : `a fork ('${head}')`;
   const fix =
     base === "qa"
       ? `Change the PR's base branch to 'dev' (Edit next to the title → base: dev). Once it is merged, a maintainer promotes dev → qa.`
@@ -39,11 +53,13 @@ function argValue(flag) {
 }
 
 function main() {
+  const headArg = argValue("--head");
   const base = argValue("--base") || process.env.BASE_REF || "";
-  const head = argValue("--head") || process.env.HEAD_REF || "";
-  const sameRepo = !process.env.HEAD_REPO || process.env.HEAD_REPO === process.env.BASE_REPO;
+  const head = headArg || process.env.HEAD_REF || "";
+  // --head is a local dry check of this repository's own branches; from the event, the head repo must be proven.
+  const sameRepo = headArg ? true : headRepoRelation(process.env.HEAD_REPO, process.env.BASE_REPO);
   if (!base || !head) {
-    console.error("::error title=Branch flow::Missing base/head. Usage: node scripts/kit/branch-flow.mjs --base <branch> --head <branch>");
+    console.error(errorAnnotation("Branch flow", "Missing base/head. Usage: node scripts/kit/branch-flow.mjs --base <branch> --head <branch>"));
     process.exit(2);
   }
   const result = checkBranchFlow({ base, head, sameRepo });
@@ -51,7 +67,7 @@ function main() {
     appendFileSync(process.env.GITHUB_STEP_SUMMARY, `### Branch flow ${result.ok ? "✅" : "❌"}\n\n${result.message}\n`);
   }
   if (!result.ok) {
-    console.error(`::error title=${result.title}::${result.message}`);
+    console.error(errorAnnotation(result.title, result.message));
     process.exit(1);
   }
   console.log(result.message);
