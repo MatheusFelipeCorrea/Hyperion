@@ -62,4 +62,21 @@ describe("docs-prose-check --root", () => {
       }
     );
   });
+
+  it("skips multi-segment entries like audits/results by path, not by folder name", () => {
+    withTree(
+      {
+        ".github/audits/results/report.md": `see ${staleCopilot}\n`,
+        ".github/audits/prompts/security.md": "# Security\n",
+        "results/notes.md": `see ${staleCopilot}\n`,
+      },
+      (r) => {
+        assert.equal(r.status, 1, r.stdout + r.stderr);
+        const err = r.stderr.replace(/\\/g, "/");
+        assert.match(err, /docs:prose-check FAILED — 1 stale reference\(s\)/);
+        assert.match(err, /^  results\/notes\.md: Copilot instructions moved/m);
+        assert.doesNotMatch(err, /audits\/results/);
+      }
+    );
+  });
 });
