@@ -17,6 +17,8 @@ Ajuda de adotante: [SUPPORT.md](SUPPORT.md). Histórico de mudanças: [CHANGELOG
 
 ## Fluxo de branches
 
+O passo a passo completo — conduta de branch, caminho de um PR, promoção, o que cada pipe verifica e o que fazer quando falha — está em [fluxo-de-branches-e-pipeline.md](.github/docs/meta/fluxo-de-branches-e-pipeline.md) ([EN](.github/docs/meta/branch-and-pipeline-flow-en.md)).
+
 | Branch | Papel | Quem manda PR pra cá |
 |--------|-------|------------------------|
 | **`main`** | O que `git clone`/`hyperion:upgrade` puxa. Sempre limpa — zero vínculo com este repositório específico (sem GitHub Project vinculado, sem card real, sem config pessoal propagada). | Só `qa`, manualmente, depois de tudo verde |
