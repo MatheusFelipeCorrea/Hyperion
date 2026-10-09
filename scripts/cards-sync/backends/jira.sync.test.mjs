@@ -65,10 +65,10 @@ test("forward updates existing issues, creates new ones, transitions status and 
 
   const transitions = [
     { id: "21", name: "Start progress", to: { name: "In Progress" } },
-    { id: "31", name: "Finish", to: { name: "Done" } },
+    { id: "31", name: "Finish", to: { name: "Shipped" } },
   ];
   const api = jiraApi((req) => {
-    if (req.method === "GET" && req.path === "/rest/api/2/search") {
+    if (req.method === "GET" && req.path === "/rest/api/2/search/jql") {
       return {
         issues: [
           { key: "PROJ-9", fields: { description: remoteDescription("features/PROJ-F10.md", lookalike) } },
@@ -85,13 +85,16 @@ test("forward updates existing issues, creates new ones, transitions status and 
     return undefined;
   });
   try {
-    const lines = await captureLogs(() => runForwardSyncJira({}, management));
+    const lines = await captureLogs(() =>
+      runForwardSyncJira({}, { ...management, statusMap: { ...management.statusMap, Done: "Shipped" } })
+    );
     const actions = actionsFrom(lines);
 
-    const search = api.calls.find((c) => c.url.includes("/search"));
-    const searchParams = new URL(search.url).searchParams;
+    const searches = api.calls.filter((c) => c.url.includes("/search"));
+    assert.equal(searches.length, 1, "one search indexes every card");
+    const searchParams = new URL(searches[0].url).searchParams;
     assert.equal(searchParams.get("jql"), 'project = "PROJ" AND description ~ "\\"CARD_ID:\\"" ORDER BY updated DESC');
-    assert.equal(searchParams.get("maxResults"), "50");
+    assert.equal(searchParams.get("maxResults"), "100");
 
     const put = api.calls.find((c) => c.method === "PUT");
     assert.equal(put.body.fields.summary, "[Feature] Card PROJ-F1");
@@ -124,6 +127,7 @@ test("forward updates existing issues, creates new ones, transitions status and 
     );
     assert.equal(actions[1].transition, "Start progress");
     assert.equal(actions[1].to, "In Progress");
+    assert.equal(actions[3].to, "Shipped", "statusMap maps Done → Shipped before picking the transition");
     assert.equal(actions[2].issueKey, "PROJ-2");
     assert.ok(lines.some((l) => l.includes("Valid cards: 2")));
     assert.ok(lines.some((l) => l.includes("Parent-child links: 1")));
@@ -137,12 +141,12 @@ test("forward keeps going when no transition matches, a card has no status, link
   resetCards({
     "features/PROJ-F2.md": cardMarkdown({ id: "PROJ-F2", type: "Feature", status: "Blocked by legal" }),
     "stories/PROJ-S2.md": cardMarkdown({ id: "PROJ-S2", parent: "PROJ-F2", status: null }),
-    "stories/PROJ-S3.md": cardMarkdown({ id: "PROJ-S3", parent: "PROJ-F2", status: null }),
+    "stories/PROJ-S3.md": cardMarkdown({ id: "PROJ-S3", parent: "PROJ-F2", status: "Done" }),
     "stories/notes.md": "# Just notes\n\nNo frontmatter here.\n",
   });
   const keys = { "PROJ-F2": "PROJ-20", "PROJ-S2": "PROJ-21" };
   const api = jiraApi((req) => {
-    if (req.path === "/rest/api/2/search") return { issues: [] };
+    if (req.path === "/rest/api/2/search/jql") return { issues: [] };
     if (req.method === "POST" && req.path === "/rest/api/2/issue") {
       const key = keys[/CARD_ID: (\S+)/.exec(req.body.fields.description)[1]];
       return key ? { key } : {};
@@ -168,7 +172,9 @@ test("forward keeps going when no transition matches, a card has no status, link
     assert.equal(skipped.targetStatus, "Blocked by legal");
     assert.deepEqual(skipped.available, ["In Progress", "To Do"]);
     assert.equal(api.calls.filter((c) => c.method === "POST" && c.url.endsWith("/transitions")).length, 0);
-    assert.equal(actions.filter((a) => a.cardId === "PROJ-S2" || a.cardId === "PROJ-S3").length, 2, "cards without status only get CREATED");
+    assert.equal(actions.filter((a) => a.cardId === "PROJ-S2" || a.cardId === "PROJ-S3").length, 2, "no status, or no issue key, only gets CREATED");
+    assert.deepEqual(actions.find((a) => a.cardId === "PROJ-S3"), { action: "CREATED", cardId: "PROJ-S3", issueKey: null });
+    assert.ok(!api.calls.some((c) => c.url.includes("undefined")), "no request for an issue without a key");
 
     const linkFailed = actions.find((a) => a.action === "LINK_FAILED");
     assert.equal(linkFailed.parent, "PROJ-20");
@@ -240,17 +246,24 @@ test("reverse patches local cards, recreates missing ones, skips samples/unmarke
     "<!-- /SYNC_METADATA -->",
   ].join("\n");
   const pages = {
-    0: {
-      startAt: 0,
-      total: 5,
+    first: {
+      nextPageToken: "page-2",
       issues: [
-        { key: "PROJ-5", fields: { summary: "[Story] Card PROJ-S5", description: remoteDescription("stories/PROJ-S5.md", local), labels: [], status: { name: "In Progress" } } },
+        {
+          key: "PROJ-5",
+          fields: {
+            summary: "[Story] Card PROJ-S5",
+            description: remoteDescription("stories/PROJ-S5.md", local),
+            labels: [],
+            status: { name: "In Progress" },
+            updated: "2026-03-04T05:06:07.000+0000",
+          },
+        },
         { key: "PROJ-7", fields: { summary: "No marker", description: "plain text", status: { name: "Done" } } },
       ],
     },
-    2: {
-      startAt: 2,
-      total: 5,
+    "page-2": {
+      isLast: true,
       issues: [
         { key: "PROJ-6", fields: { summary: "[Story] Recreated from board", description: remoteDescription("stories/PROJ-S6.md", missing), labels: ["Backend"], status: null } },
         { key: "PROJ-90", fields: { summary: "Sample", description: remoteDescription("stories/EXAMPLE-STORY-1.md", sample), status: { name: "Done" } } },
@@ -259,17 +272,19 @@ test("reverse patches local cards, recreates missing ones, skips samples/unmarke
     },
   };
   const api = jiraApi((req) => {
-    if (req.method !== "GET" || req.path !== "/rest/api/2/search") return undefined;
+    if (req.method !== "GET" || req.path !== "/rest/api/2/search/jql") return undefined;
     assert.equal(req.params.get("jql"), 'project = "PROJ" AND description ~ "\\"CARD_ID:\\"" ORDER BY updated DESC');
-    assert.equal(req.params.get("maxResults"), "50");
-    return pages[req.params.get("startAt")];
+    assert.equal(req.params.get("maxResults"), "100");
+    assert.equal(req.params.get("fields"), "summary,description,labels,status,updated");
+    return pages[req.params.get("nextPageToken") || "first"];
   });
   try {
     const lines = await captureLogs(() => runReverseSyncJira({}, management));
     assert.deepEqual(
-      api.calls.map((c) => new URL(c.url).searchParams.get("startAt")),
-      ["0", "2"]
+      api.calls.map((c) => new URL(c.url).searchParams.get("nextPageToken")),
+      [null, "page-2"]
     );
+    assert.match(ws.read(".github/cards/stories/PROJ-S5.md"), /board_sync_at: "?2026-03-04T05:06:07.000Z"?/);
     assert.ok(lines.some((l) => l.includes("Backend: jira")));
     assert.ok(lines.some((l) => l.includes("Direction: reverse (Jira -> Markdown)")));
     assert.ok(lines.some((l) => l.includes("Jira issues found: 5")));
@@ -294,6 +309,161 @@ test("reverse patches local cards, recreates missing ones, skips samples/unmarke
     const again = await captureLogs(() => runReverseSyncJira({}, management));
     assert.ok(again.some((l) => l.includes("Unchanged: 2 card(s).")));
     assert.ok(again.some((l) => l.includes("Jira reverse sync wrote: 0 file(s)")));
+  } finally {
+    api.restore();
+  }
+});
+
+test("forward finds an existing issue past the first page instead of creating a duplicate", async () => {
+  const story = cardMarkdown({ id: "PROJ-S8" });
+  resetCards({ "stories/PROJ-S8.md": story });
+  const filler = Array.from({ length: 100 }, (_, i) => ({ key: `PROJ-${1000 + i}`, fields: { description: "plain text" } }));
+  const api = jiraApi((req) => {
+    if (req.path === "/rest/api/2/search/jql") {
+      return req.params.get("nextPageToken")
+        ? { isLast: true, issues: [{ key: "PROJ-8", fields: { description: remoteDescription("stories/PROJ-S8.md", story) } }] }
+        : { nextPageToken: "next", issues: filler };
+    }
+    if (req.method === "PUT" && req.path === "/rest/api/2/issue/PROJ-8") return emptyResponse();
+    if (/\/transitions$/.test(req.path)) return { transitions: [{ id: "1", to: { name: "Backlog" } }] };
+  });
+  try {
+    const actions = actionsFrom(await captureLogs(() => runForwardSyncJira({}, management)));
+    assert.equal(actions[0].action, "UPDATED");
+    assert.equal(actions[0].issueKey, "PROJ-8");
+    assert.ok(!api.calls.some((c) => c.method === "POST" && c.url.endsWith("/rest/api/2/issue")));
+  } finally {
+    api.restore();
+  }
+});
+
+test("Jira Data Center without /search/jql falls back to /search paged by startAt", async () => {
+  resetCards({});
+  const pages = {
+    0: { startAt: 0, total: 3, issues: [{ key: "PROJ-1" }, { key: "PROJ-2" }] },
+    2: { startAt: 2, total: 3, issues: [{ key: "PROJ-3" }] },
+  };
+  const api = jiraApi((req) => {
+    if (req.path === "/rest/api/2/search/jql") return jsonResponse({ errorMessages: ["Not found"] }, 404);
+    if (req.path === "/rest/api/2/search") return pages[req.params.get("startAt")];
+  });
+  try {
+    const lines = await captureLogs(() => runReverseSyncJira({}, management));
+    assert.ok(lines.some((l) => l.includes("Jira issues found: 3")));
+    assert.deepEqual(
+      api.calls.filter((c) => new URL(c.url).pathname === "/rest/api/2/search").map((c) => new URL(c.url).searchParams.get("startAt")),
+      ["0", "2"]
+    );
+  } finally {
+    api.restore();
+  }
+});
+
+test("a 405 from /search/jql also falls back to /search, and an error names both endpoints when both fail", async () => {
+  resetCards({});
+  let api = jiraApi((req) => {
+    if (req.path === "/rest/api/2/search/jql") return jsonResponse({ errorMessages: ["Method Not Allowed"] }, 405);
+    if (req.path === "/rest/api/2/search") return { startAt: 0, total: 1, issues: [{ key: "PROJ-1" }] };
+  });
+  try {
+    const lines = await captureLogs(() => runReverseSyncJira({}, management));
+    assert.ok(lines.some((l) => l.includes("Jira issues found: 1")));
+  } finally {
+    api.restore();
+  }
+
+  api = jiraApi((req) => {
+    if (req.path === "/rest/api/2/search/jql") return jsonResponse({ errorMessages: ["Not found"] }, 404);
+    if (req.path === "/rest/api/2/search") return jsonResponse({ errorMessages: ["Gone"] }, 410);
+  });
+  try {
+    await assert.rejects(captureLogs(() => runReverseSyncJira({}, management)), (error) => {
+      assert.match(error.message, /\/rest\/api\/2\/search\/jql \(Jira request failed \(404[^)]*\): .*Not found.*\)/);
+      assert.match(error.message, /\/rest\/api\/2\/search fallback \(Jira request failed \(410[^)]*\): .*Gone.*\)/);
+      assert.equal(error.status, 410);
+      return true;
+    });
+  } finally {
+    api.restore();
+  }
+});
+
+test("forward falls back to the card's own status, and skips the transition when the issue is already there", async () => {
+  const cards = {
+    "stories/PROJ-S1.md": cardMarkdown({ id: "PROJ-S1", status: "Done" }),
+    "stories/PROJ-S2.md": cardMarkdown({ id: "PROJ-S2", status: "In progress" }),
+    "stories/PROJ-S3.md": cardMarkdown({ id: "PROJ-S3", status: "Done" }),
+  };
+  resetCards(cards);
+  const issue = (key, n, status) => ({
+    key,
+    fields: { description: remoteDescription(`stories/PROJ-S${n}.md`, cards[`stories/PROJ-S${n}.md`]), status: { name: status } },
+  });
+  const api = jiraApi((req) => {
+    if (req.path === "/rest/api/2/search/jql") {
+      assert.equal(req.params.get("fields"), "summary,labels,description,status");
+      return { issues: [issue("PROJ-1", 1, "To Do"), issue("PROJ-2", 2, "In Progress"), issue("PROJ-3", 3, "Done")] };
+    }
+    if (req.method === "PUT") return emptyResponse();
+    if (req.method === "GET" && /\/transitions$/.test(req.path)) {
+      return { transitions: [{ id: "41", name: "Close", to: { name: "Done" } }] };
+    }
+    if (req.method === "POST" && req.path === "/rest/api/2/issue/PROJ-1/transitions") return emptyResponse();
+  });
+  try {
+    const lines = await captureLogs(() =>
+      runForwardSyncJira({}, { ...management, statusMap: { ...management.statusMap, Done: "Shipped" } })
+    );
+    const statuses = actionsFrom(lines).filter((a) => a.action.startsWith("STATUS"));
+    assert.deepEqual(
+      statuses.map((a) => `${a.action}:${a.issueKey}`),
+      ["STATUS_TRANSITIONED:PROJ-1", "STATUS_UNCHANGED:PROJ-2", "STATUS_UNCHANGED:PROJ-3"]
+    );
+    assert.equal(statuses[0].to, "Done", "no transition to Shipped, so the card's own status Done is used");
+    assert.equal(statuses[1].reason, "already_in_status");
+    assert.equal(statuses[1].current, "In Progress");
+    assert.equal(statuses[2].targetStatus, "Shipped");
+    assert.equal(statuses[2].current, "Done", "already in the fallback status and Shipped is not reachable");
+    assert.deepEqual(
+      api.calls.filter((c) => c.url.endsWith("/transitions")).map((c) => `${c.method} ${new URL(c.url).pathname}`),
+      ["GET /rest/api/2/issue/PROJ-1/transitions", "POST /rest/api/2/issue/PROJ-1/transitions", "GET /rest/api/2/issue/PROJ-3/transitions"],
+      "PROJ-2 is already in the mapped status, so its transitions are not even read"
+    );
+  } finally {
+    api.restore();
+  }
+});
+
+test("forward updates the canonical issue when several carry the same CARD_ID: open first, then the lowest number", async () => {
+  const story = cardMarkdown({ id: "PROJ-S9", status: null });
+  resetCards({ "stories/PROJ-S9.md": story });
+  const description = remoteDescription("stories/PROJ-S9.md", story);
+  const api = jiraApi((req) => {
+    if (req.path === "/rest/api/2/search/jql") {
+      return {
+        issues: [
+          { key: "PROJ-12", fields: { description, status: { name: "In Progress", statusCategory: { key: "indeterminate" } } } },
+          { key: "PROJ-3", fields: { description, status: { name: "Done", statusCategory: { key: "done" } } } },
+          { key: "PROJ-7", fields: { description, status: { name: "To Do", statusCategory: { key: "new" } } } },
+        ],
+      };
+    }
+    if (req.method === "PUT" && req.path === "/rest/api/2/issue/PROJ-7") return emptyResponse();
+  });
+  try {
+    const actions = actionsFrom(await captureLogs(() => runForwardSyncJira({}, management)));
+    assert.deepEqual(actions, [{ action: "UPDATED", cardId: "PROJ-S9", issueKey: "PROJ-7" }]);
+  } finally {
+    api.restore();
+  }
+});
+
+test("a 404 from /search/jql after the first page is an error, not a fallback", async () => {
+  const api = jiraApi((req) =>
+    req.params.get("nextPageToken") ? jsonResponse({ errorMessages: ["expired"] }, 404) : { nextPageToken: "t", issues: [{ key: "PROJ-1" }] }
+  );
+  try {
+    await assert.rejects(captureLogs(() => runReverseSyncJira({}, management)), /Jira request failed \(404/);
   } finally {
     api.restore();
   }
