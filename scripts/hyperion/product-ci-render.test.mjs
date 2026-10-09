@@ -348,15 +348,21 @@ describe("e2e, IaC, OpenAPI and edge cases", () => {
     assert.match(content, /# NOTE \(tools\): migrate requested but no migration command detected/);
   });
 
-  // Known bug: e2e job ids are `e2e-<app>` per config, so two configs on one app collide.
-  it("keeps e2e job ids unique when one app has both Playwright and Cypress", { todo: "duplicate e2e-<app> job ids" }, () => {
+  it("keeps e2e job ids unique when one app has both Playwright and Cypress", () => {
     const both = fs.mkdtempSync(path.join(os.tmpdir(), "hyperion-render-e2e-dup-"));
     try {
       write(both, "package.json", { scripts: { test: "vitest" }, devDependencies: { vitest: "^2" } });
       write(both, "playwright.config.ts", "export default {}");
       write(both, "cypress.config.ts", "export default {}");
-      const ids = renderProductCiForRepo(both, { gates: { e2e: "warn" } }).content.match(/^ {2}e2e-[\w-]+:$/gm);
+      const { content } = renderProductCiForRepo(both, { gates: { e2e: "warn" } });
+      const ids = content.match(/^ {2}e2e-[\w-]+:$/gm).map((l) => l.trim().slice(0, -1));
       assert.equal(new Set(ids).size, 2, `e2e job ids: ${ids.join(" ")}`);
+      const doc = load(content);
+      const e2e = Object.keys(doc.jobs).filter((id) => id.startsWith("e2e-")).sort();
+      assert.equal(e2e.length, 2);
+      assert.ok(e2e[0].endsWith("-cypress") && e2e[1].endsWith("-playwright"), e2e.join(" "));
+      assert.ok(stepNamed(job(doc, e2e[0]), /^Cypress e2e/));
+      assert.ok(stepNamed(job(doc, e2e[1]), /^Playwright e2e/));
     } finally {
       fs.rmSync(both, { recursive: true, force: true });
     }

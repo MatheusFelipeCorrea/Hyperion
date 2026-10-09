@@ -82,6 +82,16 @@ export function normalizeKitRootRel(kitRootRel) {
  */
 export const NO_AUTO_REFRESH_MARKER = "hyperion:no-auto-refresh";
 
+/**
+ * The marker only counts when a comment line starts with it, so generated headers
+ * can mention it in prose without pinning their own file.
+ */
+const NO_AUTO_REFRESH_RE = /^[ \t]*#[ \t]*hyperion:no-auto-refresh\b/m;
+
+export function hasNoAutoRefreshMarker(content) {
+  return NO_AUTO_REFRESH_RE.test(String(content || ""));
+}
+
 export const CARDS_SYNC_MODES = ["pull-forward", "auto"];
 
 /** ci.hyperion.cards_sync_mode → "pull-forward" (default) | "auto". */
@@ -109,7 +119,7 @@ export function auditSyncCardsWorkflow(content, { kitRootRel = "", syncMode } = 
     return { ok: false, issues: ["missing_file"], missing: ["file"] };
   }
 
-  if (text.includes(NO_AUTO_REFRESH_MARKER)) {
+  if (hasNoAutoRefreshMarker(text)) {
     return { ok: true, issues: [], missing: [] };
   }
 
@@ -558,10 +568,9 @@ jobs:
 }
 
 /** Render scheduled PR recheck workflow (cron + repository_dispatch). */
-export function renderPrRecheckWorkflow({ kitRootRel = "" } = {}) {
-  const wdBlock = kitRootRel
-    ? `\n    defaults:\n      run:\n        working-directory: ${kitRootRel}`
-    : "";
+export function renderPrRecheckWorkflow({ kitRootRel = "", defaultBranch = "main" } = {}) {
+  const kit = normalizeKitRootRel(kitRootRel);
+  const wdBlock = kit ? `\n    defaults:\n      run:\n        working-directory: ${kit}` : "";
 
   return `name: Hyperion — Cards PR Recheck
 
@@ -590,7 +599,7 @@ jobs:
         with:
           script: |
             const { owner, repo } = context.repo;
-            const { data: pulls } = await github.rest.pulls.list({ owner, repo, state: "open", base: "main", per_page: 100 });
+            const { data: pulls } = await github.rest.pulls.list({ owner, repo, state: "open", base: ${JSON.stringify(defaultBranch)}, per_page: 100 });
             const matrix = pulls.filter((pr) => pr.head?.repo?.full_name === \`\${owner}/\${repo}\`).map((pr) => ({
               number: pr.number, head_sha: pr.head.sha, base_sha: pr.base.sha, head_ref: pr.head.ref,
             }));
@@ -599,7 +608,7 @@ jobs:
   recheck:
     needs: list-open-prs
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 20${wdBlock}
     strategy:
       fail-fast: false
       max-parallel: 5
@@ -630,7 +639,7 @@ jobs:
 }
 
 /** Audit hyperion-cards-pr-recheck.yml */
-export function auditPrRecheckWorkflow(content) {
+export function auditPrRecheckWorkflow(content, { kitRootRel = "", defaultBranch } = {}) {
   const text = String(content || "");
   const issues = [];
   if (!text.trim()) return { ok: false, issues: ["missing_file"] };
@@ -638,6 +647,9 @@ export function auditPrRecheckWorkflow(content) {
   if (!/repository_dispatch:/m.test(text)) issues.push("missing_repository_dispatch");
   if (!/report-pr-guard-check\.mjs/m.test(text)) issues.push("missing_report_script");
   if (!/hyperion-board-changed/m.test(text)) issues.push("missing_dispatch_type");
+  if (normalizeKitRootRel(kitRootRel) && !/working-directory:\s*/m.test(text)) issues.push("missing_working_directory");
+  const base = text.match(/\bbase:\s*["']([^"']+)["']/)?.[1];
+  if (defaultBranch && base && base !== defaultBranch) issues.push("base_branch_mismatch");
   return { ok: issues.length === 0, issues };
 }
 
@@ -661,9 +673,9 @@ export function renderPrBoardGuardForkWorkflow({ kitRootRel = "" } = {}) {
 }
 
 /** @deprecated */
-export function appendForkGuardJob(workflowYaml) {
+export function appendForkGuardJob(workflowYaml, opts = {}) {
   if (workflowYaml.includes("board-guard-fork:")) return workflowYaml;
-  return `${workflowYaml.trimEnd()}\n\n${renderPrBoardGuardForkWorkflow().trimStart()}\n`;
+  return `${workflowYaml.trimEnd()}\n\n${renderPrBoardGuardForkWorkflow(opts).trimEnd()}\n`;
 }
 
 /** Audit hyperion-cards-pr-check.yml for pull_request trigger and pr-board-guard.mjs. */
@@ -997,7 +1009,7 @@ export async function inspectProductCiGates(root, gates, { kitRootRel = "", defa
     exists: existing !== null,
     currentHash: existing ? readGatesHash(existing) : null,
     expectedHash: gatesHash(plan),
-    noAutoRefresh: Boolean(existing && existing.includes(NO_AUTO_REFRESH_MARKER)),
+    noAutoRefresh: hasNoAutoRefreshMarker(existing),
     apps: plan.apps.length,
   };
 }
@@ -1386,7 +1398,7 @@ export async function auditHyperionPipelineFiles(root = workspaceRoot, options =
   const prRecheckRel = `${WORKFLOWS_DIR}/${HYPERION_WORKFLOWS.cardsPrRecheck}`;
   const prRecheckText = await readTextIfExists(path.join(root, prRecheckRel));
   if (prRecheckText) {
-    const audit = auditPrRecheckWorkflow(prRecheckText);
+    const audit = auditPrRecheckWorkflow(prRecheckText, renderOpts);
     if (!audit.ok) {
       findings.push({
         file: prRecheckRel,

@@ -155,16 +155,19 @@ describe("pipeline-apply: policies, legacy migration and failures", () => {
     assert.match(r.out, /❌ .*ENOENT.*hyperion-security\.yml/);
   });
 
-  it(
-    "nested kit layout reads static templates from kit.root",
-    { todo: "BUG: readTemplate joins process.cwd() + scripts/hyperion/templates, ignoring kit.root" },
-    () => {
-      const root = makeRepo({ "Hyperion/.github/cards/.keep": "" }, { kitDir: "Hyperion" });
-      const r = apply(root, "--yes");
-      assert.equal(r.status, 0, r.out);
-      assert.equal(read(root, `${WF}/hyperion-security.yml`), TEMPLATES["hyperion-security.yml"]);
-    }
-  );
+  it("nested kit layout reads static templates from kit.root and renders the recheck inside it", () => {
+    const root = makeRepo({ "Hyperion/.github/cards/.keep": "" }, { kitDir: "Hyperion" });
+    const r = apply(root, "--yes");
+    assert.equal(r.status, 0, r.out);
+    assert.equal(read(root, `${WF}/hyperion-security.yml`), TEMPLATES["hyperion-security.yml"]);
+    assert.match(read(root, `${WF}/hyperion-cards-pr-recheck.yml`), /working-directory: Hyperion/);
+
+    write(root, `${WF}/hyperion-cards-pr-recheck.yml`, read(root, `${WF}/hyperion-cards-pr-recheck.yml`).replace(/\n {4}defaults:\n.*\n.*working-directory: Hyperion/, ""));
+    const refreshed = apply(root, "--refresh-sync", "--yes");
+    assert.equal(refreshed.status, 0, refreshed.out);
+    assert.match(refreshed.out, /Refreshed \.github\/workflows\/hyperion-cards-pr-recheck\.yml \(missing_working_directory\)/);
+    assert.match(read(root, `${WF}/hyperion-cards-pr-recheck.yml`), /working-directory: Hyperion/);
+  });
 });
 
 describe("pipeline-apply: ci.gates product CI", () => {
@@ -191,16 +194,31 @@ describe("pipeline-apply: ci.gates product CI", () => {
     assert.match(read(root, productCi), /^# hyperion:gates-hash [0-9a-f]+$/m);
   });
 
-  it(
-    "a generated product CI is not treated as pinned (so --refresh-gates can re-render it)",
-    { todo: "BUG: the generated header mentions `hyperion:no-auto-refresh`, so inspectProductCiGates always reports it as pinned" },
-    async () => {
-      const state = await inspectProductCiGates(root, { defaults: { coverage: { mode: "warn", min: 90 } } });
-      assert.equal(state.exists, true);
-      assert.notEqual(state.currentHash, state.expectedHash);
-      assert.equal(state.noAutoRefresh, false);
-    }
-  );
+  it("a generated product CI is not treated as pinned (so --refresh-gates can re-render it)", async () => {
+    const state = await inspectProductCiGates(root, { defaults: { coverage: { mode: "warn", min: 90 } } });
+    assert.equal(state.exists, true);
+    assert.notEqual(state.currentHash, state.expectedHash);
+    assert.equal(state.noAutoRefresh, false);
+
+    const hash = (text) => text.match(/^# hyperion:gates-hash ([0-9a-f]+)$/m)[1];
+    const before = hash(read(root, productCi));
+    write(root, ".github/project.yml", gates(90));
+    const rerendered = apply(root, "--refresh-gates", "--yes");
+    assert.equal(rerendered.status, 0, rerendered.out);
+    assert.match(rerendered.out, /Wrote \.github\/workflows\/hyperion-product-ci\.yml/);
+    assert.notEqual(hash(read(root, productCi)), before);
+  });
+
+  it("a product CI the user pinned with the opt-out marker is skipped by --refresh-gates", async () => {
+    write(root, productCi, `# hyperion:no-auto-refresh — hand-tuned\n${read(root, productCi)}`);
+    write(root, ".github/project.yml", gates(50));
+    const state = await inspectProductCiGates(root, { defaults: { coverage: { mode: "warn", min: 50 } } });
+    assert.equal(state.noAutoRefresh, true);
+    const pinned = read(root, productCi);
+    const r = apply(root, "--refresh-gates", "--yes");
+    assert.equal(r.status, 0, r.out);
+    assert.equal(read(root, productCi), pinned);
+  });
 });
 
 describe("pipeline-apply: GitLab and Azure snippets", () => {

@@ -252,9 +252,7 @@ describe("coverage-gate CLI extras", () => {
     assert.doesNotMatch(zero.stdout, /####/);
   });
 
-  // Known bug: the CLI's top-level `await import("./diff-coverage.mjs")` deadlocks because
-  // diff-coverage.mjs statically imports coverage-gate.mjs (still evaluating) — exit code 13.
-  it("diff coverage: skipped outside git, reported when no line report exists", { todo: "coverage-gate ↔ diff-coverage import cycle under top-level await" }, () => {
+  it("diff coverage: skipped outside git, reported when no line report exists", () => {
     const lcovDir = repo({ "coverage/lcov.info": LCOV });
     const skipped = run(["--dir", lcovDir, "--diff-base", "hyperion-no-such-ref", "--diff-min", "80"]);
     assert.equal(skipped.status, 0, skipped.stdout + skipped.stderr);

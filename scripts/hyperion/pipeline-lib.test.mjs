@@ -576,15 +576,36 @@ describe("nested-kit renderers", () => {
     assert.equal(appendForkGuardJob(appended), appended);
   });
 
-  // Known bug: appendForkGuardJob trimStart()s the job, so it lands at column 0 instead of under jobs:.
-  it("appendForkGuardJob nests the fork job under jobs:", { todo: "appendForkGuardJob loses job indentation" }, () => {
-    assert.match(appendForkGuardJob("jobs:\n  board-guard:\n    runs-on: x\n"), /\n {2}board-guard-fork:\n/);
+  it("appendForkGuardJob nests the fork job under jobs:", async () => {
+    const appended = appendForkGuardJob("jobs:\n  board-guard:\n    runs-on: x\n");
+    assert.match(appended, /\n {2}board-guard-fork:\n/);
+    const { load } = await import("js-yaml");
+    assert.deepEqual(Object.keys(load(appended).jobs), ["board-guard", "board-guard-fork"]);
+    const nested = load(appendForkGuardJob("jobs:\n  board-guard:\n    runs-on: x\n", { kitRootRel: "Hyperion" }));
+    assert.equal(nested.jobs["board-guard-fork"].defaults.run["working-directory"], "Hyperion");
   });
 
-  // Known bug: renderPrRecheckWorkflow computes wdBlock but never interpolates it, so nested kits
-  // run scripts/cards-sync/report-pr-guard-check.mjs from the product root.
-  it("PR recheck runs inside kit.root", { todo: "renderPrRecheckWorkflow drops kitRootRel" }, () => {
-    assert.match(renderPrRecheckWorkflow({ kitRootRel: "Hyperion" }), /working-directory: Hyperion/);
+  it("PR recheck runs inside kit.root and lists PRs against the default branch", async () => {
+    const yaml = renderPrRecheckWorkflow({ kitRootRel: "Hyperion/", defaultBranch: "dev" });
+    const { load } = await import("js-yaml");
+    const doc = load(yaml);
+    assert.equal(doc.jobs.recheck.defaults.run["working-directory"], "Hyperion");
+    assert.equal(doc.jobs["list-open-prs"].defaults, undefined);
+    assert.match(doc.jobs["list-open-prs"].steps[0].with.script, /base: "dev"/);
+    assert.doesNotMatch(yaml, /base: "main"/);
+    assert.equal(auditPrRecheckWorkflow(yaml, { kitRootRel: "Hyperion", defaultBranch: "dev" }).ok, true);
+    assert.doesNotMatch(renderPrRecheckWorkflow(), /working-directory/);
+  });
+
+  it("auditPrRecheckWorkflow flags a root-level or main-pinned recheck for nested / non-main repos", () => {
+    const legacy = renderPrRecheckWorkflow();
+    assert.deepEqual(auditPrRecheckWorkflow(legacy, { kitRootRel: "Hyperion", defaultBranch: "dev" }).issues, [
+      "missing_working_directory",
+      "base_branch_mismatch",
+    ]);
+    assert.equal(auditPrRecheckWorkflow(legacy, { defaultBranch: "main" }).ok, true);
+    const dynamicBase = legacy.replace('base: "main"', "base: defaultBranch");
+    assert.equal(auditPrRecheckWorkflow(dynamicBase, { defaultBranch: "dev" }).ok, true);
   });
 });
 

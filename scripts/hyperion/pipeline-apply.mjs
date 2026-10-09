@@ -56,7 +56,7 @@ const REFRESH_TARGETS = [
     file: `${WORKFLOWS_DIR}/${HYPERION_WORKFLOWS.cardsPrRecheck}`,
     template: HYPERION_WORKFLOWS.cardsPrRecheck,
     audit: auditPrRecheckWorkflow,
-    render: () => renderPrRecheckWorkflow(),
+    render: (opts) => renderPrRecheckWorkflow(opts),
   },
   {
     file: ".gitlab/hyperion-ci.yml",
@@ -93,7 +93,7 @@ async function readTemplate(action, renderOpts, detection) {
   if (rendered) return rendered;
 
   const dir = action.templateDir === "ci" ? CI_TEMPLATES_DIR : TEMPLATES_DIR;
-  const p = path.join(workspaceRoot, dir, action.template);
+  const p = path.join(workspaceRoot, renderOpts.kitRootRel || "", dir, action.template);
   return fs.readFile(p, "utf8");
 }
 

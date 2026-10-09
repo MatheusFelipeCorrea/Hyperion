@@ -641,15 +641,29 @@ describe("polyglot repo: every stack analyzer", () => {
     assert.equal(rb2.setup.version, "3.2.2");
   });
 
-  it("versionSource names .tool-versions when the version came from it", { todo: "BUG: php reports composer.json, ruby reports .ruby-version" }, () => {
+  it("versionSource names .tool-versions when the version came from it", () => {
     assert.deepEqual([app("php2").setup.version, app("php2").setup.versionSource], ["8.1.2", ".tool-versions"]);
     assert.deepEqual([app("ruby2").setup.version, app("ruby2").setup.versionSource], ["3.2.2", ".tool-versions"]);
   });
 
-  it("ruby: bin/rails enables db:prepare and the migrations gate", { todo: "BUG: walkRepo skips every `bin/` dir, so bin/rails is never indexed" }, () => {
+  it("ruby: bin/rails enables db:prepare and the migrations gate", () => {
     const rb = app("ruby");
     assert.equal(rb.migrate, "bin/rails db:prepare");
     assert.equal(rb.gates.migrations?.tool, "rails");
+    assert.equal(app("ruby2").migrate, null);
+  });
+
+  it("walkRepo indexes Ruby binstubs but still skips bin/ build output elsewhere", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "hyperion-walk-bin-"));
+    try {
+      for (const rel of ["rb/Gemfile", "rb/bin/rails", "net/App.csproj", "net/bin/Debug/App.dll", "bin/tool"]) {
+        fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true });
+        fs.writeFileSync(path.join(root, rel), "");
+      }
+      assert.deepEqual(walkRepo(root), ["net/App.csproj", "rb/Gemfile", "rb/bin/rails"]);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
   });
 
   it("python: requirements installs, flake8 and Django test runner", () => {
