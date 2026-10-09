@@ -30,6 +30,18 @@ test("cards:init: missing projects-map.json → exit 1 before running any step (
     assert.deepEqual(initLines(run), []);
   }));
 
+test("cards:init reports the real repository source: GITHUB_REPOSITORY over a git remote, else fallback", () =>
+  withWorkspace({}, (ws) => {
+    const fromEnv = runCli("init.mjs", [], { ws, env: { FAKE_GIT_ORIGIN: "git@github.com:octo/other.git" } });
+    assert.equal(fromEnv.status, 1, fromEnv.out);
+    assert.match(fromEnv.stdout, /Repository: acme\/app \(GITHUB_REPOSITORY\)/);
+    assert.ok(!fromEnv.tools.some((t) => t.tool === "git"), "git isn't consulted when GITHUB_REPOSITORY is set");
+
+    const fallback = runCli("init.mjs", [], { ws, env: { GITHUB_REPOSITORY: undefined } });
+    assert.equal(fallback.status, 1, fallback.out);
+    assert.match(fallback.stdout, /Repository: unknown\/unknown \(fallback\)/);
+  }));
+
 test("cards:init --yes --install-hook: full GitHub bootstrap succeeds end to end", () =>
   withWorkspace({ config: CONFIG }, (ws) => {
     const run = runCli("init.mjs", ["--yes", "--install-hook"], {
@@ -40,14 +52,14 @@ test("cards:init --yes --install-hook: full GitHub bootstrap succeeds end to end
     });
     assert.equal(run.status, 0, run.out);
     assert.deepEqual(initLines(run), [
-      "[cards-init] Step 1/5 — Auto-discover GitHub Project number...",
+      "[cards-init] Step 1/6 — Auto-discover GitHub Project number...",
       "[cards-init] Step 2/6 — Reset repository labels (Hyperion catalog)...",
       "[cards-init] Step 3/6 — Doctor (local + remote checks)...",
-      "[cards-init] Step 3/6 — Validate cards...",
-      "[cards-init] Step 4/6 — Dry-run sync...",
-      "[cards-init] Step 5/6 — Real sync (--yes)...",
+      "[cards-init] Step 4/6 — Validate cards...",
+      "[cards-init] Step 5/6 — Dry-run sync...",
+      "[cards-init] Step 6/6 — Real sync (--yes)...",
     ]);
-    assert.match(run.stdout, /Repository: acme\/app \(env\/fallback\)/);
+    assert.match(run.stdout, /Repository: acme\/app \(GITHUB_REPOSITORY\)/);
     assert.match(run.stdout, /= projectNumber already set \(#3\)/);
     assert.match(run.stdout, /→ node .*labels-reset\.mjs --yes/);
     assert.match(run.stdout, /\[labels-reset\]\s+updated: type:bug/);
@@ -69,7 +81,7 @@ test("cards:init --install-hook (no --yes): labels preview only, real sync skipp
     assert.match(run.stdout, /→ node .*labels-reset\.mjs --dry-run/);
     assert.match(run.stdout, /\[labels-reset\]\s+\(dry-run\) edit: type:bug/);
     assert.ok(!run.tools.some((t) => t.tool === "gh" && t.args[1] === "edit"), "no live label writes");
-    assert.match(run.stdout, /Step 5\/6 — Real sync skipped\./);
+    assert.match(run.stdout, /Step 6\/6 — Real sync skipped\./);
     assert.match(run.stdout, /npm run cards:init -- --yes/);
     assert.doesNotMatch(run.stdout, /Dry-run: no/);
     assert.match(run.stdout, /Installing pre-commit hook\.\.\./);
@@ -81,7 +93,7 @@ test("cards:init --skip-sync: stops after the dry-run", () =>
   withWorkspace({ config: CONFIG }, (ws) => {
     const run = runCli("init.mjs", ["--skip-sync"], { ws, chain: true, env: GH_OK, state: HEALTHY });
     assert.equal(run.status, 0, run.out);
-    assert.match(run.stdout, /Step 5\/6 — Skipped real sync \(--skip-sync\)/);
+    assert.match(run.stdout, /Step 6\/6 — Skipped real sync \(--skip-sync\)/);
     assert.doesNotMatch(run.stdout, /Dry-run: no/);
   }));
 
@@ -96,10 +108,10 @@ test("cards:init on a non-GitHub backend without a GitHub token: discovery and r
     assert.equal(run.status, 0, run.out);
     assert.match(run.stdout, /Token: missing — see .*github-cli-setup\.md/);
     assert.match(run.stdout, /Backend is 'linear' — cards:init is optimized for GitHub/);
-    assert.match(run.stdout, /Step 1\/5 — Skipped project discovery \(no token or repo\)/);
+    assert.match(run.stdout, /Step 1\/6 — Skipped project discovery \(no token or repo\)/);
     assert.match(run.stdout, /\[labels-reset\] Backend is Linear — nothing to reset here\./);
     assert.match(run.stdout, /\[doctor\] ✅ Linear team OK: Core/);
-    assert.match(run.stdout, /Step 5\/6 — Skipped real sync \(no token\)\. Run: npm run cards:sync/);
+    assert.match(run.stdout, /Step 6\/6 — Skipped real sync \(no token\)\. Run: npm run cards:sync/);
     assert.match(run.stdout, /✅ Init complete\./);
   }));
 
@@ -130,7 +142,7 @@ test("cards:init step 1 reports each project-discovery outcome (then stops on a 
       assert.equal(run.status, 1, `${c.name}: ${run.out}`);
       assert.match(run.stdout, c.expect, c.name);
       assert.match(run.stdout, /\[labels-reset\] ERROR: no labels loaded/, c.name);
-      assert.doesNotMatch(run.stdout, /Step 3\/6/, c.name);
+      assert.doesNotMatch(run.stdout, /Step [3-6]\/6/, c.name);
       c.check?.(ws);
     });
   }

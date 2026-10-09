@@ -31,7 +31,7 @@ function parseFrontmatter(content) {
   const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
   if (!match) return null;
   const meta = {};
-  for (const line of match[1].split("\n")) {
+  for (const line of match[1].split(/\r?\n/)) {
     const kv = line.match(/^([a-zA-Z_]+)\s*:\s*(.*)$/);
     if (!kv) continue;
     let value = kv[2].trim();

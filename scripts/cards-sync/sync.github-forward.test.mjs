@@ -271,7 +271,7 @@ test("forward auto-creates a Project with the kit fields, views and Sprint itera
       `  ~ Status field updated — added ${STATUS_SPECS.filter((s) => !["Todo", "In Progress", "Done"].includes(s.name)).length} missing column(s)`,
       "  + Project views created",
       "  = Sprint iteration field exists: Sprint (2 iteration(s))",
-      "  projects-map.json updated: projectNumber=1, projectOwner=acme",
+      "  projects-map.json updated: default.projectNumber=1, projectOwner=acme",
       "Labels skipped (not found): Ghost",
     ]) {
       assert.ok(run.logs.includes(line), `missing log: ${line}\n${run.stdout}`);

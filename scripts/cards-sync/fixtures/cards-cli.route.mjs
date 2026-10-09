@@ -6,8 +6,12 @@
  *                     `url` is a substring of the request URL wins; `body` may be an
  *                     object (JSON), a string (raw text) or null (empty body).
  *   state.github      { projects: { repository|user|organization: nodes[] },
- *                       project: { scope, id?, fields: nodes[] }, failMutations? }
- *                     — GitHub GraphQL: Projects v2 listing, project lookup, field mutations.
+ *                       project: { scope, id?, fields: nodes[] }, failMutations?,
+ *                       issues?: nodes[], newProjectNumber? }
+ *                     — GitHub GraphQL: Projects v2 listing, project lookup, field mutations,
+ *                       owner/repository node ids, issue listing + create/update (kept in
+ *                       `issues`), views listing and createProjectV2 (which turns
+ *                       `project` into the new, field-less repository Project).
  *   state.gitlab      { labels: names[], listStatus?, fail?: names[] } — GitLab Labels API.
  */
 function reply(status, body, statusText) {
@@ -27,11 +31,35 @@ function githubGraphql(req, gh) {
 
   if (/^\s*mutation/.test(query)) {
     if (gh.failMutations) return { errors: [{ message: "mutation refused" }] };
-    const { name, fieldId } = req.body.variables || {};
+    const vars = req.body.variables || {};
+    const { name, fieldId } = vars;
     if (/createProjectV2Field/.test(query)) return { data: { createProjectV2Field: { projectV2Field: { id: "PVTF_new", name } } } };
     if (/updateProjectV2Field/.test(query)) return { data: { updateProjectV2Field: { projectV2Field: { id: fieldId, name } } } };
+    if (/createProjectV2\(/.test(query)) {
+      gh.project = { scope: "repository", id: "PVT_new", fields: [] };
+      return { data: { createProjectV2: { projectV2: { id: "PVT_new", number: gh.newProjectNumber } } } };
+    }
+    if (/createProjectV2View/.test(query)) return { data: { createProjectV2View: { projectV2View: { id: "PVTV_new", name, layout: vars.layout } } } };
+    if (/createIssue\(/.test(query)) {
+      gh.issues = gh.issues || [];
+      const number = gh.issues.length + 1;
+      const issue = { id: `I_${number}`, number, title: vars.title, url: `https://github.com/acme/app/issues/${number}`, body: vars.body, state: "OPEN" };
+      gh.issues.push(issue);
+      return { data: { createIssue: { issue } } };
+    }
+    if (/updateIssue\(/.test(query)) {
+      const issue = (gh.issues || []).find((i) => i.id === vars.issueId);
+      Object.assign(issue, { title: vars.title, body: vars.body });
+      return { data: { updateIssue: { issue } } };
+    }
     return undefined;
   }
+
+  if (/issues\(first/.test(query)) {
+    return { data: { repository: { issues: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: gh.issues || [] } } } };
+  }
+  if (/views\(first/.test(query)) return { data: { node: { views: { nodes: [] } } } };
+  if (scope && /\{ id \} \}\s*$/.test(query)) return { data: { [scope]: { id: `${scope}_node` } } };
 
   if (/projectsV2\(/.test(query)) {
     const nodes = gh.projects?.[scope];

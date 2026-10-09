@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { chmodSync } from "node:fs";
 import { HEALTHY_PROJECT_FIELDS, createWorkspace, runCli } from "./fixtures/cards-cli-harness.mjs";
 
 const CONFIG_PATH = ".github/cards/config/projects-map.json";
@@ -26,10 +27,10 @@ const GITHUB_CONFIG = {
 const field = (name, extra = {}) => ({ ...HEALTHY_PROJECT_FIELDS.find((f) => f.name === name), ...extra });
 const fieldsWith = (overrides) => HEALTHY_PROJECT_FIELDS.map((f) => (f.name in overrides ? overrides[f.name] : f)).filter(Boolean);
 const graphqlCalls = (run) => run.calls.filter((c) => c.url === "https://api.github.com/graphql");
-const SYNC_STUB = `import { writeFileSync } from "node:fs";
-writeFileSync("sync-ran.txt", "ran");
-process.exit(Number(process.env.STUB_SYNC_EXIT || 0));
-`;
+// Doctor runs the kit's real sync.mjs (the workspaces have no scripts/ of their own), unattended
+// (CARDS_SYNC_YES) and with fetch mocked in grandchildren (`chain`); with no cards it stops early.
+const SYNC_ENV = { CARDS_SYNC_YES: "true" };
+const SYNC_RAN = /\[cards-sync\] No card files found/;
 
 function withWorkspace(opts, fn) {
   const ws = createWorkspace(opts);
@@ -126,6 +127,7 @@ test("doctor: org-level Project with a non-select Status and no Sprint; bare con
     assert.match(run.stdout, /statusColumnsFile missing/);
     assert.match(run.stdout, /Missing required Project fields: Sprint/);
     assert.match(run.stdout, /cards:project-fields-apply -- --yes/);
+    assert.ok(run.stdout.includes("3) Or set projects-map.json default.projectNumber=0 and let sync auto-create"), run.stdout);
     assert.match(run.stdout, /Status field was not found as a single-select field\./);
     assert.match(run.stdout, /Sprint iteration field not found \(expected: Sprint\)\./);
     assert.deepEqual(
@@ -181,6 +183,22 @@ test("doctor: user-level Project, PROJECT_OWNER/NUMBER env, localized Status map
       assert.deepEqual(graphqlCalls(run)[1].body.variables, { owner: "octo", number: 8 });
     }
   ));
+
+test("doctor: missing-fields advice names the projectNumber entry in effect (repositories entry, PROJECT_NUMBER env)", () =>
+  withWorkspace({ config: { default: { projectNumber: 7 }, repositories: { "acme/app": { projectNumber: 3 } } } }, (ws) => {
+    const state = { github: { project: { scope: "repository", fields: fieldsWith({ "Due Date": null }) } } };
+    const fromEntry = runCli("doctor.mjs", [], { ws, state });
+    assert.equal(fromEntry.status, 1, fromEntry.out);
+    assert.match(fromEntry.stdout, /Missing required Project fields: Due Date/);
+    assert.ok(fromEntry.stdout.includes('3) Or set projects-map.json repositories["acme/app"].projectNumber=0 and let sync'), fromEntry.stdout);
+
+    const fromEnv = runCli("doctor.mjs", [], { ws, env: { PROJECT_NUMBER: "3" }, state });
+    assert.equal(fromEnv.status, 1, fromEnv.out);
+    assert.ok(
+      fromEnv.stdout.includes('3) Or unset PROJECT_NUMBER, set projects-map.json repositories["acme/app"].projectNumber=0 and let sync'),
+      fromEnv.stdout
+    );
+  }));
 
 test("doctor: Status with no options and an empty Sprint iteration field → exit 1", () =>
   withWorkspace({ config: GITHUB_CONFIG }, (ws) => {
@@ -277,15 +295,28 @@ test("doctor: ambiguous projects + interactive 'n' → lists candidates, exit 0"
     assert.match(run.stdout, /Multiple GitHub Projects found/);
     assert.match(run.stdout, /candidate: #1 Alpha/);
     assert.match(run.stdout, /candidate: #2 Beta/);
-    assert.ok(!ws.exists("sync-ran.txt"));
+    assert.doesNotMatch(run.stdout, /\[cards-sync\]/);
   }));
 
-test("doctor: projectNumber unset + interactive 'y' → runs sync.mjs and exits with its status", () =>
-  withWorkspace({ config: { default: {} }, files: { "scripts/cards-sync/sync.mjs": SYNC_STUB } }, (ws) => {
-    const run = runCli("doctor.mjs", [], { ws, tty: true, input: "y\n", env: { STUB_SYNC_EXIT: "4" }, state: { github: {} } });
-    assert.equal(run.status, 4, run.out);
+test("doctor: projectNumber unset + interactive 'y' → runs the kit's sync.mjs and exits with its status", () =>
+  withWorkspace({ config: { default: {} } }, (ws) => {
+    const run = runCli("doctor.mjs", [], { ws, tty: true, chain: true, input: "y\n", env: SYNC_ENV, state: { github: {} } });
+    assert.equal(run.status, 0, run.out);
     assert.match(run.stdout, /Running sync\.mjs \(real mode\) to auto-create project\/fields\/labels/);
-    assert.ok(ws.exists("sync-ran.txt"));
+    assert.match(run.stdout, SYNC_RAN);
+
+    // GitHub answers 502: doctor's discovery shrugs it off, reverse sync's issue lookup fails (exit 1).
+    const failing = runCli("doctor.mjs", [], {
+      ws,
+      tty: true,
+      chain: true,
+      input: "y\n",
+      env: { ...SYNC_ENV, SYNC_DIRECTION: "reverse" },
+      state: { responses: [{ url: "https://api.github.com/graphql", status: 502, body: { message: "upstream unavailable" } }] },
+    });
+    assert.equal(failing.status, 1, failing.out);
+    assert.match(failing.stderr, /\[cards-sync\] FATAL ERROR/);
+    assert.match(failing.stderr, /upstream unavailable/, "reverse sync's issue lookup hit the fetch mock");
   }));
 
 // ---------------------------------------------------------------------------
@@ -307,27 +338,57 @@ test("doctor: Project not found + --yes never prompts even on a TTY → exit 0, 
     const run = runCli("doctor.mjs", ["--yes"], { ws, tty: true, input: "y\n", state: { github: {} } });
     assert.equal(run.status, 0, run.out);
     assert.doesNotMatch(run.stdout, /\(y\/N\)/);
-    assert.match(run.stdout, /Auto-create skipped\. You can set projectNumber to 0 manually/);
+    assert.match(run.stdout, /Auto-create skipped\. You can set default\.projectNumber to 0 in projects-map\.json manually/);
     assert.equal(ws.read(CONFIG_PATH), before);
   }));
 
-test("doctor: Project not found + interactive 'yes' → resets default.projectNumber to 0 and runs sync.mjs", () =>
-  withWorkspace({ config: { repositories: { "acme/app": { projectNumber: 5 } } }, files: { "scripts/cards-sync/sync.mjs": SYNC_STUB } }, (ws) => {
-    const run = runCli("doctor.mjs", [], { ws, tty: true, input: "yes\n", state: { github: {} } });
+test("doctor: Project not found + interactive 'yes' → resets the repositories entry that set the number, then runs sync.mjs", () =>
+  withWorkspace(
+    {
+      config: { default: { projectNumber: 7 }, repositories: { "acme/app": { projectNumber: 5 } } },
+    },
+    (ws) => {
+      const run = runCli("doctor.mjs", [], { ws, tty: true, chain: true, input: "yes\n", env: SYNC_ENV, state: { github: {} } });
+      assert.equal(run.status, 0, run.out);
+      assert.match(run.stdout, /GitHub Project not found for owner="acme" number=5\./);
+      assert.ok(run.stdout.includes('Can I set projects-map.json repositories["acme/app"].projectNumber to 0'), run.stdout);
+      assert.ok(run.stdout.includes('projects-map.json updated: repositories["acme/app"].projectNumber=0'), run.stdout);
+      const saved = ws.readJson(CONFIG_PATH);
+      assert.equal(saved.repositories["acme/app"].projectNumber, 0);
+      assert.equal(saved.default.projectNumber, 7, "the default isn't what pointed at the missing Project");
+      assert.match(run.stdout, SYNC_RAN);
+    }
+  ));
+
+test("doctor: Project not found via PROJECT_NUMBER env → explains the override, no prompt, no edit, no sync", () =>
+  withWorkspace({ config: { default: { projectNumber: 3 } } }, (ws) => {
+    const before = ws.read(CONFIG_PATH);
+    const run = runCli("doctor.mjs", [], { ws, tty: true, chain: true, input: "y\n", env: { PROJECT_NUMBER: "8" }, state: { github: {} } });
     assert.equal(run.status, 0, run.out);
-    assert.match(run.stdout, /Project not found\. Can I set projects-map\.json\.projectNumber to 0/);
-    assert.match(run.stdout, /projects-map\.json updated: default\.projectNumber=0/);
-    assert.equal(ws.readJson(CONFIG_PATH).default.projectNumber, 0);
-    assert.ok(ws.exists("sync-ran.txt"));
+    assert.match(run.stdout, /GitHub Project not found for owner="acme" number=8\./);
+    assert.match(run.stdout, /PROJECT_NUMBER environment variable \(PROJECT_NUMBER=8\), which overrides projects-map\.json/);
+    assert.match(run.stdout, /Remove PROJECT_NUMBER .* shell, \.env file or CI variables/);
+    assert.doesNotMatch(run.stdout, /\(y\/N\)/);
+    assert.equal(ws.read(CONFIG_PATH), before);
+    assert.doesNotMatch(run.stdout, /\[cards-sync\]/);
   }));
 
-test("doctor: Project not found + 'y' but projects-map.json can't be edited → exit 1", () =>
-  withWorkspace({ config: '"legacy"' }, (ws) => {
-    const run = runCli("doctor.mjs", [], { ws, tty: true, input: "y\n", env: { PROJECT_NUMBER: "5" }, state: { github: {} } });
-    assert.equal(run.status, 1, run.out);
-    assert.match(run.stdout, /❌ Could not edit projects-map\.json: /);
-    assert.equal(ws.read(CONFIG_PATH), '"legacy"');
-  }));
+test(
+  "doctor: Project not found + 'y' but projects-map.json can't be written → exit 1",
+  { skip: process.getuid?.() === 0 && "root ignores the read-only bit" },
+  () =>
+    withWorkspace({ config: { default: { projectNumber: 5 } } }, (ws) => {
+      chmodSync(ws.path(CONFIG_PATH), 0o444);
+      try {
+        const run = runCli("doctor.mjs", [], { ws, tty: true, input: "y\n", state: { github: {} } });
+        assert.equal(run.status, 1, run.out);
+        assert.match(run.stdout, /❌ Could not edit projects-map\.json: /);
+        assert.equal(ws.readJson(CONFIG_PATH).default.projectNumber, 5);
+      } finally {
+        chmodSync(ws.path(CONFIG_PATH), 0o644);
+      }
+    })
+);
 
 // ---------------------------------------------------------------------------
 // Other backends
@@ -358,6 +419,14 @@ test("doctor (Jira): project + issue-type checks pass (backend from project.yml)
     assert.equal(run.calls[0].url, "https://jira.example/rest/api/2/project/PROJ");
     assert.equal(run.calls[0].headers.Authorization, `Basic ${Buffer.from("bot@acme.test:jt").toString("base64")}`);
     assert.match(run.calls[1].url, /createmeta\?projectKeys=PROJ&issuetypeNames=Story&expand=projects\.issuetypes\.fields$/);
+  }));
+
+test("doctor: project.yml backend with quotes, an inline comment and CRLF is still detected", () =>
+  withWorkspace({ config: { default: {} }, projectYml: "management:\r\n  backend: \"Jira\"  # tracker\r\n" }, (ws) => {
+    const run = runCli("doctor.mjs", [], { ws });
+    assert.equal(run.status, 1, run.out);
+    assert.match(run.stdout, /Backend detected: jira/);
+    assert.match(run.stdout, /Jira backend detected\. Missing one or more required env vars/);
   }));
 
 test("doctor (Jira): a failing request aborts with exit 1", () =>
