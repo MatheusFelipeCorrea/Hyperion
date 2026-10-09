@@ -12,6 +12,7 @@ import {
   parseCardIdFromIssueBody,
   parseSourceFileFromIssueBody,
   parseSyncMetadataFromDescription,
+  pickCanonicalIssueForCardId,
   remoteIssueToCardMarkdown,
   resolveHyperionStatusFromRemote,
   remoteBoardSyncAt,
@@ -71,12 +72,13 @@ function cardIdJql(projectKey) {
 /**
  * Every issue matching `jql`. Jira Cloud only serves /search/jql (paged by
  * nextPageToken); Jira Data Center only has /search (paged by startAt), so
- * that one is used when /search/jql answers 404.
+ * that one is used when /search/jql answers 404 or 405 on the first page.
  */
 export async function jiraSearchAll(management, jql, fields) {
   const query = `jql=${encodeURIComponent(jql)}&maxResults=${SEARCH_PAGE_SIZE}&fields=${fields.join(",")}`;
   const issues = [];
   let token = null;
+  let cloudError;
   try {
     while (true) {
       const tokenParam = token ? `&nextPageToken=${encodeURIComponent(token)}` : "";
@@ -87,27 +89,48 @@ export async function jiraSearchAll(management, jql, fields) {
       if (!token || page.isLast || !batch.length) return issues;
     }
   } catch (error) {
-    if (error.status !== 404 || issues.length) throw error;
+    if (![404, 405].includes(error.status) || issues.length) throw error;
+    cloudError = error;
   }
 
   let startAt = 0;
-  while (true) {
-    const page = await jiraRequest(management, `/rest/api/2/search?${query}&startAt=${startAt}`);
-    const batch = page.issues || [];
-    issues.push(...batch);
-    startAt = Number(page.startAt ?? startAt) + batch.length;
-    if (!batch.length || startAt >= Number(page.total ?? issues.length)) return issues;
+  try {
+    while (true) {
+      const page = await jiraRequest(management, `/rest/api/2/search?${query}&startAt=${startAt}`);
+      const batch = page.issues || [];
+      issues.push(...batch);
+      startAt = Number(page.startAt ?? startAt) + batch.length;
+      if (!batch.length || startAt >= Number(page.total ?? issues.length)) return issues;
+    }
+  } catch (error) {
+    const both = new Error(
+      `Jira search failed on /rest/api/2/search/jql (${cloudError.message}) and on the /rest/api/2/search fallback (${error.message})`
+    );
+    both.status = error.status;
+    throw both;
   }
 }
 
+/** pickCanonicalIssueForCardId compares GitHub-shaped { state, number }; a Jira key's number is its suffix. */
+function jiraCanonicalCandidate(issue) {
+  const done = issue.fields?.status?.statusCategory?.key === "done";
+  return { issue, state: done ? "CLOSED" : "OPEN", number: Number(String(issue.key || "").split("-").pop()) };
+}
+
+/** When several issues carry the same CARD_ID, the open one with the lowest number wins, like the other backends. */
 async function jiraIndexIssuesByCardId(management) {
-  const issues = await jiraSearchAll(management, cardIdJql(management.jiraProjectKey), ["summary", "labels", "description"]);
+  const issues = await jiraSearchAll(management, cardIdJql(management.jiraProjectKey), [
+    "summary",
+    "labels",
+    "description",
+    "status",
+  ]);
   const byCardId = new Map();
   for (const issue of issues) {
     const cardId = parseCardIdFromIssueBody(issue.fields?.description || "");
-    if (cardId && !byCardId.has(cardId)) byCardId.set(cardId, issue);
+    if (cardId) byCardId.set(cardId, pickCanonicalIssueForCardId(byCardId.get(cardId), jiraCanonicalCandidate(issue)));
   }
-  return byCardId;
+  return new Map([...byCardId].map(([cardId, picked]) => [cardId, picked.issue]));
 }
 
 async function jiraCreateIssue(management, projectKey, card) {
@@ -134,10 +157,11 @@ async function jiraUpdateIssue(management, issueKey, card) {
   await jiraRequest(management, `/rest/api/2/issue/${issueKey}`, "PUT", body);
 }
 
+/** @param {string|string[]} targetStatus a status name, or the candidate names to try in order */
 export function pickJiraTransition(transitions, targetStatus, repoConfig = {}) {
   if (!targetStatus || !Array.isArray(transitions)) return null;
 
-  const candidates = buildOptionCandidates("status", targetStatus, repoConfig);
+  const candidates = Array.isArray(targetStatus) ? targetStatus : buildOptionCandidates("status", targetStatus, repoConfig);
 
   for (const candidate of candidates) {
     const norm = normalizeText(candidate);
@@ -157,11 +181,28 @@ async function jiraGetTransitions(management, issueKey) {
   return data.transitions || [];
 }
 
-async function jiraApplyStatusTransition(management, issueKey, targetStatus, repoConfig) {
+/**
+ * Moves the issue to the statusMap target for `cardStatus`, or to `cardStatus` itself
+ * when the workflow has no transition to the mapped name. `currentStatus` (unknown for
+ * an issue created in this run) skips the transition when the issue is already there.
+ */
+async function jiraApplyStatusTransition(management, issueKey, cardStatus, { statusMap, repoConfig, currentStatus = null }) {
+  const targetStatus = resolveMappedStatus(statusMap, cardStatus);
   if (!targetStatus) return { applied: false, reason: "no_status" };
 
+  const preferred = buildOptionCandidates("status", targetStatus, repoConfig);
+  const fallback = targetStatus === cardStatus ? [] : buildOptionCandidates("status", cardStatus, repoConfig);
+  const isCurrent = (candidates) =>
+    Boolean(currentStatus) && candidates.some((c) => normalizeText(c) === normalizeText(currentStatus));
+  const unchanged = { applied: false, reason: "already_in_status", targetStatus, current: currentStatus };
+  if (isCurrent(preferred)) return unchanged;
+
   const transitions = await jiraGetTransitions(management, issueKey);
-  const match = pickJiraTransition(transitions, targetStatus, repoConfig);
+  let match = pickJiraTransition(transitions, preferred);
+  if (!match) {
+    if (isCurrent(fallback)) return unchanged;
+    match = pickJiraTransition(transitions, fallback);
+  }
 
   if (!match) {
     return {
@@ -262,14 +303,18 @@ export async function runForwardSyncJira(repoConfig, management) {
     }
 
     if (issueKey && card.status) {
-      const transitionResult = await jiraApplyStatusTransition(
-        management,
-        issueKey,
-        resolveMappedStatus(statusMap, card.status),
-        repoConfig
-      );
+      const transitionResult = await jiraApplyStatusTransition(management, issueKey, card.status, {
+        statusMap,
+        repoConfig,
+        currentStatus: existing?.fields?.status?.name || null,
+      });
+      const statusAction = transitionResult.applied
+        ? "STATUS_TRANSITIONED"
+        : transitionResult.reason === "already_in_status"
+          ? "STATUS_UNCHANGED"
+          : "STATUS_SKIPPED";
       actions.push({
-        action: transitionResult.applied ? "STATUS_TRANSITIONED" : "STATUS_SKIPPED",
+        action: statusAction,
         cardId: card.cardId,
         issueKey,
         status: card.status,
