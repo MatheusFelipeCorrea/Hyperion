@@ -526,7 +526,7 @@ export async function assertCiProjectConfigured(configPath, repositorySlug, { ba
       ok: false,
       reason: "missing_project_number",
       message:
-        "CI pull-before-push requires a GitHub Project: set projectNumber in projects-map.json or the PROJECT_NUMBER env/repository variable. Run: npm run cards:doctor",
+        "CI pull-before-push requires a GitHub Project: set projectNumber in projects-map.json or the PROJECT_NUMBER env (a repository variable only reaches this step if the workflow maps it: `PROJECT_NUMBER: ${{ vars.PROJECT_NUMBER }}`). Run: npm run cards:doctor",
     };
   }
 

@@ -32,11 +32,17 @@ Nada entra direto na `main` — nem atualização de dependência: o Dependabot 
 
 O vínculo nunca é "limpo" ao promover — ele simplesmente nunca entra em `dev`/`qa`/`main`. A `internal` é a `main` **mais arquivos que só ela tem**, sem editar nenhum arquivo que a `main` também tenha; por isso o merge `main` → `internal` nunca conflita:
 
-- **Board:** a variável de repositório `PROJECT_NUMBER` (Settings → Variables), lida pelo `sync.mjs`/`ci-sync.mjs`. O `projects-map.json` continua `null` em todas as branches.
+- **Board:** as variáveis de repositório `PROJECT_NUMBER` (e `PROJECT_OWNER`, se o board não for do dono do repo), em Settings → Variables. Variável de repositório **não** chega sozinha nos scripts: só o workflow que mapeia no `env:` do step repassa (`PROJECT_NUMBER: ${{ vars.PROJECT_NUMBER }}`), e aí `sync.mjs`/`ci-sync.mjs`/`pr-board-guard.mjs` usam esse valor no lugar do `projects-map.json`. Só os workflows da `internal` mapeiam; os de `dev`/`qa`/`main` não podem mapear (a variável vale pro repo todo, e eles ligariam essas branches ao board real). O `projects-map.json` continua `null` em todas as branches.
 - **Cards reais:** `.github/cards/{epics,features,stories,tasks}/` existem só na `internal`, commitados direto nela.
-- **Sync dos cards:** `.github/workflows/internal-cards-sync.yml`, que só existe na `internal` (push em `internal`).
+- **Sync dos cards:** `.github/workflows/internal-cards-sync.yml`, que só existe na `internal` (push em `internal`) e mapeia as variáveis em todo step que chama os scripts de cards:
 
-A cada push na `main`, o `internal-sync.yml` mergeia a `main` na `internal`; se a `main` mexeu em workflow (o `GITHUB_TOKEN` não pode) ou houver conflito, ele abre um PR `main` → `internal` para merge manual. Com o secret `INTERNAL_SYNC_TOKEN` (PAT fine-grained, Contents + Workflows) esses merges também ficam automáticos. No caminho contrário, o `distribution-purity-check` barra qualquer PR para `dev`/`qa`/`main` que traga card real ou workflow de push na `internal`.
+  ```yaml
+  env:
+    PROJECT_NUMBER: ${{ vars.PROJECT_NUMBER }}
+    PROJECT_OWNER: ${{ vars.PROJECT_OWNER }}
+  ```
+
+A cada push na `main`, o `internal-sync.yml` mergeia a `main` na `internal` (só roda em `MatheusFelipeCorrea/Hyperion`, nunca em fork); se a `main` mexeu em workflow (o `GITHUB_TOKEN` não pode) ou houver conflito, ele abre um PR `main` → `internal` para merge manual. Com o secret `INTERNAL_SYNC_TOKEN` (PAT fine-grained, Contents + Workflows) esses merges também ficam automáticos. No caminho contrário, o `distribution-purity-check` barra qualquer PR para `dev`/`qa`/`main` que traga card real, workflow `internal-*.yml` (exceto o próprio `internal-sync.yml`) ou workflow de push na `internal`.
 
 ## Como contribuir
 
