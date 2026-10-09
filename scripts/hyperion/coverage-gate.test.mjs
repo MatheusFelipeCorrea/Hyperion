@@ -1,13 +1,14 @@
-import { describe, it } from "node:test";
+import { after, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import {
   parseReport,
   evaluateCoverage,
+  findReport,
   makeIgnore,
   renderSummary,
 } from "./coverage-gate.mjs";
@@ -153,5 +154,135 @@ describe("evaluateCoverage + CLI", () => {
     assert.match(out, /<details><summary>English<\/summary>\n\n### Coverage/);
     assert.match(out, /::warning title=Gate de cobertura::lines/);
     fs.rmSync(dir, { recursive: true, force: true });
+  });
+});
+
+describe("report discovery and edge formats", () => {
+  const dirs = [];
+  const tmp = () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "hyperion-cov-"));
+    dirs.push(dir);
+    return dir;
+  };
+  const put = (dir, rel, content = "") => {
+    fs.mkdirSync(path.join(dir, path.dirname(rel)), { recursive: true });
+    fs.writeFileSync(path.join(dir, rel), content);
+  };
+  after(() => {
+    for (const d of dirs) fs.rmSync(d, { recursive: true, force: true });
+  });
+
+  it("jacoco: report-level counters when there is no sourcefile breakdown", () => {
+    const xml = `<?xml version="1.0"?><report name="x"><package name="p"></package>
+      <counter type="LINE" missed="5" covered="15"/><counter type="METHOD" missed="1" covered="3"/></report>`;
+    const r = parseReport("jacoco.xml", xml);
+    assert.deepEqual(r.totals.lines, { total: 20, covered: 15 });
+    assert.deepEqual(r.totals.branches, { total: 0, covered: 0 });
+  });
+
+  it("rejects unknown report formats", () => {
+    assert.throws(() => parseReport("notes.txt", "hello"), /Unrecognized coverage report format: notes\.txt/);
+  });
+
+  it("findReport: explicit path, explicit glob, recursive discovery and misses", () => {
+    const dir = tmp();
+    put(dir, "reports/custom.info", "SF:a\nDA:1,1\nend_of_record\n");
+    put(dir, "TestResults/node_modules/x/coverage.cobertura.xml", "<coverage/>");
+    put(dir, "TestResults/abc/coverage.cobertura.xml", "<coverage/>");
+    assert.equal(findReport(dir, "reports/custom.info"), path.join(dir, "reports/custom.info"));
+    assert.equal(findReport(dir, "TestResults/**/coverage.cobertura.xml"), path.join(dir, "TestResults/abc/coverage.cobertura.xml"));
+    assert.equal(findReport(dir, "missing.xml"), null);
+    assert.equal(findReport(dir, "nowhere/*/coverage.cobertura.xml"), null);
+    assert.equal(findReport(dir, "TestResults/*/other.xml"), null);
+
+    const nested = tmp();
+    put(nested, "node_modules/pkg/lcov.info", "SF:x\nend_of_record\n");
+    put(nested, "packages/app/coverage/lcov.info", "SF:a\nDA:1,1\nend_of_record\n");
+    assert.equal(findReport(nested), path.join(nested, "packages/app/coverage/lcov.info"));
+
+    const deep = tmp();
+    put(deep, "a/b/c/d/e/f/g/h/lcov.info", "SF:a\nend_of_record\n");
+    assert.equal(findReport(deep), null);
+    assert.equal(findReport(deep, "a/*/lcov.info"), null);
+    assert.equal(findReport(path.join(deep, "does-not-exist")), null);
+  });
+
+  it("evaluateCoverage reports a missing report", () => {
+    const r = evaluateCoverage({ dir: tmp(), min: 10 });
+    assert.equal(r.status, "missing");
+    assert.match(renderSummary(r, { mode: "warn" }), /❌/);
+  });
+});
+
+describe("coverage-gate CLI extras", () => {
+  const dirs = [];
+  after(() => {
+    for (const d of dirs) fs.rmSync(d, { recursive: true, force: true });
+  });
+  const repo = (files) => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "hyperion-cov-cli-"));
+    dirs.push(dir);
+    for (const [rel, content] of Object.entries(files)) {
+      fs.mkdirSync(path.join(dir, path.dirname(rel)), { recursive: true });
+      fs.writeFileSync(path.join(dir, rel), content);
+    }
+    return dir;
+  };
+  const env = (extra = {}) => ({
+    ...process.env,
+    GITHUB_STEP_SUMMARY: "",
+    GITHUB_WORKSPACE: "",
+    GIT_CEILING_DIRECTORIES: os.tmpdir(),
+    ...extra,
+  });
+  const run = (args, extraEnv) => spawnSync(process.execPath, [SCRIPT, ...args], { encoding: "utf8", env: env(extraEnv) });
+
+  it("an unparseable report is an error in block mode and tolerated in warn mode", () => {
+    const dir = repo({ "weird.txt": "not coverage" });
+    const block = run(["--dir", dir, "--file", "weird.txt"]);
+    assert.equal(block.status, 1);
+    assert.match(block.stderr, /::error title=Coverage gate::Unrecognized coverage report format/);
+    assert.equal(run(["--dir", dir, "--file", "weird.txt", "--mode", "warn"]).status, 0);
+  });
+
+  it("diff coverage is ignored for an all-zero base (new branch push)", () => {
+    const dir = repo({ "coverage/lcov.info": LCOV });
+    const zero = run(["--dir", dir, "--diff-base", "0000000", "--diff-min", "80"]);
+    assert.equal(zero.status, 0, zero.stderr);
+    assert.doesNotMatch(zero.stdout, /####/);
+  });
+
+  it("diff coverage: skipped outside git, reported when no line report exists", () => {
+    const lcovDir = repo({ "coverage/lcov.info": LCOV });
+    const skipped = run(["--dir", lcovDir, "--diff-base", "hyperion-no-such-ref", "--diff-min", "80"]);
+    assert.equal(skipped.status, 0, skipped.stdout + skipped.stderr);
+    assert.match(skipped.stdout, /::warning title=Coverage gate::/);
+
+    const summaryDir = repo({
+      "coverage/coverage-summary.json": JSON.stringify({ total: { lines: { total: 10, covered: 9, pct: 90 } } }),
+    });
+    const missing = run(["--dir", summaryDir, "--min", "50", "--diff-base", "abc123", "--diff-min", "80"]);
+    assert.equal(missing.status, 0, missing.stdout + missing.stderr);
+    assert.match(missing.stdout, /#### /);
+    assert.match(missing.stdout, /::warning title=Coverage gate::/);
+  });
+
+  it("appends the summary to --summary-out and GITHUB_STEP_SUMMARY", () => {
+    const dir = repo({ "coverage/lcov.info": LCOV, "step-summary.md": "# earlier step\n" });
+    const out = path.join(dir, "summary.md");
+    const stepSummary = path.join(dir, "step-summary.md");
+    const r = run(["--dir", dir, "--summary-out", out], { GITHUB_STEP_SUMMARY: stepSummary });
+    assert.equal(r.status, 0, r.stderr);
+    const written = fs.readFileSync(out, "utf8");
+    assert.match(written, /### Coverage/);
+    assert.equal(fs.readFileSync(stepSummary, "utf8"), `# earlier step\n${written}`, "appended, not overwritten");
+  });
+
+  it("ignores an unwritable summary target", () => {
+    const dir = repo({ "coverage/lcov.info": LCOV });
+    const out = path.join(dir, "summary.md");
+    const r = run(["--dir", dir, "--summary-out", out], { GITHUB_STEP_SUMMARY: dir });
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(fs.readFileSync(out, "utf8"), /### Coverage/);
   });
 });

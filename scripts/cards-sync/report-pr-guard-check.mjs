@@ -14,6 +14,7 @@ import { spawnSync } from "node:child_process";
 import path from "node:path";
 import { resolveLanguages, translator } from "../hyperion/i18n.mjs";
 import { resolveHyperionPaths } from "../hyperion/paths.mjs";
+import { ciFail } from "../hyperion/ci-annotate.mjs";
 
 const paths = resolveHyperionPaths(process.cwd());
 
@@ -61,10 +62,12 @@ async function main() {
 
   if (!headSha) {
     console.error("[report-check] FATAL: --head-sha or CARDS_PR_HEAD_SHA required");
+    ciFail(paths.workspaceRoot, "cards.fail.headSha", { script: "report-pr-guard-check" });
     process.exit(1);
   }
   if (!token) {
     console.error("[report-check] FATAL: GITHUB_TOKEN required");
+    ciFail(paths.workspaceRoot, "cards.fail.token", { script: "report-pr-guard-check" });
     process.exit(1);
   }
 
@@ -108,5 +111,6 @@ async function main() {
 main().catch((error) => {
   console.error("[report-check] FATAL ERROR");
   console.error(error);
+  ciFail(paths.workspaceRoot, "cards.fail.unexpected", { script: "report-pr-guard-check", error: error?.message || error });
   process.exit(1);
 });

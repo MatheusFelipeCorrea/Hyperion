@@ -56,7 +56,7 @@ const REFRESH_TARGETS = [
     file: `${WORKFLOWS_DIR}/${HYPERION_WORKFLOWS.cardsPrRecheck}`,
     template: HYPERION_WORKFLOWS.cardsPrRecheck,
     audit: auditPrRecheckWorkflow,
-    render: () => renderPrRecheckWorkflow(),
+    render: (opts) => renderPrRecheckWorkflow(opts),
   },
   {
     file: ".gitlab/hyperion-ci.yml",
@@ -93,7 +93,7 @@ async function readTemplate(action, renderOpts, detection) {
   if (rendered) return rendered;
 
   const dir = action.templateDir === "ci" ? CI_TEMPLATES_DIR : TEMPLATES_DIR;
-  const p = path.join(workspaceRoot, dir, action.template);
+  const p = path.join(workspaceRoot, renderOpts.kitRootRel || "", dir, action.template);
   return fs.readFile(p, "utf8");
 }
 
@@ -150,6 +150,11 @@ async function main() {
   }
 
   for (const w of plan.warnings) warn(w);
+  if (!renderOpts.defaultBranchKnown) {
+    warn(
+      `origin/HEAD is not set — generated workflows target "${renderOpts.defaultBranch}" and existing base branches are not checked. Run \`git remote set-head origin --auto\` to use the real default branch.`
+    );
+  }
 
   if (argRefreshSync) {
     log("", `Refresh sync (default branch: ${renderOpts.defaultBranch}, kit: ${renderOpts.kitRootRel || "root"})`);
