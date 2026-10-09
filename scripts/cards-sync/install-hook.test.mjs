@@ -5,7 +5,7 @@ import { join, dirname } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { spawnSync } from "node:child_process";
-import { buildPreCommitHookBody } from "./install-hook.mjs";
+import { buildPreCommitHookBody, mergePreCommitHook } from "./install-hook.mjs";
 import { resolveHyperionPaths } from "../hyperion/paths.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -144,6 +144,39 @@ test("is idempotent, and only appends to a custom hook with --yes", () => {
   assert.equal(again.status, 0, again.stderr);
   assert.match(again.stdout, /already installed \(cards \+ rules\)/);
   assert.equal(readFileSync(hookPath, "utf8"), body);
+});
+
+test("an installed hook from an older kit version is refreshed in place, keeping custom lines", () => {
+  const root = makeTemp("hyperion-hook-refresh-");
+  spawnSync("git", ["init", "-q"], { cwd: root });
+  const hookPath = join(root, ".git", "hooks", "pre-commit");
+  const current = buildPreCommitHookBody({ cardsPrefix: ".github/cards", kitRootRel: "" }).trim();
+  const old = current.replaceAll("git -c core.quotePath=false diff", "git diff");
+  assert.notEqual(old, current);
+  mkdirSync(dirname(hookPath), { recursive: true });
+  writeFileSync(hookPath, `echo before\n\n${old}\necho after\n`);
+
+  const refreshed = runHook(root);
+  assert.equal(refreshed.status, 0, refreshed.stderr);
+  assert.match(refreshed.stdout, /pre-commit hook updated/);
+  const body = readFileSync(hookPath, "utf8");
+  assert.equal(body, `echo before\n\n${current}\necho after\n`);
+
+  const again = runHook(root);
+  assert.match(again.stdout, /already installed \(cards \+ rules\)/);
+  assert.equal(readFileSync(hookPath, "utf8"), body);
+});
+
+test("mergePreCommitHook appends only the missing section and handles CRLF hooks", () => {
+  const current = buildPreCommitHookBody({ cardsPrefix: ".github/cards", kitRootRel: "" });
+  const [cardsOnly] = current.split("\n# hyperion-check-rules");
+  const merged = mergePreCommitHook(`${cardsOnly}\n`, current);
+  assert.equal(merged, current.trim(), "the rules section is appended once; the cards section is not duplicated");
+
+  const crlf = current.replaceAll("git -c core.quotePath=false diff", "git diff").replaceAll("\n", "\r\n");
+  const fixed = mergePreCommitHook(crlf, current);
+  assert.equal(fixed.match(/core\.quotePath=false/g).length, 2);
+  assert.equal(fixed.match(/# hyperion-check-rules/g).length, 1);
 });
 
 test("write failures are reported as FATAL", () => {

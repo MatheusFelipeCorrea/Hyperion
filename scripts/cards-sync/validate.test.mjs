@@ -91,7 +91,7 @@ test("no card files is not an error", () => {
 
 test("every field rule is reported and fails validation", () => {
   const dir = makeCardsRepo();
-  writeCard(dir, "tasks/_orphan/NUM.md", "card_id: 123\ntype: Task");
+  writeCard(dir, "tasks/_orphan/NUM.md", "card_id: [123]\ntype: Task");
   writeCard(dir, "tasks/_orphan/D-1.md", "card_id: D-1\ntype: Task");
   writeCard(dir, "tasks/other/D-1.md", "card_id: D-1\ntype: Task");
   writeCard(
@@ -99,7 +99,7 @@ test("every field rule is reported and fails validation", () => {
     "tasks/_orphan/BAD-1.md",
     "card_id: BAD-1\ntype: Bogus\npriority: P0\nstatus: Doing\nstory_points: 2.5\ndue_date: 2026/01/01\nparent: MISSING-1\nsprint: null\ncategories: [a, \"b\"]"
   );
-  writeCard(dir, "tasks/_orphan/BAD-2.md", "card_id: BAD-2\ntype: Task\nstatus: 5\nparent: 42\ncategories:\n  - x\n  - ''\nreporter: ana");
+  writeCard(dir, "tasks/_orphan/BAD-2.md", "card_id: BAD-2\ntype: Task\nstatus: [5]\nparent: [42]\ncategories:\n  - x\n  - ''\nreporter: ana");
   const r = runValidate(dir);
   assert.equal(r.status, 1, r.stdout + r.stderr);
   const out = r.stdout;
@@ -141,9 +141,21 @@ test("config sanity: locale + non-GitHub backend notice, layout warnings and --s
   assert.match(strict.stdout, /- \.github\/cards\/stories\/WRONG\/S-1\.md: layout — expected path/);
 });
 
+test("number-like ids and titles are valid strings; quoted story_points still count as a number", () => {
+  const dir = makeCardsRepo();
+  writeCard(dir, "features/_orphan/77.md", 'card_id: "77"\ntitle: "2048"\ntype: Feature\nstory_points: "5"');
+  writeCard(dir, "stories/77/1234.md", 'card_id: "1234"\ntype: Story\nparent: "77"\nstory_points: 3');
+  writeCard(dir, "tasks/1234/007.md", "card_id: 007\ntype: Task\nparent: 1234");
+  writeCard(dir, "tasks/1234/7.md", "card_id: 7\ntype: Task\nparent: 1234");
+  const r = runValidate(dir);
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.match(r.stdout, /Valid cards: 4/);
+  assert.doesNotMatch(r.stdout, /must be|duplicate|not found|layout/);
+});
+
 test("config sanity: locale followed by an inline YAML comment is still detected", () => {
   const dir = makeCardsRepo();
-  writeFileSync(join(dir, ".github", "project.yml"), "locale: pt-BR # team language\n");
+  writeFileSync(join(dir, ".github", "project.yml"), "locale: \"pt-BR\" # team language\n");
   mkdirSync(join(dir, ".github", "cards", "config"), { recursive: true });
   writeFileSync(join(dir, ".github", "cards", "config", "projects-map.json"), "{}");
   writeCard(dir, "tasks/_orphan/T-1.md", "card_id: T-1\ntype: Task");

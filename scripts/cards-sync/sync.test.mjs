@@ -651,6 +651,15 @@ test("reverse sync keeps the default status column names when no option map is c
   assert.equal(resolveHyperionStatusFromRemote("Em Revisão", undefined, {}), "In Revision");
 });
 
+test("every built-in status alias reverse-syncs to an allowed default column", () => {
+  const aliases = ["backlog", "To do", "Todo", "A fazer", "in progress", "em progresso", "in tests", "em testes", "in revision", "em revisao", "done", "feito", "concluído", "refinamento funcional", "refinamento técnico"];
+  for (const alias of aliases) {
+    assert.ok(DEFAULT_STATUS_OPTIONS.includes(resolveHyperionStatusFromRemote(alias, {}, {})), alias);
+  }
+  assert.equal(canonicalizeRemoteOption("status", "Todo", {}), "Backlog");
+  assert.deepEqual(buildOptionCandidates("status", "Backlog", {}), ["Backlog", "to do", "todo", "a fazer"], "exact Backlog is still tried first");
+});
+
 test("shouldPromptBeforeLiveSync only fires for an interactive, unattended, non-dry-run invocation", () => {
   // dry-run: never prompt, no matter how the rest looks
   assert.equal(

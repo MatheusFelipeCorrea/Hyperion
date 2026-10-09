@@ -710,7 +710,7 @@ export function labelNamesFromCatalog(specs) {
 export async function detectProjectLocaleFromYml(projectYmlPath) {
   try {
     const raw = await fs.readFile(projectYmlPath, "utf8");
-    const match = raw.match(/^\s*locale\s*:\s*([^\s#]+)\s*(?:#.*)?$/m);
+    const match = raw.match(/^\s*locale\s*:\s*["']?([^\s#"']+)["']?\s*(?:#.*)?$/m);
     if (match?.[1]) return match[1];
   } catch {}
   return null;
@@ -889,8 +889,10 @@ export function resolveStatusColumnSpecs(repoConfig, catalogSpecs, locale = "en"
 }
 
 // ---------------------------------------------------------------------------
-// Card frontmatter parsing (shared by GitHub-in-sync.mjs and all backends)
+// Card frontmatter parsing (shared by GitHub-in-sync.mjs, all backends and validate.mjs)
 // ---------------------------------------------------------------------------
+
+const NUMERIC_FRONTMATTER_KEYS = new Set(["story_points"]);
 
 export function parseFrontmatter(content) {
   const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n([\s\S]*)$/);
@@ -947,15 +949,10 @@ export function parseFrontmatter(content) {
       continue;
     }
 
-    // Scalar value — a quoted value is always a string ("2048" stays "2048")
-    const quoted = /^(["']).*\1$/.test(value);
+    // Scalar value — ids and text keep their exact text (`card_id: 007`, `title: "2048"`)
     value = value.replace(/^["']|["']$/g, "");
     const num = Number(value);
-    if (!quoted && !isNaN(num) && value !== "") {
-      meta[key] = num;
-    } else {
-      meta[key] = value;
-    }
+    meta[key] = NUMERIC_FRONTMATTER_KEYS.has(key) && !isNaN(num) && value !== "" ? num : value;
   }
 
   if (currentKey && currentArray !== null) {
@@ -979,15 +976,15 @@ export function parseCardFile(content, relativeFile) {
   const { meta, body } = parsed;
 
   return {
-    cardId: String(meta.card_id),
-    title: (meta.title ? String(meta.title) : "") || extractTitleFromBody(body),
+    cardId: meta.card_id,
+    title: meta.title || extractTitleFromBody(body),
     status: meta.status || null,
     type: meta.type || "Story",
     priority: meta.priority || null,
     sprint: meta.sprint || null,
     storyPoints: meta.story_points ?? null,
     reporter: meta.reporter || null,
-    parent: meta.parent ? String(meta.parent) : null,
+    parent: meta.parent || null,
     dueDate: meta.due_date || null,
     boardSyncAt: meta.board_sync_at || null,
     categories: Array.isArray(meta.categories) ? meta.categories : [],
@@ -1124,8 +1121,7 @@ export function normalizeText(value) {
 
 const OPTION_ALIASES = {
   status: {
-    Backlog: ["backlog"],
-    "To do": ["to do", "todo", "a fazer"],
+    Backlog: ["backlog", "to do", "todo", "a fazer"],
     "In Progress": ["in progress", "em progresso"],
     "In Tests": ["in tests", "em testes"],
     "In Revision": ["in revision", "em revisao", "em revisão"],

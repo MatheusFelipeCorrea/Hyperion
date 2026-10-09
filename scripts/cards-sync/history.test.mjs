@@ -109,17 +109,19 @@ test("CLI: --limit shows the most recent raw events (text and --json)", () => {
   assert.match(text.stdout, /2026-01-03T00:00:00\.000Z {2}OK {4}forward-sync {2}\n/);
   assert.doesNotMatch(text.stdout, /2026-01-01/);
 
-  const all = runNode(historyScript, ["--limit", "nope"], { cwd: ws });
-  assert.match(all.stdout, /Last 3 event\(s\):/, "non-numeric --limit falls back to 10");
+  const all = runNode(historyScript, ["--limit"], { cwd: ws });
+  assert.match(all.stdout, /Last 3 event\(s\):/, "--limit without a value defaults to 10");
   assert.match(all.stdout, /cardCount=2 incrementalIds=A,B\n/);
 
   const json = JSON.parse(runNode(historyScript, ["--json", "--limit", "1"], { cwd: ws }).stdout);
   assert.deepEqual(json.map((e) => e.ts), ["2026-01-03T00:00:00.000Z"]);
+  const jsonDefault = JSON.parse(runNode(historyScript, ["--limit", "--json"], { cwd: ws }).stdout);
+  assert.equal(jsonDefault.length, 3, "a following flag is not taken as the --limit value");
 });
 
-test("CLI: --limit 0 (or a negative / fractional count) is rejected, not silently treated as 10", () => {
+test("CLI: --limit 0, abc (or a negative / fractional count) is rejected, not silently treated as 10", () => {
   const ws = workspaceWithHistory();
-  for (const value of ["0", "-2", "1.5"]) {
+  for (const value of ["0", "abc", "-2", "1.5"]) {
     const r = runNode(historyScript, ["--limit", value], { cwd: ws });
     assert.equal(r.status, 1, r.output);
     assert.equal(r.stdout, "");

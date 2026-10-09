@@ -426,6 +426,8 @@ test("detectProjectLocaleFromYml accepts an inline YAML comment after the value"
   const root = makeTempDir("hyperion-lib-locale-comment-");
   assert.equal(await lib.detectProjectLocaleFromYml(writeFile(root, "c.yml", "name: x\nlocale: pt-BR # team language\n")), "pt-BR");
   assert.equal(await lib.detectProjectLocaleFromYml(writeFile(root, "d.yml", "locale: es#tight\r\n")), "es");
+  assert.equal(await lib.detectProjectLocaleFromYml(writeFile(root, "e.yml", "locale: \"pt-BR\" # quoted\n")), "pt-BR");
+  assert.equal(await lib.detectProjectLocaleFromYml(writeFile(root, "f.yml", "locale: 'fr'\n")), "fr");
 });
 
 test("loadLabelsCatalog: inline labels, no file, missing file, locale fallback, absolute path", async () => {
@@ -561,10 +563,13 @@ test("parseCardFile maps frontmatter to a card; null without card_id", () => {
 });
 
 test("number-like titles and ids stay strings, so the issue title can be built", () => {
-  const { meta } = lib.parseFrontmatter("---\ntitle: \"2048\"\nsprint: '12'\nstory_points: 3\n---\n");
+  const { meta } = lib.parseFrontmatter("---\ntitle: \"2048\"\nsprint: '12'\ncard_id: 007\nreporter: 1e3\nstory_points: \"5\"\n---\n");
   assert.equal(meta.title, "2048", "quoted values are never converted to numbers");
   assert.equal(meta.sprint, "12");
-  assert.equal(meta.story_points, 3);
+  assert.equal(meta.card_id, "007", "ids keep their exact text");
+  assert.equal(meta.reporter, "1e3");
+  assert.equal(meta.story_points, 5, "story_points is the only numeric field, quoted or not");
+  assert.equal(lib.parseFrontmatter("---\nstory_points: big\n---\n").meta.story_points, "big");
 
   const quoted = lib.parseCardFile("---\ncard_id: \"1234\"\ntitle: \"2048\"\n---\n\n# Body\n", "q.md");
   assert.equal(quoted.cardId, "1234");
