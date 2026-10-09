@@ -62,7 +62,7 @@ let conflicts = 0;
 for (const file of allMd) {
   const relative = path.relative(workspaceRoot, file).replace(/\\/g, "/");
   // Do not rearrange kit samples — keep _examples/ as didactic tree
-  if (relative.includes("/_examples/") || relative.includes("\\_examples\\")) {
+  if (relative.includes("/_examples/")) {
     skipped++;
     continue;
   }

@@ -13,6 +13,7 @@ import {
   STATUS_COLUMNS_OVERLAY_FILENAME,
   resolveOverlayFilePath,
 } from "./lib.mjs";
+import { findLegacyMcpServers } from "./mcp-legacy.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -114,62 +115,22 @@ async function detectBackend(repoConfig) {
   return "github";
 }
 
-// Community MCP packages worth flagging if visibly abandoned — kept in
-// sync by hand with the table in .github/mcp/README.md. @azure-devops/mcp
-// is excluded: it's the one official (Microsoft) package there, so
-// staleness isn't the same kind of signal for it.
-const MCP_STALENESS_THRESHOLD_DAYS = 540;
-const MCP_COMMUNITY_PACKAGES = new Set(["mcp-atlassian", "mcp-linear", "mcp-gitlab"]);
-
-function extractNpxPackageName(server) {
-  if (!server || server.command !== "npx" || !Array.isArray(server.args)) return null;
-  return server.args.find((a) => typeof a === "string" && !a.startsWith("-")) || null;
-}
-
 /**
- * Best-effort, non-blocking: if the adopter has an MCP server config
- * (.cursor/mcp.json, copied from servers.example.json) referencing one of
- * the community-maintained packages, warn when npm hasn't seen a publish
- * in a long time — the same staleness signal .github/mcp/README.md now
- * documents, just surfaced where an adopter is more likely to see it.
- * Silent on any failure (missing file, no network, npm not on PATH) —
- * this must never make `doctor` itself fail or hang.
+ * Non-blocking and offline: warns for every server in .cursor/mcp.json that
+ * still starts a legacy community MCP package. A missing or unreadable file
+ * is not an error.
  */
-async function checkMcpPackageStaleness() {
-  const mcpConfigPath = path.join(workspaceRoot, ".cursor", "mcp.json");
+async function checkLegacyMcpServers() {
   let config;
   try {
-    config = JSON.parse(await fs.readFile(mcpConfigPath, "utf8"));
+    config = JSON.parse(await fs.readFile(path.join(workspaceRoot, ".cursor", "mcp.json"), "utf8"));
   } catch {
     return;
   }
-
-  const servers = config.mcpServers || {};
-  const packages = new Set();
-  for (const server of Object.values(servers)) {
-    const pkg = extractNpxPackageName(server);
-    if (pkg && MCP_COMMUNITY_PACKAGES.has(pkg)) packages.add(pkg);
-  }
-  if (!packages.size) return;
-
-  for (const pkg of packages) {
-    try {
-      const modified = execSync(`npm view ${pkg} time.modified`, {
-        encoding: "utf8",
-        stdio: ["ignore", "pipe", "ignore"],
-        timeout: 5000,
-      }).trim();
-      const ageDays = (Date.now() - new Date(modified).getTime()) / 86_400_000;
-      if (Number.isFinite(ageDays) && ageDays > MCP_STALENESS_THRESHOLD_DAYS) {
-        warn(
-          `MCP package "${pkg}" (configured in .cursor/mcp.json) hasn't published in ~${Math.round(ageDays / 30)} months — community-maintained, review before relying on it. See .github/mcp/README.md.`
-        );
-      }
-    } catch {
-      // No network, npm unavailable, or registry lookup failed — skip
-      // silently rather than turning a connectivity hiccup into a doctor
-      // failure over an informational check.
-    }
+  for (const { server, pkg } of findLegacyMcpServers(config)) {
+    warn(
+      `MCP server "${server}" in .cursor/mcp.json runs the community package "${pkg}" (single maintainer, your token in its environment). Switch to the vendor's official server: see .github/mcp/README.md.`
+    );
   }
 }
 
@@ -418,6 +379,8 @@ if (!projectYmlExists) {
   ok(`Found .github/project.yml`);
 }
 
+await checkLegacyMcpServers();
+
 // config shape checks
 if (!repoConfig.fieldMap || Object.keys(repoConfig.fieldMap).length === 0) {
   warn("projects-map.json.fieldMap is missing/empty. Field updates may fail.");
@@ -630,17 +593,15 @@ if (!projectNumber || projectNumber <= 0) {
   // before it ever considers creating one — check the same way here
   // (persist: false, so this stays a read-only preview) instead of
   // unconditionally reporting "missing".
-  const discovery = token
-    ? await discoverGitHubProjectNumber({
-        token,
-        owner: repoOwner,
-        repoName,
-        repoConfig,
-        configPath,
-        repositorySlug,
-        persist: false,
-      })
-    : { discovered: false, reason: "no_token" };
+  const discovery = await discoverGitHubProjectNumber({
+    token,
+    owner: repoOwner,
+    repoName,
+    repoConfig,
+    configPath,
+    repositorySlug,
+    persist: false,
+  });
 
   if (discovery.discovered) {
     ok(`sync.mjs would auto-discover GitHub Project #${discovery.projectNumber}: "${discovery.projectTitle}"`);
@@ -732,8 +693,6 @@ const statusOk = checkStatusOptions(statusField, repoConfig.optionMapByLocale?.[
 const sprintCandidates = [required.sprint, ...(FIELD_NAME_ALIASES.sprint || [])];
 const sprintField = findFieldByCandidates(byName, sprintCandidates);
 const sprintOk = checkSprintField(sprintField, required.sprint);
-
-await checkMcpPackageStaleness();
 
 ok("Doctor finished.");
 process.exit(missingFields.length || !statusOk || !sprintOk ? 1 : 0);

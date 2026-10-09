@@ -70,6 +70,8 @@
     "cards:notify": "node scripts/cards-sync/notify.mjs",
     "cards:test": "node --test scripts/cards-sync/*.test.mjs scripts/cards-sync/backends/*.test.mjs",
     "hyperion:test": "node --test scripts/hyperion/*.test.mjs",
+    "kit:test": "node --test scripts/kit/*.test.mjs",
+    "kit:coverage": "node scripts/kit/coverage.mjs",
     "test": "npm run hyperion:test && npm run cards:test",
     "test:coverage": "node --experimental-test-coverage --test-coverage-exclude=**/*.test.mjs --test scripts/hyperion/*.test.mjs scripts/cards-sync/*.test.mjs scripts/cards-sync/backends/*.test.mjs"
   },
