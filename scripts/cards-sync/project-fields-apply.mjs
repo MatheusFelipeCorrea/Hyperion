@@ -18,6 +18,7 @@
  *   npm run cards:project-fields-apply           # preview only
  *   npm run cards:project-fields-apply -- --yes   # apply
  */
+import "./load-env.mjs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
@@ -86,8 +87,6 @@ async function renameField(fieldId, newName) {
 
 async function createField(project, key, name, repoConfig) {
   const spec = REQUIRED_FIELDS.find((f) => f.key === key);
-  if (!spec) throw new Error(`No creation spec for field key "${key}"`);
-
   if (spec.kind === "single_select") {
     await addSingleSelectField(project.id, name, spec.options, spec.key);
   } else if (spec.kind === "number") {

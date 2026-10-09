@@ -20,6 +20,7 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
+import { ciErrorList } from "./ci-annotate.mjs";
 import { rootArg } from "./cli-args.mjs";
 
 const MAINTAINER_MARKERS = ["MatheusFelipeCorrea", "Hyperion Contributors"];
@@ -89,8 +90,10 @@ export function checkNoLeakedTemplates(root, fail) {
 async function main() {
   const root = rootArg(process.cwd());
   let failed = 0;
+  const problems = [];
   const fail = (where, why) => {
     console.error(`FAIL ${where}: ${why}`);
+    problems.push({ file: where, message: why });
     failed++;
   };
   const ok = (msg) => console.log(`OK ${msg}`);
@@ -109,6 +112,11 @@ async function main() {
   if (failed) {
     console.error(
       `\nhyperion:adopt-check FAILED (${failed}) — these files still carry Hyperion's own identity, not yours. See GETTING-STARTED.md's "files never to copy" list.`
+    );
+    ciErrorList(
+      "Hyperion's identity left in your repo",
+      problems,
+      `${failed} file(s) still name Hyperion's maintainers. Replace them with your own (or delete them) — GETTING-STARTED.md lists the files never to copy. Reproduce: npm run hyperion:adopt-check`
     );
     process.exit(1);
   }

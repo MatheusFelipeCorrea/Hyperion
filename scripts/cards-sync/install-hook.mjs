@@ -26,20 +26,41 @@ export function buildPreCommitHookBody({ cardsPrefix, kitRootRel }) {
 
   return `#!/bin/sh
 ${CARDS_MARKER}
-changed=$(git diff --cached --name-only --diff-filter=ACM | grep '${cardsGrepPattern}' || true)
+changed=$(git -c core.quotePath=false diff --cached --name-only --diff-filter=ACM | grep '${cardsGrepPattern}' || true)
 if [ -n "$changed" ]; then
   echo "[Hyperion] Validating staged card files..."
   node ${validateScript} || exit 1
 fi
 
 ${RULES_MARKER}
-cmd_changed=$(git diff --cached --name-only --diff-filter=ACM | grep '${commandsGrep}' || true)
+cmd_changed=$(git -c core.quotePath=false diff --cached --name-only --diff-filter=ACM | grep '${commandsGrep}' || true)
 if [ -n "$cmd_changed" ]; then
   echo "[Hyperion] Regenerating runtime rules from commands.yml..."
   node ${generateRules} || exit 1
   git add CLAUDE.md .github/copilot-instructions.md .cursor/rules/hyperion.mdc scripts/hyperion/help.mjs 2>/dev/null || true
 fi
 `;
+}
+
+/** A managed section runs from its marker line to the first `fi` line after it. */
+const sectionPattern = (marker) => new RegExp(`^${marker}\\r?\\n[\\s\\S]*?^fi\\r?$`, "m");
+
+/**
+ * Hook content after installing the Hyperion sections: sections already in the
+ * hook are rewritten in place (so older installs pick up fixes), missing ones
+ * are appended, and anything else in the hook is left untouched.
+ */
+export function mergePreCommitHook(existing, hookBody) {
+  const current = existing.trim();
+  if (!current.includes(CARDS_MARKER) && !current.includes(RULES_MARKER)) {
+    return current ? `${current}\n\n${hookBody.trim()}` : hookBody.trim();
+  }
+  let merged = current;
+  for (const marker of [CARDS_MARKER, RULES_MARKER]) {
+    const section = hookBody.match(sectionPattern(marker))[0];
+    merged = sectionPattern(marker).test(merged) ? merged.replace(sectionPattern(marker), () => section) : `${merged}\n\n${section}`;
+  }
+  return merged;
 }
 
 /**
@@ -79,34 +100,32 @@ async function main() {
     existing = await fs.readFile(hookPath, "utf8");
   } catch {}
 
-  const hasCards = existing.includes(CARDS_MARKER);
-  const hasRules = existing.includes(RULES_MARKER);
+  const hasHyperion = existing.includes(CARDS_MARKER) || existing.includes(RULES_MARKER);
 
-  if (hasCards && hasRules) {
-    console.log("[install-hook] Hyperion pre-commit hook already installed (cards + rules).");
-    return;
-  }
-
-  if (existing.trim() && !argYes && !(hasCards || hasRules)) {
+  if (existing.trim() && !argYes && !hasHyperion) {
     console.log("[install-hook] pre-commit hook already exists with custom content.");
     console.log("[install-hook] Re-run with --yes to append Hyperion validation block.");
     process.exit(1);
   }
 
-  let merged = existing.trim();
-  if (!hasCards || !hasRules) {
-    const block = hookBody.trim();
-    merged = merged ? `${merged.trimEnd()}\n\n${block}` : block;
+  const merged = `${mergePreCommitHook(existing, hookBody)}\n`;
+  if (merged === existing) {
+    console.log("[install-hook] Hyperion pre-commit hook already installed (cards + rules).");
+    return;
   }
 
   await fs.mkdir(hooksDir, { recursive: true });
-  await fs.writeFile(hookPath, `${merged}\n`, "utf8");
+  await fs.writeFile(hookPath, merged, "utf8");
 
   try {
     await fs.chmod(hookPath, 0o755);
   } catch {}
 
-  console.log("[install-hook] ✅ pre-commit hook installed (cards validate + rules regen on commands.yml)");
+  console.log(
+    hasHyperion
+      ? "[install-hook] ✅ pre-commit hook updated (Hyperion sections refreshed to the current kit version)"
+      : "[install-hook] ✅ pre-commit hook installed (cards validate + rules regen on commands.yml)"
+  );
 }
 
 const isMain = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;

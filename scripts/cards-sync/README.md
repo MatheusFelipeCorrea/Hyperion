@@ -228,6 +228,8 @@ For Azure DevOps backend, provide:
 - `AZDO_PAT` (Azure DevOps PAT)
 - optional `AZDO_WORK_ITEM_TYPE` (default: `Task`)
 
+Azure sync finds work items with one WIQL query scoped to `AZDO_PROJECT`. WIQL returns at most 20,000 work items, so a project with more than 20,000 work items carrying a `CARD_ID` fails with `VS402337` instead of syncing a partial list.
+
 For Linear backend, provide:
 - `LINEAR_TEAM_ID` (team identifier)
 - `LINEAR_API_TOKEN` (Linear API token)
@@ -502,8 +504,8 @@ On GitHub, explicit `status` in frontmatter always applies. Safe mode only appli
 | GITHUB_REPOSITORY | Yes (auto in Actions) | owner/repo |
 | GITHUB_TOKEN | Yes (auto in Actions) | Default token |
 | PROJECT_SYNC_TOKEN | Optional | PAT override for Projects |
-| PROJECT_OWNER | Optional | Override project owner |
-| PROJECT_NUMBER | Optional | Override project number |
+| PROJECT_OWNER | Optional | Override project owner (takes precedence over `projects-map.json`) |
+| PROJECT_NUMBER | Optional | Override project number (takes precedence over `projects-map.json`). In Actions, a repository variable of the same name is **not** read automatically: the workflow step must map it (`PROJECT_NUMBER: ${{ vars.PROJECT_NUMBER }}`); the generated workflows don't. |
 | DRY_RUN | Optional | "true" to simulate |
 | CARDS_SYNC_CONCURRENCY | Optional | Max cards processed in flight at once per sync phase (default `4`). Lower it if a large board's first sync trips GitHub's secondary rate limits; `1` reproduces the old fully-sequential behavior. |
 | CARDS_SYNC_YES | Optional | "true" to skip the interactive "type yes" confirmation before a live (non-dry-run) sync at a terminal — same effect as `--yes`. Never needed in CI (no TTY, never prompts). |

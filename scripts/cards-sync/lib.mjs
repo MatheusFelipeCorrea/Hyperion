@@ -479,7 +479,7 @@ export function parseCardIdFromRemoteDescription(description) {
  */
 export function checkBoardRepoAlignment(workspaceRoot, cardsPrefix) {
   const cardsPath = String(cardsPrefix || ".github/cards").replace(/\\/g, "/").replace(/\/+$/, "");
-  const diff = spawnSync("git", ["diff", "--name-only", "--", `${cardsPath}/`], {
+  const diff = spawnSync("git", ["-c", "core.quotePath=false", "diff", "--name-only", "--", `${cardsPath}/`], {
     cwd: workspaceRoot,
     encoding: "utf8",
   });
@@ -519,18 +519,22 @@ export async function assertCiProjectConfigured(configPath, repositorySlug, { ba
 
   const config = (await readJsonIfExists(configPath)) || {};
   const repoConfig = resolveRepoConfig(config, repositorySlug);
-  const projectNumber = Number(repoConfig.projectNumber || 0);
+  const projectNumber = Number(process.env.PROJECT_NUMBER || 0) || Number(repoConfig.projectNumber || 0);
 
   if (projectNumber <= 0) {
     return {
       ok: false,
       reason: "missing_project_number",
       message:
-        "CI pull-before-push requires projectNumber in projects-map.json. Run: npm run cards:doctor",
+        "CI pull-before-push requires a GitHub Project: set projectNumber in projects-map.json or the PROJECT_NUMBER env (a repository variable only reaches this step if the workflow maps it: `PROJECT_NUMBER: ${{ vars.PROJECT_NUMBER }}`). Run: npm run cards:doctor",
     };
   }
 
-  return { ok: true, projectNumber, projectOwner: repoConfig.projectOwner || null };
+  return {
+    ok: true,
+    projectNumber,
+    projectOwner: process.env.PROJECT_OWNER || repoConfig.projectOwner || null,
+  };
 }
 
 /** Resolve cards-sync backend from env, project.yml, or projects-map.json. */
@@ -544,8 +548,6 @@ export async function readSyncBackendHint({ projectYmlPath, projectsMapPath, rep
       const raw = await fs.readFile(projectYmlPath, "utf8");
       const m = raw.match(/^\s*backend\s*:\s*(\S+)/m);
       if (m?.[1]) return m[1].trim().replace(/^["']|["']$/g, "").toLowerCase();
-      const mgmt = raw.match(/^\s*management\s*:\s*\n[\s\S]*?^\s{2}backend\s*:\s*(\S+)/m);
-      if (mgmt?.[1]) return mgmt[1].trim().replace(/^["']|["']$/g, "").toLowerCase();
     } catch {
       /* ignore */
     }
@@ -712,10 +714,18 @@ export function labelNamesFromCatalog(specs) {
 export async function detectProjectLocaleFromYml(projectYmlPath) {
   try {
     const raw = await fs.readFile(projectYmlPath, "utf8");
-    const match = raw.match(/^\s*locale\s*:\s*([^\s#]+)\s*$/m);
+    const match = raw.match(/^\s*locale\s*:\s*["']?([^\s#"']+)["']?\s*(?:#.*)?$/m);
     if (match?.[1]) return match[1];
   } catch {}
   return null;
+}
+
+/** `management.backend` from project.yml text, lowercased; tolerates quotes, an inline `# comment` and CRLF. */
+export function parseProjectYmlBackend(raw) {
+  const match = String(raw).match(
+    /management:\s*[\s\S]*?backend[^\S\n]*:[^\S\n]*["']?([^\s#"']+)["']?[^\S\n]*(?:#[^\n]*)?$/m
+  );
+  return match ? match[1].toLowerCase() : null;
 }
 
 export function resolveLabelsCatalogFilePath(cardsRoot, repoConfig, locale) {
@@ -891,8 +901,10 @@ export function resolveStatusColumnSpecs(repoConfig, catalogSpecs, locale = "en"
 }
 
 // ---------------------------------------------------------------------------
-// Card frontmatter parsing (shared by GitHub-in-sync.mjs and all backends)
+// Card frontmatter parsing (shared by GitHub-in-sync.mjs, all backends and validate.mjs)
 // ---------------------------------------------------------------------------
+
+const NUMERIC_FRONTMATTER_KEYS = new Set(["story_points"]);
 
 export function parseFrontmatter(content) {
   const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n([\s\S]*)$/);
@@ -949,14 +961,10 @@ export function parseFrontmatter(content) {
       continue;
     }
 
-    // Scalar value
+    // Scalar value — ids and text keep their exact text (`card_id: 007`, `title: "2048"`)
     value = value.replace(/^["']|["']$/g, "");
     const num = Number(value);
-    if (!isNaN(num) && value !== "") {
-      meta[key] = num;
-    } else {
-      meta[key] = value;
-    }
+    meta[key] = NUMERIC_FRONTMATTER_KEYS.has(key) && !isNaN(num) && value !== "" ? num : value;
   }
 
   if (currentKey && currentArray !== null) {
@@ -1125,11 +1133,10 @@ export function normalizeText(value) {
 
 const OPTION_ALIASES = {
   status: {
-    Backlog: ["backlog"],
-    "To do": ["to do", "todo", "a fazer"],
-    "In progress": ["in progress", "em progresso"],
-    "In tests": ["in tests", "em testes"],
-    "In revision": ["in revision", "em revisao", "em revisão"],
+    Backlog: ["backlog", "to do", "todo", "a fazer"],
+    "In Progress": ["in progress", "em progresso"],
+    "In Tests": ["in tests", "em testes"],
+    "In Revision": ["in revision", "em revisao", "em revisão"],
     Done: ["done", "feito", "concluido", "concluído"],
     "Functional Refinement": ["functional refinement", "refinamento funcional"],
     "Technical Refinement": ["technical refinement", "refinamento tecnico", "refinamento técnico"],

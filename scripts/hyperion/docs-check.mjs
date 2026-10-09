@@ -6,12 +6,16 @@
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { ciErrorList } from "./ci-annotate.mjs";
 import { rootArg } from "./cli-args.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const LINK_RE = /\[([^\]]*)\]\(([^)]+)\)/g;
 const SKIP = ["http://", "https://", "mailto:", "#"];
 const toPosix = (p) => p.replace(/\\/g, "/");
+
+/** Translated doc pairs map, relative to the repo root. */
+export const TRANSLATIONS_MAP = ".github/docs/translations.json";
 
 function walk(dir, files = []) {
   for (const name of readdirSync(dir)) {
@@ -42,13 +46,13 @@ function linkTargets(file, content) {
  * @returns {{ errors: string[], warnings: string[], pairs: number }}
  */
 export function checkTranslations(root) {
-  const mapPath = join(root, ".github", "docs", "translations.json");
+  const mapPath = join(root, TRANSLATIONS_MAP);
   if (!existsSync(mapPath)) return { errors: [], warnings: [], pairs: 0 };
   let map;
   try {
     map = JSON.parse(readFileSync(mapPath, "utf8"));
   } catch (e) {
-    return { errors: [`.github/docs/translations.json: ${e.message}`], warnings: [], pairs: 0 };
+    return { errors: [`${TRANSLATIONS_MAP}: ${e.message}`], warnings: [], pairs: 0 };
   }
   const errors = [];
   const warnings = [];
@@ -57,7 +61,7 @@ export function checkTranslations(root) {
   for (const pair of pairs) {
     const entries = Object.entries(pair || {});
     if (entries.length < 2) {
-      errors.push(`translations.json: pair needs at least two languages: ${JSON.stringify(pair)}`);
+      errors.push(`${TRANSLATIONS_MAP}: pair needs at least two languages: ${JSON.stringify(pair)}`);
       continue;
     }
     for (const [, rel] of entries) listed.add(toPosix(rel));
@@ -103,7 +107,7 @@ function main() {
       try {
         statSync(resolved);
       } catch {
-        broken.push({ file: file.replace(root + "\\", "").replace(root + "/", ""), link: m[2] });
+        broken.push({ file: toPosix(relative(root, file)), link: m[2] });
       }
     }
   }
@@ -111,6 +115,11 @@ function main() {
   if (broken.length) {
     console.error(`Broken links: ${broken.length}`);
     for (const b of broken.slice(0, 40)) console.error(`  ${b.file} → ${b.link}`);
+    ciErrorList(
+      "Broken doc link",
+      broken.map((b) => ({ file: b.file, message: `Link target not found: ${b.link}` })),
+      `${broken.length} Markdown link(s) point to files that do not exist. Fix or remove them (paths are relative to the file that contains the link). Reproduce: npm run docs:check`
+    );
     process.exit(1);
   }
 
@@ -119,6 +128,11 @@ function main() {
   if (translations.errors.length) {
     console.error(`Translation pairs: ${translations.errors.length} problem(s)`);
     for (const e of translations.errors) console.error(`  ${e}`);
+    ciErrorList(
+      "Translated doc pair",
+      translations.errors,
+      `Every pair in ${TRANSLATIONS_MAP} must exist on both sides and link to each other. Fix the pairs above. Reproduce: npm run docs:check`
+    );
     process.exit(1);
   }
 
