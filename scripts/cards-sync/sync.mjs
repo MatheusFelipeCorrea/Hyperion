@@ -67,7 +67,7 @@ import {
   DUPLICATE_MARKER,
   renderReconcileReport,
 } from "./reconcile.mjs";
-import { languagesFor, resolveLanguages, t as i18nT } from "../hyperion/i18n.mjs";
+import { keyVariants, languagesFor, resolveLanguages, t as i18nT } from "../hyperion/i18n.mjs";
 import { resolveHyperionPaths } from "../hyperion/paths.mjs";
 import {
   runForwardSyncJira,
@@ -345,15 +345,31 @@ function enrichBodySubIssues(body, issueByCardId, owner, name) {
     .join("\n");
 }
 
+/** Optional leading emoji on a section heading, including variation selectors, skin tones and ZWJ sequences. */
+const HEADING_EMOJI = String.raw`(?:\p{Extended_Pictographic}[\p{Emoji_Modifier}\uFE0E\uFE0F]*(?:\u200D\p{Extended_Pictographic}[\p{Emoji_Modifier}\uFE0E\uFE0F]*)*\s*)?`;
+
+const escapeRegExp = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+let parentHeadingRe = null;
+/** `## Parent` heading in any catalog language (e.g. `## 👆 Card pai`), matched as the whole title. */
+function parentHeadingPattern() {
+  if (!parentHeadingRe) {
+    const titles = keyVariants("sync.footer.parent", { root: workspaceRoot }).map(escapeRegExp);
+    parentHeadingRe = new RegExp(String.raw`^##\s+${HEADING_EMOJI}(?:${titles.join("|")})\s*$`, "iu");
+  }
+  return parentHeadingRe;
+}
+
 function enrichBodyWithParentSection(body, card, issueByCardId, owner, name) {
   if (!card.parent || !issueByCardId?.has(card.parent)) return body;
 
-  if (/^##\s+.*\b[Pp]arent\b/im.test(body)) {
-    const lines = splitBodyLines(body);
+  const lines = splitBodyLines(body);
+  const parentHeading = parentHeadingPattern();
+  if (lines.some((line) => parentHeading.test(line))) {
     let inSection = false;
     return lines
       .map((line) => {
-        if (/^##\s+.*\b[Pp]arent\b/i.test(line)) {
+        if (parentHeading.test(line)) {
           inSection = true;
           return line;
         }
@@ -375,7 +391,7 @@ function enrichBodyWithParentSection(body, card, issueByCardId, owner, name) {
   if (subMatch?.index !== undefined) {
     return `${body.slice(0, subMatch.index)}\n${block}${body.slice(subMatch.index + 1)}`;
   }
-  const resumoMatch = body.match(/\n##\s+(?:[\u{1F300}-\u{1FAFF}]\uFE0F?\s+)?(?:Resumo|Summary|Resumen)/iu);
+  const resumoMatch = body.match(new RegExp(String.raw`\n##\s+${HEADING_EMOJI}(?:Resumo|Summary|Resumen)`, "iu"));
   if (resumoMatch?.index !== undefined) {
     return `${body.slice(0, resumoMatch.index)}\n${block}${body.slice(resumoMatch.index + 1)}`;
   }

@@ -364,6 +364,35 @@ test("forward keeps a single Parent section and places a new one above the decor
   });
 });
 
+test("forward recognizes localized Parent headings exactly and skips headings that only mention it", () => {
+  const cards = {
+    "epics/APP-E.md": card({ id: "APP-E", type: "Epic" }),
+    "stories/APP-A.md": card({ id: "APP-A", parent: "APP-E", body: "# A\n\n## 👆 Card pai\n\n- APP-E\n" }),
+    "stories/APP-B.md": card({ id: "APP-B", parent: "APP-E", body: "# B\n\n## ⬆️ Tarjeta padre\n\n- APP-E\n" }),
+    "stories/APP-C.md": card({ id: "APP-C", parent: "APP-E", body: "# C\n\n## Parent company notes\n\n- APP-E\n" }),
+    "stories/APP-D.md": card({ id: "APP-D", parent: "APP-E", body: "# D\n\n## 🧑‍💻 Resumo\n\nTexto\n" }),
+  };
+  const files = { ".github/project.yml": "name: app\nlocale: pt-BR\n" };
+  withWorkspace({ cards, files, config: projectsMap({ autoCreateProject: false, autoDiscoverProject: false }) }, (ws) => {
+    const run = runSync(ws);
+    assert.equal(run.status, 0, run.output);
+    const epic = issueByCard(run.state, "APP-E");
+    const link = `[APP-E (#${epic.number})](https://github.com/acme/app/issues/${epic.number})`;
+    const body = (id) => issueByCard(run.state, id).body;
+
+    assert.ok(body("APP-A").includes(`## 👆 Card pai\n\n- ${link}`), body("APP-A"));
+    assert.equal(body("APP-A").match(/^## .*Card pai/gmu).length, 1, body("APP-A"));
+
+    assert.ok(body("APP-B").includes(`## ⬆️ Tarjeta padre\n\n- ${link}`), body("APP-B"));
+    assert.ok(!body("APP-B").includes("## 👆 Card pai"), body("APP-B"));
+
+    assert.ok(body("APP-C").includes("## Parent company notes\n\n- APP-E\n"), body("APP-C"));
+    assert.ok(body("APP-C").includes(`## 👆 Card pai\n\n- ${link}`), body("APP-C"));
+
+    assert.ok(body("APP-D").includes(`# D\n\n## 👆 Card pai\n\n- ${link}\n\n## 🧑‍💻 Resumo`), body("APP-D"));
+  });
+});
+
 test("forward reads management hints from project.yml when the block is last or a value contains Z", () => {
   const cards = { "stories/APP-1.md": card({ id: "APP-1" }) };
   for (const projectYml of [
@@ -374,6 +403,7 @@ test("forward reads management hints from project.yml when the block is last or 
       const run = runSync(ws);
       assert.equal(run.status, 1, run.output);
       assert.ok(run.logs.includes("Backend: azure-devops"), run.stdout);
+      assert.match(run.output, /Azure DevOps backend requires AZDO_ORG_URL, AZDO_PROJECT, and AZDO_PAT/);
     });
   }
 });
