@@ -28,10 +28,10 @@ Cards remain in `.github/cards/` — sync engine reads from there regardless of 
 | Backend | Connection method | Card sync | Bidirectional |
 |---------|------------------|-----------|---------------|
 | **GitHub** (default) | GitHub API / gh CLI | Full (Issues + Projects + fields) | Yes (`--reverse`) |
-| **Jira** | MCP (`mcp-atlassian`) or REST API | Forward + reverse (`backends/jira.mjs`) | Yes (`--reverse` rebuilds Markdown) |
+| **Jira** | MCP (Atlassian Rovo) or REST API | Forward + reverse (`backends/jira.mjs`) | Yes (`--reverse` rebuilds Markdown) |
 | **Azure DevOps** | MCP (`@azure-devops/mcp`) or REST API | Forward + reverse; `System.State` via `status_map` | Yes (`--reverse`) |
-| **Linear** | MCP (`mcp-linear`) or GraphQL | Forward + reverse; workflow state via `status_map` | Yes (`--reverse`) |
-| **GitLab** | MCP (`mcp-gitlab`) or REST API | Forward + reverse; open/close + `status:` label | Yes (`--reverse`) |
+| **Linear** | MCP (Linear's official server) or GraphQL | Forward + reverse; workflow state via `status_map` | Yes (`--reverse`) |
+| **GitLab** | MCP (GitLab's official server) or REST API | Forward + reverse; open/close + `status:` label | Yes (`--reverse`) |
 
 ## Step 1 — Detect current backend
 
@@ -55,7 +55,7 @@ If you have MCP tool access in this runtime:
 Already configured via `projects-map.json`. No extra setup needed.
 
 ### For Jira
-1. Verify MCP `mcp-atlassian` is available, OR ask for API token
+1. Verify the Atlassian MCP server is available, OR ask for API token
 2. Gather: Jira URL, project key, email
 3. Update `project.yml`:
    ```yaml
@@ -101,7 +101,7 @@ Already configured via `projects-map.json`. No extra setup needed.
    - Task → Task
 
 ### For Linear
-1. Verify MCP `mcp-linear` is available, OR ask for API key
+1. Verify the Linear MCP server is available, OR ask for API key
 2. Gather: team identifier
 3. Update `project.yml`:
    ```yaml
@@ -111,7 +111,7 @@ Already configured via `projects-map.json`. No extra setup needed.
    ```
 
 ### For GitLab
-1. Verify MCP `mcp-gitlab` is available, OR ask for token
+1. Verify the GitLab MCP server is available, OR ask for token
 2. Gather: project URL
 3. Update `project.yml`:
    ```yaml
@@ -163,21 +163,15 @@ Save the integration config summary to `.github/memory/DECISIONS.md`:
 
 ## MCP Integration Guide
 
-When MCP servers are available, the agent can interact directly:
+Server endpoints and auth are in [mcp/README.md](../../../mcp/README.md). Tool
+names differ per server and change over time — list the tools your client
+exposes instead of assuming names.
 
-```
-# Jira via MCP
-mcp-atlassian: create_issue, update_issue, search_issues, get_project
-
-# Azure DevOps via MCP  
-@azure-devops/mcp: create_work_item, update_work_item, get_boards
-
-# Linear via MCP
-mcp-linear: create_issue, update_issue, get_team_issues
-
-# GitLab via MCP
-mcp-gitlab: create_issue, update_issue, list_project_issues
-```
+Use board MCP tools to **read** (find the project, team, issue types, existing
+issues). Don't create, edit or move board issues through MCP: cards in
+`.github/cards/` are the source of truth, so change the card and run the sync
+instead — a direct board edit is overwritten or duplicated by the next forward
+sync.
 
 If no MCP is available, fall back to REST API calls via the sync script.
 
@@ -186,12 +180,12 @@ If no MCP is available, fall back to REST API calls via the sync script.
 - Never store tokens/secrets in committed files — use environment variables or secrets
 - Always test with dry-run before real sync (GitHub Projects engine)
 - Respect rate limits of external APIs
-- If MCP is available, prefer it over direct API calls (better auth handling)
+- If MCP is available, prefer it over direct API calls for reading the board (better auth handling); writes always go through cards + sync
 - This kit syncs real card data to GitHub (full), Jira/Azure/GitLab/Linear (forward + reverse). GitHub Projects remains the richest native-column path.
 - Keep backward compatibility — GitHub remains the default zero-config path
 
 ## Example
 
 > "Connect this project to our Jira"
-> → Checks for mcp-atlassian availability, asks for project URL and key,
+> → Checks whether the Atlassian MCP server is connected, asks for project URL and key,
 >   creates field mapping, tests with one card, documents the decision.

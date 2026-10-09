@@ -2,37 +2,25 @@
   "mcpServers": {
     "hyperion": {
       "command": "node",
-      "args": ["scripts/hyperion/mcp-server.mjs"],
-      "_comment": "First-party, read-only: doctor + project-verify tools. No package to install — see .github/mcp/README.md."
+      "args": ["${workspaceFolder}/scripts/hyperion/mcp-server.mjs"],
+      "_comment": "First-party, read-only: doctor + project-verify tools. No package to install. If the kit lives in a subfolder (e.g. Hyperion/), add it to the path. See .github/mcp/README.md."
     },
     "jira": {
-      "command": "npx",
-      "args": ["-y", "mcp-atlassian"],
-      "env": {
-        "ATLASSIAN_BASE_URL": "${JIRA_URL}",
-        "ATLASSIAN_EMAIL": "${JIRA_EMAIL}",
-        "ATLASSIAN_API_TOKEN": "${JIRA_API_TOKEN}"
-      }
+      "url": "https://mcp.atlassian.com/v2/mcp",
+      "_comment": "Official Atlassian Rovo MCP server (Jira + Confluence). Sign in with OAuth on first use; no token in this file."
     },
     "linear": {
-      "command": "npx",
-      "args": ["-y", "mcp-linear"],
-      "env": {
-        "LINEAR_API_KEY": "${LINEAR_API_KEY}"
-      }
+      "url": "https://mcp.linear.app/mcp/readonly",
+      "_comment": "Official Linear MCP server, read-only. Use https://mcp.linear.app/mcp for read-write. OAuth on first use."
+    },
+    "gitlab": {
+      "url": "https://gitlab.com/api/v4/mcp",
+      "_comment": "Official GitLab MCP server (GitLab 18.3+). Self-managed: https://<your-gitlab>/api/v4/mcp. OAuth on first use."
     },
     "azure-devops": {
       "command": "npx",
       "args": ["-y", "@azure-devops/mcp", "<your-organization-name>"],
-      "_comment": "Official Microsoft server (github.com/microsoft/azure-devops-mcp). Replace <your-organization-name> literally — it's a CLI arg, not an env var. Auths via Azure CLI (`az login`) by default; see the package's own README for PAT-based auth if you can't use az login."
-    },
-    "gitlab": {
-      "command": "npx",
-      "args": ["-y", "mcp-gitlab"],
-      "env": {
-        "GITLAB_TOKEN": "${GITLAB_TOKEN}",
-        "GITLAB_URL": "${GITLAB_URL}"
-      }
+      "_comment": "Official Microsoft server (github.com/microsoft/azure-devops-mcp). Replace <your-organization-name> literally; it's a CLI arg, not an env var. Auths via Azure CLI (`az login`). Pin a reviewed version (@azure-devops/mcp@x.y.z) for teams."
     }
   }
 }
