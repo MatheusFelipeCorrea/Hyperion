@@ -1,6 +1,6 @@
 import test, { after } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -170,6 +170,34 @@ test("checkNoLeakedPaths passes clean, fails on a committed absolute personal pa
   checkNoLeakedPaths(dir, fail);
   assert.equal(failures.length, 1);
   assert.match(failures[0].where, /leak\.mjs/);
+});
+
+test("--fix nulls projectNumber and untracks cards/plans without deleting them", () => {
+  const dir = makeRepo();
+  mkdirSync(join(dir, ".github", "cards", "config"), { recursive: true });
+  mkdirSync(join(dir, ".github", "cards", "stories"), { recursive: true });
+  mkdirSync(join(dir, ".github", "plans"), { recursive: true });
+  mkdirSync(join(dir, "scripts", "hyperion"), { recursive: true });
+  const mapPath = join(dir, ".github", "cards", "config", "projects-map.json");
+  writeFileSync(mapPath, JSON.stringify({ default: { projectNumber: 99 }, repositories: {} }));
+  writeFileSync(join(dir, ".github", "cards", "stories", "TEST-001.md"), "# my test card\n");
+  writeFileSync(join(dir, ".github", "plans", "notes.md"), "notes\n");
+  writeFileSync(join(dir, "scripts", "hyperion", "upgrade-lib.mjs"), 'export const MANAGED_FILES = [".github/commands.yml"];\n');
+  commitAll(dir);
+
+  const dirty = spawnSync(process.execPath, [scriptPath], { cwd: dir, encoding: "utf8" });
+  assert.equal(dirty.status, 1);
+  assert.match(dirty.stderr, /-- --fix/);
+
+  const fixed = spawnSync(process.execPath, [scriptPath, "--fix"], { cwd: dir, encoding: "utf8" });
+  assert.equal(fixed.status, 0, fixed.stdout + fixed.stderr);
+  assert.match(fixed.stdout, /PROJECT_NUMBER=<n> in \.env/);
+  assert.equal(JSON.parse(readFileSync(mapPath, "utf8")).default.projectNumber, null);
+  assert.ok(existsSync(join(dir, ".github", "cards", "stories", "TEST-001.md")), "card stays on disk");
+  const tracked = spawnSync("git", ["ls-files", ".github"], { cwd: dir, encoding: "utf8" }).stdout;
+  assert.doesNotMatch(tracked, /TEST-001\.md|notes\.md/);
+  const status = spawnSync("git", ["status", "--porcelain", "--untracked-files=all"], { cwd: dir, encoding: "utf8" }).stdout;
+  assert.doesNotMatch(status, /\?\? .*TEST-001\.md/, "excluded, so `git add -A` won't bring it back");
 });
 
 test("running as a script exits 0 on a clean repo and 1 on a dirty one", () => {

@@ -48,6 +48,14 @@ Nada entra direto na `main` — nem atualização de dependência: o Dependabot 
 5. Commit com mensagem descritiva
 6. Abra um Pull Request (use o template do repositório)
 
+### Testando de verdade sem vincular o kit
+
+Testar sync com board, cards reais ou instalação **não** deve deixar rastro no seu fork do kit — o `distribution-purity-check` barra o PR se deixar:
+
+- **Seu board, sem commit:** coloque `PROJECT_NUMBER`, `PROJECT_OWNER` e `PROJECT_SYNC_TOKEN` no `.env` (ou `.env.local`) — os dois são gitignored e os scripts `cards:*` carregam sozinhos (variáveis já exportadas têm prioridade). Não edite o `projects-map.json`.
+- **Cards e instalação num repo sandbox:** crie um repo descartável e instale sua cópia de trabalho nele — `npm run hyperion:upgrade -- --from ../Hyperion --yes` (rodado dentro do sandbox) — e teste `/setup`, `/pipeline`, cards e sync lá. Os cards de teste vivem no sandbox, nunca no fork do kit.
+- **Se algo escapou:** `npm run hyperion:distribution-purity-check -- --fix` zera o `projectNumber` (e mostra o valor pra você levar ao `.env`) e tira cards/planos do git sem apagá-los do disco (ficam em `.git/info/exclude`). O que ele não corrige sozinho vem com o comando sugerido. Depois é só commitar.
+
 ## Tipos de contribuição
 
 - **Nova skill** — crie em `.github/skills/<categoria>/sua-skill/SKILL.md`
