@@ -168,7 +168,7 @@ function gitShowAtRef(workspaceRoot, ref, relativePath) {
 
 function gitDiffCardFiles(workspaceRoot, cardsPrefix) {
   const cardsPath = String(cardsPrefix || ".github/cards").replace(/\\/g, "/").replace(/\/+$/, "");
-  const diff = spawnSync("git", ["diff", "--name-only", "--", `${cardsPath}/`], {
+  const diff = spawnSync("git", ["-c", "core.quotePath=false", "diff", "--name-only", "--", `${cardsPath}/`], {
     cwd: workspaceRoot,
     encoding: "utf8",
   });

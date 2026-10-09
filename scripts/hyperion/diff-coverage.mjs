@@ -8,7 +8,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
-import { makeIgnore } from "./coverage-gate.mjs";
+import { makeIgnore } from "./coverage-ignore.mjs";
 import { t } from "./i18n.mjs";
 
 const toPosix = (p) => String(p || "").replace(/\\/g, "/");

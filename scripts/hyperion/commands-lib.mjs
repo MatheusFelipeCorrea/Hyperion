@@ -83,8 +83,8 @@ export function parseCommandsYaml(text) {
   return { commands, npmShortcuts };
 }
 
-export function loadCommands() {
-  const yaml = readFileSync(commandsPath, "utf8");
+export function loadCommands(root = repoRoot) {
+  const yaml = readFileSync(join(root, ".github/commands.yml"), "utf8");
   return parseCommandsYaml(yaml);
 }
 
@@ -190,9 +190,6 @@ function copilotNeed(cmd) {
 function copilotAction(cmd) {
   if (!cmd.skill && cmd.npm) return `\`npm run ${cmd.npm}\``;
   if (cmd.type === "agent") return `\`${cmd.skill}\` agent`;
-  if (cmd.skill === "hyperion-ops" && cmd.npm) {
-    return `\`hyperion-ops\` — runs \`npm run ${cmd.npm}\``;
-  }
   return `\`${cmd.skill}\` — or user says \`${cmd.phrase}\``;
 }
 
@@ -362,20 +359,24 @@ log("", "Claude Code: CLAUDE.md · Cursor: .cursor/rules/hyperion.mdc");
 `;
 }
 
-export const RUNTIME_TARGETS = [
-  {
-    path: join(repoRoot, "CLAUDE.md"),
-    buildRows: (commands, skillIndex) => buildClaudeRows(commands, skillIndex),
-    syncCatalog: true,
-  },
-  {
-    path: join(repoRoot, ".cursor/rules/hyperion.mdc"),
-    buildRows: (commands) => buildCursorRows(commands),
-    syncCatalog: true,
-  },
-  {
-    path: join(repoRoot, ".github/copilot-instructions.md"),
-    buildRows: (commands) => buildCopilotRows(commands),
-    syncCatalog: true,
-  },
-];
+export function runtimeTargets(root = repoRoot) {
+  return [
+    {
+      path: join(root, "CLAUDE.md"),
+      buildRows: (commands, skillIndex) => buildClaudeRows(commands, skillIndex),
+      syncCatalog: true,
+    },
+    {
+      path: join(root, ".cursor/rules/hyperion.mdc"),
+      buildRows: (commands) => buildCursorRows(commands),
+      syncCatalog: true,
+    },
+    {
+      path: join(root, ".github/copilot-instructions.md"),
+      buildRows: (commands) => buildCopilotRows(commands),
+      syncCatalog: true,
+    },
+  ];
+}
+
+export const RUNTIME_TARGETS = runtimeTargets();

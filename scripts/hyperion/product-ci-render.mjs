@@ -331,27 +331,61 @@ function composeJob(plan, apps) {
   });
 }
 
-function e2eJobs(plan, repo, apps, ctx) {
+/**
+ * The deepest app whose directory contains `dir` (the root app only owns what no nested app does).
+ * A package.json between `dir` and that app marks a separate package the plan has no app for.
+ */
+function owningApp(apps, dir, hasPackageJson = () => false) {
+  const d = dir || ".";
+  const contains = (a) => a.path === "." || d === a.path || d.startsWith(`${a.path}/`);
+  const app = apps.filter(contains).sort((a, b) => b.path.length - a.path.length)[0] || null;
+  if (!app) return null;
+  for (let p = d; p !== app.path && p !== "."; p = p.includes("/") ? p.slice(0, p.lastIndexOf("/")) : ".") {
+    if (hasPackageJson(p)) return null;
+  }
+  return app;
+}
+
+/** Each e2e config with its owning Node app and a unique job id. */
+function e2eTargets(plan, repo, apps, ctx) {
   if (plan.e2e === "off") return [];
-  const jobs = [];
+  const owned = [];
   for (const e of repo.e2e) {
-    const app = apps.find((a) => a.path === (e.dir || ".")) || apps.find((a) => a.setup?.kind === "node");
-    if (!app || app.setup?.kind !== "node") continue;
-    const pkgScripts = ctx.readScripts?.(e.dir || ".") || {};
+    const app = owningApp(apps, e.dir, ctx.hasPackageJson);
+    if (app && app.setup?.kind === "node") owned.push({ e, app });
+  }
+  const perApp = new Map();
+  for (const { app } of owned) perApp.set(app.name, (perApp.get(app.name) || 0) + 1);
+  const usedIds = new Set();
+  return owned.map(({ e, app }) => {
+    const base = perApp.get(app.name) > 1 ? `e2e-${slug(app.name)}-${slug(e.tool)}` : `e2e-${slug(app.name)}`;
+    let id = base;
+    for (let n = 2; usedIds.has(id); n++) id = `${base}-${n}`;
+    usedIds.add(id);
+    return { e, app, id };
+  });
+}
+
+function e2eJobs(plan, targets, ctx) {
+  const jobs = [];
+  for (const { e, app, id } of targets) {
+    const pkgScripts = ctx.readScripts?.(app.path) || {};
     const scriptName = ["test:e2e", "e2e"].find((n) => pkgScripts[n]);
     const pm = app.setup.pm;
     const runScript = scriptName ? (pm === "npm" ? `npm run ${scriptName}` : `${pm} run ${scriptName}`) : null;
     const exec = pm === "pnpm" ? "pnpm exec" : pm === "yarn" ? "yarn" : pm === "bun" ? "bunx" : "npx";
+    const configRel = app.path === "." ? e.config : e.config?.slice(app.path.length + 1);
+    const nestedConfig = (e.dir || ".") !== app.path && configRel ? ` ${e.tool === "playwright" ? "--config" : "--config-file"} ${q(configRel)}` : "";
     const steps = [CHECKOUT, ...setupSteps(app, { version: app.decisions.version }), ...installSteps(app)];
     if (e.tool === "playwright") {
       steps.push(step({ name: "Install Playwright browsers", run: `${exec} playwright install --with-deps` }));
-      steps.push(step({ name: "Playwright e2e", run: runScript || `${exec} playwright test` }));
+      steps.push(step({ name: "Playwright e2e", run: runScript || `${exec} playwright test${nestedConfig}` }));
     } else {
-      steps.push(step({ name: "Cypress e2e", run: runScript || `${exec} cypress run` }));
+      steps.push(step({ name: "Cypress e2e", run: runScript || `${exec} cypress run${nestedConfig}` }));
     }
     jobs.push(
       job({
-        id: `e2e-${slug(app.name)}`,
+        id,
         name: `E2E ${e.tool} (${app.name})`,
         ...affectedGate(app, plan),
         runsOn: plan.runner,
@@ -451,13 +485,18 @@ function codeqlJob(plan, repo) {
 
 const APP_HASH_FIELDS = ["name", "path", "stack", "decisions", "commands", "gates", "install", "setup", "resolvedServices", "migrate", "web", "bundleSize", "mobile"];
 
-/** Stable hash of every decision that shapes the workflow (for refresh drift). */
-export function gatesHash(plan) {
+/**
+ * Stable hash of every decision that shapes the workflow (for refresh drift).
+ * `e2e` (job id → owning app and config) depends on the repo layout, not just the plan,
+ * so the renderer passes it; compare against readGatesHash(rendered content) when it matters.
+ */
+export function gatesHash(plan, { e2e = [] } = {}) {
   const { apps, i18n, i18nRoot, ...rest } = plan;
   const shape = { ...rest, apps: apps.map((a) => Object.fromEntries(APP_HASH_FIELDS.map((k) => [k, a[k] ?? null]))) };
   if (i18n && (i18n.primary !== "en" || i18n.languages.length > 1)) {
     shape.languages = { languages: i18n.languages, multilingual: i18n.multilingual };
   }
+  if (e2e.length) shape.e2eJobs = e2e.map((t) => `${t.id}=${t.app.path}:${t.e.config || t.e.dir || "."}`);
   return crypto.createHash("sha256").update(JSON.stringify(shape)).digest("hex").slice(0, 16);
 }
 
@@ -469,11 +508,11 @@ export function readGatesHash(workflowText) {
 const jobId = (text) => text.match(/^ {2}([a-z0-9-]+):$/m)?.[1] || null;
 
 /**
- * @param {{ scan: object, plan: object, kitRootRel?: string, defaultBranch?: string, readScripts?: (dir: string) => Record<string,string> }} input
+ * @param {{ scan: object, plan: object, kitRootRel?: string, defaultBranch?: string, readScripts?: (dir: string) => Record<string,string>, hasPackageJson?: (dir: string) => boolean }} input
  */
-export function renderProductCiFromGates({ scan, plan, kitRootRel = "", defaultBranch = "main", readScripts = null }) {
+export function renderProductCiFromGates({ scan, plan, kitRootRel = "", defaultBranch = "main", readScripts = null, hasPackageJson = undefined }) {
   const branches = plan.branches || [defaultBranch];
-  const ctx = { kitRootRel, prBase: branches[0], readScripts };
+  const ctx = { kitRootRel, prBase: branches[0], readScripts, hasPackageJson };
   const needsSchedule = plan.apps.some((a) => a.decisions.audit.mode !== "off" && a.decisions.audit.fix === "pr");
   const publishTags = Boolean(plan.docker.publish?.tags) && scan.repo.dockerfiles.length > 0;
 
@@ -489,6 +528,7 @@ export function renderProductCiFromGates({ scan, plan, kitRootRel = "", defaultB
   if (needsSchedule) on.push("  schedule:", '    - cron: "0 6 * * 1"');
 
   const appJobs = plan.apps.map((a) => appJob(a, plan, ctx));
+  const e2e = e2eTargets(plan, scan.repo, plan.apps, ctx);
   const gateJobs = [
     changesJob(plan),
     ...appJobs,
@@ -496,7 +536,7 @@ export function renderProductCiFromGates({ scan, plan, kitRootRel = "", defaultB
     ...plan.apps.map((a) => auditFixPrJob(a, plan, ctx)),
     dockerJob(plan, scan.repo),
     composeJob(plan, plan.apps),
-    ...e2eJobs(plan, scan.repo, plan.apps, ctx),
+    ...e2eJobs(plan, e2e, ctx),
     iacJob(plan, scan.repo),
     commitlintJob(plan),
     openapiJob(plan, scan.repo),
@@ -526,8 +566,8 @@ export function renderProductCiFromGates({ scan, plan, kitRootRel = "", defaultB
     "",
     "# Generated by Hyperion from ci.gates in .github/project.yml — do not edit by hand.",
     "# Re-render after changing ci.gates: npm run hyperion:pipeline-apply -- --refresh-gates --yes",
-    "# Add `# hyperion:no-auto-refresh` to keep manual edits (refresh will skip this file).",
-    `${GATES_HASH_MARKER} ${gatesHash(plan)}`,
+    "# To keep manual edits, add a comment line starting with `# hyperion:no-auto-refresh` (refresh will skip this file).",
+    `${GATES_HASH_MARKER} ${gatesHash(plan, { e2e })}`,
     "",
     ...on,
     "",
@@ -558,5 +598,6 @@ export function renderProductCiForRepo(root, { gates, kitRootRel = "", defaultBr
       return {};
     }
   };
-  return { scan, plan, content: renderProductCiFromGates({ scan, plan, kitRootRel, defaultBranch, readScripts }) };
+  const hasPackageJson = (dir) => fs.existsSync(path.join(root, dir, "package.json"));
+  return { scan, plan, content: renderProductCiFromGates({ scan, plan, kitRootRel, defaultBranch, readScripts, hasPackageJson }) };
 }

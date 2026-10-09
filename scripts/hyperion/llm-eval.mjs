@@ -9,11 +9,13 @@
  * Live: HYPERION_LLM_EVAL_LIVE=1 OPENAI_API_KEY=... npm run hyperion:llm-eval
  */
 import { readFileSync, existsSync, readdirSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { ciError } from "./ci-annotate.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const root = join(__dirname, "../..");
+const rootArg = process.argv.indexOf("--root");
+const root = rootArg === -1 ? join(__dirname, "../..") : resolve(process.argv[rootArg + 1] || ".");
 const evalRoot = join(root, ".github/skills/eval");
 const casesPath = join(evalRoot, "llm-cases.json");
 const goldenDir = join(evalRoot, "golden");
@@ -133,6 +135,10 @@ async function main() {
   const goldenCount = readdirSync(goldenDir).filter((f) => f.endsWith(".txt")).length;
   if (failed) {
     console.error(`\nllm-eval FAILED — ${failed}/${cases.length} cases`);
+    ciError(
+      `${failed}/${cases.length} case(s) failed (FAIL lines in the log). Each case in .github/skills/eval/llm-cases.json is checked against its golden file in .github/skills/eval/golden/ (mustContain / mustMatch); fix the golden or the case. Reproduce: npm run hyperion:llm-eval`,
+      { title: "LLM eval" }
+    );
     process.exit(1);
   }
   console.log(

@@ -1,4 +1,4 @@
-import { describe, it } from "node:test";
+import { after, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
   mkdtempSync,
@@ -9,6 +9,7 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { cleanupTmp, gitCommitAll } from "./test-support/cli-harness.mjs";
 import {
   buildUpgradePlan,
   applyUpgradePlan,
@@ -17,8 +18,11 @@ import {
   isPreserved,
   summarizePlan,
   recordUpgradeChangelog,
+  MANAGED_FILES,
 } from "./upgrade-lib.mjs";
 import { sameCommit, resolveOrigin, DEFAULT_ORIGIN } from "./upgrade-fetch.mjs";
+
+after(cleanupTmp);
 
 function makeKit(root) {
   mkdirSync(join(root, "scripts", "hyperion"), { recursive: true });
@@ -178,6 +182,125 @@ describe("upgrade-lib", () => {
       assert.match(readFileSync(join(client, "CHANGELOG.md"), "utf8"), /Hyperion kit upgrade/);
     } finally {
       rmSync(kit, { recursive: true, force: true });
+      rmSync(client, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("upgrade-lib edge cases", () => {
+  function tmp(prefix) {
+    return mkdtempSync(join(tmpdir(), prefix));
+  }
+
+  it("mergePackageJson only replaces a Hyperion-style test script and merges bin", () => {
+    const kit = { scripts: { test: "npm run hyperion:test" }, bin: { hyperion: "./cli.mjs" }, type: "module" };
+    assert.equal(mergePackageJson({ scripts: { test: "jest" } }, kit).scripts.test, "jest");
+    assert.equal(mergePackageJson({ scripts: { test: "npm run cards:test" } }, kit).scripts.test, "npm run hyperion:test");
+    const fresh = mergePackageJson({ bin: { app: "./app.js" } }, kit);
+    assert.equal(fresh.scripts.test, "npm run hyperion:test");
+    assert.deepEqual(fresh.bin, { app: "./app.js", hyperion: "./cli.mjs" });
+    assert.equal(fresh.type, "module");
+    assert.equal(mergePackageJson({ type: "commonjs", engines: { node: ">=18" } }, { engines: { node: ">=20" }, type: "module" }).type, "commonjs");
+  });
+
+  it("plans extra .cursor/rules files and a missing client package.json, never client-owned files", async () => {
+    const kit = tmp("kit-");
+    const client = tmp("client-");
+    try {
+      mkdirSync(join(kit, ".cursor", "rules"), { recursive: true });
+      mkdirSync(join(kit, ".github", "memory"), { recursive: true });
+      writeFileSync(join(kit, ".cursor", "rules", "extra.mdc"), "x\n");
+      writeFileSync(join(kit, ".cursor", "rules", "notes.md"), "x\n");
+      writeFileSync(join(kit, ".cursor", "rules", "ignored.txt"), "x\n");
+      writeFileSync(join(kit, ".github", "project.yml"), "name: kit\n");
+      writeFileSync(join(kit, ".github", "memory", "PROJECT.md"), "# kit\n");
+      writeFileSync(join(kit, "package.json"), JSON.stringify({ scripts: { "hyperion:doctor": "d" } }));
+      const plan = await buildUpgradePlan(kit, client);
+      const byRel = Object.fromEntries(plan.map((p) => [p.rel, p]));
+      assert.equal(byRel[".cursor/rules/extra.mdc"].action, "add");
+      assert.equal(byRel[".cursor/rules/notes.md"].action, "add");
+      assert.ok(!byRel[".cursor/rules/ignored.txt"]);
+      assert.ok(!byRel[".github/project.yml"]);
+      assert.ok(!byRel[".github/memory/PROJECT.md"]);
+      assert.deepEqual(byRel["package.json"], { rel: "package.json", action: "add", reason: "merge-scripts" });
+      assert.equal(summarizePlan(plan).preserve, 0);
+    } finally {
+      rmSync(kit, { recursive: true, force: true });
+      rmSync(client, { recursive: true, force: true });
+    }
+  });
+
+  it("no managed file is client-owned (buildUpgradePlan relies on it to never overwrite one)", () => {
+    // MANAGED_DIRS entries are filtered with isPreserved(); single files, workflows and rules are not.
+    for (const rel of [...MANAGED_FILES, ".github/workflows/hyperion-x.yml", ".cursor/rules/x.mdc"]) {
+      assert.equal(isPreserved(rel), false, rel);
+    }
+  });
+
+  it("applyUpgradePlan is a no-op without yes, creates package.json and pins the kit's git HEAD", async () => {
+    const kit = tmp("kit-");
+    const client = tmp("client-");
+    try {
+      mkdirSync(join(kit, "scripts", "hyperion"), { recursive: true });
+      writeFileSync(join(kit, "scripts", "hyperion", "doctor.mjs"), "v\n");
+      writeFileSync(join(kit, "package.json"), JSON.stringify({ description: "kit", scripts: { "hyperion:doctor": "d" } }));
+      const head = gitCommitAll(kit, "kit");
+
+      const plan = await buildUpgradePlan(kit, client);
+      assert.deepEqual(await applyUpgradePlan(kit, client, plan), []);
+      const applied = await applyUpgradePlan(kit, client, plan, { yes: true });
+      assert.ok(applied.includes("package.json"));
+      const pkg = JSON.parse(readFileSync(join(client, "package.json"), "utf8"));
+      assert.equal(pkg.private, true);
+      assert.equal(pkg.scripts["hyperion:doctor"], "d");
+      const meta = JSON.parse(readFileSync(join(client, ".github", "hyperion-kit.json"), "utf8"));
+      assert.equal(meta.commit, head);
+      assert.equal(meta.kit_description, "kit");
+    } finally {
+      rmSync(kit, { recursive: true, force: true });
+      rmSync(client, { recursive: true, force: true });
+    }
+  });
+
+  it("applyUpgradePlan without a kit package.json still records remote metadata", async () => {
+    const kit = tmp("kit-");
+    const client = tmp("client-");
+    try {
+      mkdirSync(join(kit, "scripts", "hyperion"), { recursive: true });
+      writeFileSync(join(kit, "scripts", "hyperion", "doctor.mjs"), "v\n");
+      const plan = await buildUpgradePlan(kit, client);
+      await applyUpgradePlan(kit, client, plan, {
+        yes: true,
+        remoteMeta: { repo: "acme/kit", ref: "main", commit: "abcdef1234567890" },
+        sourceLabel: "github.com/acme/kit@main",
+      });
+      const meta = JSON.parse(readFileSync(join(client, ".github", "hyperion-kit.json"), "utf8"));
+      assert.equal(meta.repo, "acme/kit");
+      assert.equal(meta.ref, "main");
+      assert.equal(meta.source, "github.com/acme/kit@main");
+      assert.equal(meta.kit_description, undefined);
+      assert.match(readFileSync(join(client, "CHANGELOG.md"), "utf8"), /\(abcdef123456\)/);
+    } finally {
+      rmSync(kit, { recursive: true, force: true });
+      rmSync(client, { recursive: true, force: true });
+    }
+  });
+
+  it("recordUpgradeChangelog injects under an existing [Unreleased] heading once", async () => {
+    const client = tmp("client-");
+    try {
+      writeFileSync(join(client, "CHANGELOG.md"), "# Changelog\n\n## [Unreleased]\n\n## [1.0.0]\n- first\n");
+      const meta = { upgraded_at: "2026-01-02T00:00:00.000Z" };
+      await recordUpgradeChangelog(client, meta, 3);
+      await recordUpgradeChangelog(client, meta, 3);
+      const text = readFileSync(join(client, "CHANGELOG.md"), "utf8");
+      assert.equal(
+        text,
+        "# Changelog\n\n## [Unreleased]\n\n### Changed\n- Hyperion kit upgrade 2026-01-02 — 3 paths updated\n\n## [1.0.0]\n- first\n"
+      );
+      await recordUpgradeChangelog(client, {}, 1);
+      assert.match(readFileSync(join(client, "CHANGELOG.md"), "utf8"), /- Hyperion kit upgrade \d{4}-\d{2}-\d{2} — 1 paths updated/);
+    } finally {
       rmSync(client, { recursive: true, force: true });
     }
   });

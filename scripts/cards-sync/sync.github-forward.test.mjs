@@ -271,7 +271,7 @@ test("forward auto-creates a Project with the kit fields, views and Sprint itera
       `  ~ Status field updated — added ${STATUS_SPECS.filter((s) => !["Todo", "In Progress", "Done"].includes(s.name)).length} missing column(s)`,
       "  + Project views created",
       "  = Sprint iteration field exists: Sprint (2 iteration(s))",
-      "  projects-map.json updated: projectNumber=1, projectOwner=acme",
+      "  projects-map.json updated: default.projectNumber=1, projectOwner=acme",
       "Labels skipped (not found): Ghost",
     ]) {
       assert.ok(run.logs.includes(line), `missing log: ${line}\n${run.stdout}`);
@@ -339,8 +339,73 @@ test("forward --dry-run with a token reads the board, prints the plan and sends 
       assert.ok(run.logs.includes(line), `missing log: ${line}`);
     }
     assert.ok(run.logs.some((l) => /^\| APP-2 +\| Story +\| CREATE +\| — +\| Backend +\|$/.test(l)), run.stdout);
-    assert.ok(run.logs.some((l) => /^\| APP-1 +\| Story +\| \w+ +\| APP-2 +\| +\|$/.test(l)), run.stdout);
+    assert.ok(run.logs.some((l) => /^\| APP-1 +\| Story +\| UPDATE +\| APP-2 +\| +\|$/.test(l)), run.stdout);
   });
+});
+
+test("forward keeps a single Parent section and places a new one above the decorated Summary", () => {
+  const cards = {
+    "epics/APP-E.md": card({ id: "APP-E", type: "Epic" }),
+    "stories/APP-A.md": card({ id: "APP-A", parent: "APP-E", body: "# A\n\nIntro\n\n## Parent\n\n- APP-E\n" }),
+    "stories/APP-B.md": card({ id: "APP-B", parent: "APP-E", body: "# B\n\n## Summary\n\nText\n\n## Notes\n\nmore\n" }),
+  };
+  withWorkspace({ cards, config: projectsMap({ autoCreateProject: false, autoDiscoverProject: false }) }, (ws) => {
+    const run = runSync(ws);
+    assert.equal(run.status, 0, run.output);
+    const epic = issueByCard(run.state, "APP-E");
+    const link = `[APP-E (#${epic.number})](https://github.com/acme/app/issues/${epic.number})`;
+
+    const a = issueByCard(run.state, "APP-A").body;
+    assert.equal(a.match(/^## .*Parent/gm).length, 1, a);
+    assert.ok(a.includes(`## 👆 Parent\n\n- ${link}`), a);
+
+    const b = issueByCard(run.state, "APP-B").body;
+    assert.ok(b.includes(`# B\n\n## 👆 Parent\n\n- ${link}\n\n## 📋 Summary`), b);
+  });
+});
+
+test("forward recognizes localized Parent headings exactly and skips headings that only mention it", () => {
+  const cards = {
+    "epics/APP-E.md": card({ id: "APP-E", type: "Epic" }),
+    "stories/APP-A.md": card({ id: "APP-A", parent: "APP-E", body: "# A\n\n## 👆 Card pai\n\n- APP-E\n" }),
+    "stories/APP-B.md": card({ id: "APP-B", parent: "APP-E", body: "# B\n\n## ⬆️ Tarjeta padre\n\n- APP-E\n" }),
+    "stories/APP-C.md": card({ id: "APP-C", parent: "APP-E", body: "# C\n\n## Parent company notes\n\n- APP-E\n" }),
+    "stories/APP-D.md": card({ id: "APP-D", parent: "APP-E", body: "# D\n\n## 🧑‍💻 Resumo\n\nTexto\n" }),
+  };
+  const files = { ".github/project.yml": "name: app\nlocale: pt-BR\n" };
+  withWorkspace({ cards, files, config: projectsMap({ autoCreateProject: false, autoDiscoverProject: false }) }, (ws) => {
+    const run = runSync(ws);
+    assert.equal(run.status, 0, run.output);
+    const epic = issueByCard(run.state, "APP-E");
+    const link = `[APP-E (#${epic.number})](https://github.com/acme/app/issues/${epic.number})`;
+    const body = (id) => issueByCard(run.state, id).body;
+
+    assert.ok(body("APP-A").includes(`## 👆 Card pai\n\n- ${link}`), body("APP-A"));
+    assert.equal(body("APP-A").match(/^## .*Card pai/gmu).length, 1, body("APP-A"));
+
+    assert.ok(body("APP-B").includes(`## ⬆️ Tarjeta padre\n\n- ${link}`), body("APP-B"));
+    assert.ok(!body("APP-B").includes("## 👆 Card pai"), body("APP-B"));
+
+    assert.ok(body("APP-C").includes("## Parent company notes\n\n- APP-E\n"), body("APP-C"));
+    assert.ok(body("APP-C").includes(`## 👆 Card pai\n\n- ${link}`), body("APP-C"));
+
+    assert.ok(body("APP-D").includes(`# D\n\n## 👆 Card pai\n\n- ${link}\n\n## 🧑‍💻 Resumo`), body("APP-D"));
+  });
+});
+
+test("forward reads management hints from project.yml when the block is last or a value contains Z", () => {
+  const cards = { "stories/APP-1.md": card({ id: "APP-1" }) };
+  for (const projectYml of [
+    "name: app\nlocale: en\nmanagement:\n  backend: azure-devops\n",
+    "management:\n  org: https://dev.azure.com/Zenith\n  backend: azure-devops\nlocale: en\n",
+  ]) {
+    withWorkspace({ cards, files: { ".github/project.yml": projectYml } }, (ws) => {
+      const run = runSync(ws);
+      assert.equal(run.status, 1, run.output);
+      assert.ok(run.logs.includes("Backend: azure-devops"), run.stdout);
+      assert.match(run.output, /Azure DevOps backend requires AZDO_ORG_URL, AZDO_PROJECT, and AZDO_PAT/);
+    });
+  }
 });
 
 test("forward with several candidate Projects neither guesses nor auto-creates", () => {
@@ -398,7 +463,7 @@ test("forward records per-card failures, keeps going, and exits 1 when an issue 
 
 test("forward logs a WARN (and continues) when Project fields, colors, views or Sprint can't be configured", () => {
   const board = project({
-    fields: [selectField("F_status", "Status", ["Todo"]), selectField("F_type", "Type", TYPES), { __typename: "ProjectV2Mystery", id: "F_due", name: "Due Date" }],
+    fields: [selectField("F_status", "Status", ["Archived"]), selectField("F_type", "Type", TYPES), { __typename: "ProjectV2Mystery", id: "F_due", name: "Due Date" }],
     views: [{ id: "V_x", name: "Mine", layout: "TABLE_LAYOUT" }],
   });
   const cards = { "stories/APP-1.md": card({ id: "APP-1", type: "Bug", dueDate: "2026-02-02" }) };

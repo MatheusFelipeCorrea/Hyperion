@@ -3,8 +3,12 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import {
   scanRepoForGates,
+  walkRepo,
+  resolveServices,
   buildGateQuestions,
   resolveGatePlan,
   gateCommand,
@@ -63,7 +67,16 @@ before(() => {
   write(root, "infra/main.tf", "terraform {}");
   write(root, "Hyperion/package.json", { name: "hyperion-kit", scripts: { test: "node --test" } });
   write(root, "node_modules/foo/package.json", { name: "foo", scripts: { test: "x" } });
+  fakeGit(root);
 });
+
+/** origin/HEAD resolves on the first git probe, so CLI runs spend one git spawn on detectDefaultBranch. */
+function fakeGit(dir) {
+  write(dir, ".git/HEAD", "ref: refs/heads/main\n");
+  write(dir, ".git/refs/remotes/origin/HEAD", "ref: refs/remotes/origin/main\n");
+  write(dir, ".git/refs/heads/.keep", "");
+  write(dir, ".git/objects/.keep", "");
+}
 
 after(() => {
   fs.rmSync(root, { recursive: true, force: true });
@@ -428,11 +441,394 @@ describe("interview memory and cost", () => {
     assert.ok(!names.includes("docs"));
   });
 
+  it("diffs identical text with a single collapsed context marker", () => {
+    const same = lineDiff("a\nb\nc\nd\ne\nf", "a\nb\nc\nd\ne\nf", { context: 1 });
+    assert.deepEqual(same, { lines: ["  …"], added: 0, removed: 0 });
+    assert.deepEqual(lineDiff("x", "").lines, ["- x", "+ "]);
+  });
+
   it("diffs workflow text for --preview", () => {
     const d = lineDiff("a\nb\nc\nd\ne\nf\ng", "a\nb\nC\nd\ne\nf\ng\nh", { context: 1 });
     assert.equal(d.added, 2);
     assert.equal(d.removed, 1);
     assert.deepEqual(d.lines.slice(0, 4), ["  …", "  b", "- c", "+ C"]);
     assert.equal(d.lines.at(-1), "+ h");
+  });
+});
+describe("polyglot repo: every stack analyzer", () => {
+  let poly;
+  let scan;
+  const app = (name) => scan.apps.find((a) => a.name === name);
+
+  before(() => {
+    poly = fs.mkdtempSync(path.join(os.tmpdir(), "hyperion-gates-poly-"));
+    const files = {
+      "rust/Cargo.toml": "[package]\nname = 'r'\n",
+      "rust/crates/sub/Cargo.toml": "[package]\nname = 'sub'\n",
+      "dotnet/App.sln": "",
+      "dotnet/src/App/App.csproj": '<Project><PropertyGroup><TargetFramework>net9.0</TargetFramework></PropertyGroup><PackageReference Include="Npgsql" /></Project>',
+      "tools/Stray.csproj": "<Project />",
+      "maven/pom.xml":
+        "<project><properties><maven.compiler.release>17</maven.compiler.release></properties>" +
+        "<plugins>jacoco-maven-plugin maven-checkstyle-plugin spotless-maven-plugin dependency-check-maven</plugins>" +
+        "<dependency>org.postgresql</dependency></project>",
+      "maven/mvnw": "",
+      "maven/core/pom.xml": "<project/>",
+      "legacyjava/pom.xml": "<project><properties><java.version>1.8</java.version></properties></project>",
+      "gradle/build.gradle.kts":
+        'plugins { id("com.android.application"); id("io.gitlab.arturbosch.detekt"); id("com.diffplug.spotless"); id("org.jetbrains.kotlinx.kover"); id("org.owasp.dependencycheck") }\nkotlin { jvmToolchain(21) }\n',
+      "gradle/gradlew": "",
+      "gradle/app/build.gradle.kts": 'dependencies { implementation("org.springframework.boot:spring-boot-starter-data-redis") }\n',
+      "gradle2/build.gradle": "plugins { id 'org.jlleitschuh.gradle.ktlint'; id 'jacoco' }\nsourceCompatibility = '11'\n",
+      "gradle2/.java-version": "17\n",
+      "gradle3/build.gradle": "apply plugin: 'checkstyle'\n",
+      "gradle3/.tool-versions": "java temurin-21.0.2\n",
+      "gradle4/build.gradle": "java { sourceCompatibility = JavaVersion.VERSION_1_8 }\n",
+      "php/composer.json": {
+        require: { php: "^8.2" },
+        "require-dev": { "phpunit/phpunit": "^11", "phpstan/phpstan": "^1", "friendsofphp/php-cs-fixer": "^3", "pestphp/pest": "^2" },
+      },
+      "php/artisan": "",
+      "php2/composer.json": { "require-dev": { "laravel/pint": "^1" } },
+      "php2/phpunit.xml": "<phpunit/>",
+      "php2/.tool-versions": "php 8.1.2\n",
+      "node-vitest/package.json": { scripts: { lint: "eslint ." }, devDependencies: { vitest: "^2", "@vitest/coverage-v8": "^2" } },
+      "node-jest/package.json": { scripts: { lint: "eslint ." } },
+      "node-jest/jest.config.js": "module.exports = {};",
+      "php3/composer.json": "{ not json",
+      "ruby/Gemfile": "gem 'rails'\ngem 'pg'\ngem 'rspec-rails'\ngem 'rubocop'\ngem 'standard'\ngem 'sorbet'\ngem 'simplecov'\ngem 'bundler-audit'\n",
+      "ruby/bin/rails": "",
+      "ruby/.ruby-version": "3.3.0\n",
+      "ruby2/Gemfile": "source 'https://rubygems.org'\n",
+      "ruby2/.tool-versions": "# pinned\nruby 3.2.2\n",
+      "pydj/requirements.txt": "django\nflake8\n",
+      "pydj/manage.py": "",
+      "pyreq/requirements.txt": "requests\n",
+      "pyreq/requirements-dev.txt": "pytest\n",
+      "pyprod/setup.py": "",
+      "pyprod/requirements-prod.txt": "requests\n",
+      "gosvc/go.mod": "module example.com/gosvc\n\ngo 1.22\n",
+      "gosvc/.golangci.yml": "linters: {}\n",
+      "node-pnpm/package.json": { packageManager: "pnpm@9.0.0", scripts: { build: "tsc -p ." }, devDependencies: { typescript: "^5" } },
+      "node-yarn/package.json": { packageManager: "yarn@4.0.0", scripts: { test: "mocha" } },
+      "node-bun/package.json": { packageManager: "bun@1.1.0", scripts: { lint: "biome lint ." } },
+      "node-broken/package.json": "{ not json",
+      "web/package.json": {
+        scripts: { build: "vite build" },
+        devDependencies: { vite: "^5", react: "^18" },
+        "size-limit": [{ path: "dist/*.js", limit: "100 kB" }],
+      },
+      "web/package-lock.json": "{}",
+      "dart/pubspec.yaml": "name: d\n",
+      "dart/bin/main.dart": "",
+      "flutterapp/pubspec.yaml": "name: f\ndependencies:\n  flutter:\n    sdk: flutter\n",
+      "flutterapp/.fvmrc": { flutter: "3.22.0" },
+      "flutterapp/test/a_test.dart": "",
+      "flutterapp/ios/Runner/Info.plist": "",
+      "openapi.yaml": "openapi: 3.0.0\n",
+      "docs/guide.md": "# Guide\n",
+      ".markdownlint.json": "{}",
+      "docker-compose.yml": "services:\n  cache:\n    image: redis:7\n",
+      Dockerfile: "FROM scratch\n",
+      "charts/app/Chart.yaml": "name: app\n",
+      "k8s/deploy.yaml": "kind: Deployment\n",
+      "commitlint.config.js": "",
+      "renovate.json": "{}",
+      CODEOWNERS: "",
+      ".hadolint.yaml": "",
+      "release-please-config.json": "{}",
+      "vercel.json": "{}",
+      ".editorconfig": "",
+      "lefthook.yml": "",
+    };
+    for (const [rel, content] of Object.entries(files)) write(poly, rel, content);
+    fakeGit(poly);
+    scan = scanRepoForGates(poly);
+  });
+
+  after(() => fs.rmSync(poly, { recursive: true, force: true }));
+
+  it("collapses nested multi-module builds, lets a .sln win over stray projects and drops tooling-only packages", () => {
+    const paths = scan.apps.map((a) => a.path);
+    for (const nested of ["rust/crates/sub", "maven/core", "gradle/app", "tools", "dotnet/src/App", "node-broken"]) {
+      assert.ok(!paths.includes(nested), `${nested} should be collapsed or skipped`);
+    }
+    assert.equal(app("rust").gates.lint.command, "cargo clippy --all-targets -- -D warnings");
+    assert.equal(app("rust").gates.coverage.needs, "cargo-llvm-cov (installed in CI)");
+  });
+
+  it("dotnet: TargetFramework or global.json version and driver services", () => {
+    const net = app("dotnet");
+    assert.deepEqual([net.setup.version, net.setup.versionSource], ["9.0.x", "TargetFramework"]);
+    assert.deepEqual(net.services.map((s) => s.kind), ["postgres"]);
+    assert.match(net.gates.audit.command, /dotnet list package --vulnerable/);
+    assert.equal(net.gates.coverage.tool, "coverlet");
+    assert.equal(scan.apps.filter((a) => a.stack === "dotnet").length, 1);
+  });
+
+  it("maven: wrapper, plugins, compiler release and legacy 1.x versions", () => {
+    const mvn = app("maven");
+    assert.equal(mvn.install, "./mvnw -B -q dependency:go-offline");
+    assert.equal(mvn.gates.lint.command, "./mvnw -B checkstyle:check");
+    assert.equal(mvn.gates.format.fix, "./mvnw -B spotless:apply");
+    assert.equal(mvn.gates.coverage.report, "target/site/jacoco/jacoco.xml");
+    assert.match(mvn.gates.audit.command, /dependency-check-maven:check/);
+    assert.deepEqual([mvn.setup.version, mvn.setup.versionSource], ["17", "build file"]);
+    assert.deepEqual(mvn.hints, []);
+    assert.deepEqual(mvn.services.map((s) => s.kind), ["postgres"]);
+    const legacy = app("legacyjava");
+    assert.equal(legacy.setup.version, "8");
+    assert.equal(legacy.gates.coverage, null);
+    assert.equal(legacy.gates.audit, null);
+    assert.match(legacy.hints[0], /jacoco-maven-plugin/);
+  });
+
+  it("gradle: plugin-driven gates, Android detection and version sources", () => {
+    const g = app("gradle");
+    assert.equal(g.install, "./gradlew --version");
+    assert.equal(g.gates.lint.command, "./gradlew detekt");
+    assert.equal(g.gates.format.command, "./gradlew spotlessCheck");
+    assert.equal(g.gates.coverage.tool, "kover");
+    assert.equal(g.gates.audit.command, "./gradlew dependencyCheckAnalyze");
+    assert.deepEqual(g.mobile, { android: true, ios: false, kind: "android", gradle: "./gradlew" });
+    assert.deepEqual([g.setup.version, g.setup.wrapper], ["21", true]);
+    assert.deepEqual(g.services.map((s) => s.kind), ["redis"]);
+    const g2 = app("gradle2");
+    assert.equal(g2.gates.lint.command, "gradle ktlintCheck");
+    assert.equal(g2.gates.coverage.tool, "jacoco");
+    assert.deepEqual([g2.setup.version, g2.setup.versionSource], ["17", ".java-version"]);
+    const g3 = app("gradle3");
+    assert.equal(g3.gates.lint.command, "gradle checkstyleMain");
+    assert.deepEqual([g3.setup.version, g3.setup.versionSource], ["21", ".tool-versions"]);
+    const g4 = app("gradle4");
+    assert.equal(g4.gates.lint, null);
+    assert.equal(g4.gates.coverage, null);
+    assert.deepEqual([g4.setup.version, g4.setup.versionSource], ["8", "build file"]);
+  });
+
+  it("php: pest/phpunit, phpstan, php-cs-fixer or pint, artisan migrations", () => {
+    const php = app("php");
+    assert.equal(php.gates.test.command, "vendor/bin/pest");
+    assert.equal(php.gates.lint.command, "vendor/bin/phpstan analyse");
+    assert.match(php.gates.format.command, /php-cs-fixer fix --dry-run/);
+    assert.equal(php.gates.coverage.tool, "phpunit");
+    assert.equal(php.migrate, "php artisan migrate --force");
+    assert.deepEqual([php.setup.version, php.setup.versionSource], ["8.2", "composer.json"]);
+    const php2 = app("php2");
+    assert.equal(php2.gates.format.command, "vendor/bin/pint --test");
+    assert.equal(php2.gates.test.command, "vendor/bin/phpunit");
+    assert.equal(php2.setup.version, "8.1.2");
+    const php3 = app("php3");
+    assert.equal(php3.gates.test, null);
+    assert.equal(php3.gates.audit.command, "composer audit");
+    assert.equal(php3.setup.version, "8.3");
+  });
+
+  it("ruby: rspec/rails/rubocop/standard/sorbet/simplecov and fallbacks", () => {
+    const rb = app("ruby");
+    assert.equal(rb.gates.test.command, "bundle exec rspec");
+    assert.equal(rb.gates.lint.fix, "bundle exec rubocop -a");
+    assert.equal(rb.gates.format.command, "bundle exec standardrb");
+    assert.equal(rb.gates.typecheck.command, "bundle exec srb tc");
+    assert.equal(rb.gates.coverage.report, "coverage/.last_run.json");
+    assert.equal(rb.gates.audit.command, "bundle exec bundle-audit check --update");
+    assert.equal(rb.setup.version, "3.3.0");
+    assert.deepEqual(rb.services.map((s) => s.kind), ["postgres"]);
+    const rb2 = app("ruby2");
+    assert.equal(rb2.gates.test.command, "bundle exec rake test");
+    assert.equal(rb2.gates.lint, null);
+    assert.match(rb2.gates.audit.command, /^gem install bundler-audit/);
+    assert.equal(rb2.setup.version, "3.2.2");
+  });
+
+  it("versionSource names .tool-versions when the version came from it", () => {
+    assert.deepEqual([app("php2").setup.version, app("php2").setup.versionSource], ["8.1.2", ".tool-versions"]);
+    assert.deepEqual([app("ruby2").setup.version, app("ruby2").setup.versionSource], ["3.2.2", ".tool-versions"]);
+  });
+
+  it("ruby: bin/rails enables db:prepare and the migrations gate", () => {
+    const rb = app("ruby");
+    assert.equal(rb.migrate, "bin/rails db:prepare");
+    assert.equal(rb.gates.migrations?.tool, "rails");
+    assert.equal(app("ruby2").migrate, null);
+  });
+
+  it("walkRepo indexes Ruby binstubs but still skips bin/ build output elsewhere", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "hyperion-walk-bin-"));
+    try {
+      for (const rel of ["rb/Gemfile", "rb/bin/rails", "net/App.csproj", "net/bin/Debug/App.dll", "bin/tool"]) {
+        fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true });
+        fs.writeFileSync(path.join(root, rel), "");
+      }
+      assert.deepEqual(walkRepo(root), ["net/App.csproj", "rb/Gemfile", "rb/bin/rails"]);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("python: requirements installs, flake8 and Django test runner", () => {
+    const dj = app("pydj");
+    assert.equal(dj.install, "pip install -r requirements.txt");
+    assert.equal(dj.gates.lint.command, "flake8 .");
+    assert.equal(dj.gates.test.command, "python manage.py test");
+    assert.equal(dj.gates.migrations.tool, "django");
+    assert.equal(dj.gates.audit.command, "pip-audit -r requirements.txt");
+    assert.equal(app("pyreq").install, "pip install -r requirements-dev.txt && pip install -r requirements.txt");
+    const prod = app("pyprod");
+    assert.equal(prod.install, "pip install -r requirements-prod.txt");
+    assert.equal(prod.gates.audit.command, "pip-audit");
+  });
+
+  it("node: packageManager field, missing lockfile, non-web builds and size-limit", () => {
+    const pnpm = app("node-pnpm");
+    assert.deepEqual([pnpm.pm, pnpm.setup.lockfile, pnpm.install], ["pnpm", null, "pnpm install --frozen-lockfile"]);
+    assert.equal(pnpm.web, null);
+    assert.equal(pnpm.gates.test, null);
+    assert.equal(app("node-yarn").pm, "yarn");
+    assert.equal(app("node-yarn").gates.coverage, null);
+    assert.equal(app("node-bun").pm, "bun");
+    assert.deepEqual([app("node-vitest").gates.coverage.command, app("node-vitest").gates.coverage.needs], [
+      "npx vitest run --coverage --coverage.reporter=json-summary --coverage.reporter=text --coverage.reporter=lcov",
+      null,
+    ]);
+    assert.match(app("node-jest").gates.coverage.command, /^npx jest --coverage /);
+    const web = app("web");
+    assert.equal(web.web.framework, "vite-react");
+    assert.equal(web.bundleSize.command, "npx size-limit");
+    assert.equal(app("gosvc").gates.lint.command, "golangci-lint run");
+    assert.equal(app("flutterapp").setup.versionSource, "fvm");
+    assert.equal(app("dart").stack, "dart");
+  });
+
+  it("repo-level detection: helm, k8s, openapi, docs, release, deploy, hooks", () => {
+    const r = scan.repo;
+    assert.deepEqual(r.iac.helm, ["charts/app"]);
+    assert.equal(r.iac.kubernetes, true);
+    assert.deepEqual(r.openapi, ["openapi.yaml"]);
+    assert.equal(r.commitlint, "commitlint.config.js");
+    assert.equal(r.github.renovate, true);
+    assert.equal(r.github.codeowners, true);
+    assert.equal(r.hadolint, true);
+    assert.equal(r.editorconfig, true);
+    assert.equal(r.preCommit.lefthook, true);
+    assert.deepEqual(r.release, ["release-please"]);
+    assert.deepEqual(r.deploy, ["vercel", "helm", "kubernetes"]);
+    assert.deepEqual([r.docs.markdownFiles, r.docs.docsDir, r.docs.markdownlint], [1, true, true]);
+  });
+
+  it("asks adoption questions for missing lint/test/coverage and repo-level openapi, docs and bundle size", () => {
+    const qs = buildGateQuestions(scan);
+    const ids = new Set(qs.map((x) => x.id));
+    for (const id of ["apps.node-yarn.lint.adopt", "apps.node-pnpm.test.adopt", "apps.node-yarn.coverage.adopt", "openapi", "docs", "bundle_size"]) {
+      assert.ok(ids.has(id), `missing question ${id}`);
+    }
+    assert.equal(qs.find((x) => x.id === "bundle_size").yaml, "ci.gates.bundle_size");
+    assert.ok(!ids.has("dependabot"));
+    assert.match(qs.find((x) => x.id === "commitlint").question.en, /commitlint configured/);
+  });
+
+  it("resolveServices accepts maps and ignores unknown shapes", () => {
+    assert.deepEqual(resolveServices({ postgres: "postgres:15", redis: true, oracle: "x" }), [
+      { kind: "postgres", image: "postgres:15" },
+      { kind: "redis", image: "redis:7" },
+    ]);
+    assert.deepEqual(resolveServices("sometimes"), []);
+  });
+
+  it("docker.publish: object form, true with branches, and absent", () => {
+    const custom = resolveGatePlan(scan, { docker: { publish: { branches: "release", tags: false, platforms: ["linux/arm64"] } } });
+    assert.deepEqual(custom.docker.publish, { branches: ["release"], tags: false, platforms: ["linux/arm64"] });
+    const simple = resolveGatePlan(scan, { branches: ["trunk", "dev"], docker: { publish: true } });
+    assert.deepEqual(simple.docker.publish, { branches: ["trunk"], tags: true, platforms: ["linux/amd64"] });
+    assert.equal(resolveGatePlan(scan, { docker: { publish: {} } }).docker.publish.branches, null);
+    assert.equal(resolveGatePlan(scan, {}).docker.publish, null);
+  });
+
+  it("CLI human summary lists bundle, helm and renovate", () => {
+    const env = { ...process.env, GIT_CEILING_DIRECTORIES: os.tmpdir() };
+    delete env.HYPERION_ROOT;
+    const SCRIPT = fileURLToPath(new URL("./pipeline-gates.mjs", import.meta.url));
+    const r = spawnSync(process.execPath, [SCRIPT, "--en"], { cwd: poly, env, encoding: "utf8" });
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(r.stdout, /bundle {5}npx size-limit/);
+    assert.match(r.stdout, /helm: charts\/app/);
+    assert.match(r.stdout, /dependabot renovate {2}codeowners yes/);
+    assert.match(r.stdout, /hadolint {3}\.hadolint\.yaml {2}docs 1 md \(markdownlint config\)/);
+    assert.match(r.stdout, /release {4}release-please {2}deploy vercel, helm, kubernetes/);
+  });
+
+  it("walkRepo tolerates a missing root", () => {
+    assert.deepEqual(walkRepo(path.join(os.tmpdir(), "hyperion-gates-missing-xyz")), []);
+  });
+});
+
+describe("pipeline-gates CLI", () => {
+  const SCRIPT = fileURLToPath(new URL("./pipeline-gates.mjs", import.meta.url));
+  const env = { ...process.env, GIT_CEILING_DIRECTORIES: os.tmpdir() };
+  delete env.HYPERION_ROOT;
+  const run = (args) => spawnSync(process.execPath, [SCRIPT, ...args], { cwd: root, env, encoding: "utf8" });
+  const productCi = () => path.join(root, ".github/workflows/hyperion-product-ci.yml");
+
+  it("prints the human summary (default) in the requested language", () => {
+    const r = run(["--lang", "en"]);
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(r.stdout, /■ api {2}\[node\/npm\] {2}apps\/api/);
+    assert.match(r.stdout, /services {3}postgres=postgres:16/);
+    assert.match(r.stdout, /migrate {4}npx prisma migrate deploy/);
+    assert.match(r.stdout, /web {8}vite → dist/);
+    assert.match(r.stdout, /mobile {5}flutter: android/);
+    assert.match(r.stdout, /compose {4}apps\/api\/docker-compose\.yml: db=postgres:16/);
+    assert.match(r.stdout, /- \[apps\.api\.lint\] .*lint gate\?/);
+    assert.equal(run(["--en", "--pending"]).status, 0);
+  });
+
+  it("--json, --yaml and --estimate", () => {
+    const json = JSON.parse(run(["--json"]).stdout);
+    assert.ok(json.scan.apps.length >= 4);
+    assert.ok(json.questions.length > 10);
+    assert.ok(json.estimate.perPush > 0);
+    assert.match(run(["--yaml", "--preset", "strict"]).stdout, /preset: strict/);
+    const est = run(["--estimate"]);
+    assert.match(est.stdout, /CI minutes estimate/);
+    assert.match(est.stdout, /min per push/);
+    assert.doesNotMatch(est.stdout, /Preview/);
+  });
+
+  it("--preview renders, diffs, reports no changes and adds a diagram", () => {
+    write(root, "draft.yml", "ci:\n  gates:\n    defaults:\n      coverage: warn\n");
+    try {
+      const fresh = run(["--preview", "--gates-file", "draft.yml"]);
+      assert.equal(fresh.status, 0, fresh.stderr);
+      assert.match(fresh.stdout, /does not exist yet — full render/);
+      assert.match(fresh.stdout, /Diagram of this pipeline: add --diagram/);
+
+      const start = fresh.stdout.indexOf("full render:\n\n") + "full render:\n\n".length;
+      write(root, ".github/workflows/hyperion-product-ci.yml", fresh.stdout.slice(start, fresh.stdout.indexOf("\n\nNothing written")));
+      const same = run(["--preview", "--gates-file", "draft.yml"]);
+      assert.match(same.stdout, /Preview \.github\/workflows\/hyperion-product-ci\.yml: \+0 −0\r?\nNo changes\./);
+
+      const changed = run(["--preview", "--preset", "minimal", "--diagram", "--no-steps"]);
+      assert.equal(changed.status, 0, changed.stderr);
+      assert.match(changed.stdout, /Preview \.github\/workflows\/hyperion-product-ci\.yml: \+\d+ −\d+/);
+      assert.match(changed.stdout, /```mermaid/);
+    } finally {
+      fs.rmSync(path.join(root, ".github"), { recursive: true, force: true });
+      fs.rmSync(path.join(root, "draft.yml"), { force: true });
+    }
+    assert.ok(!fs.existsSync(productCi()));
+  });
+
+  it("exits 2 for an unknown preset and 1 for an unreadable gates file", () => {
+    const preset = run(["--preset", "max"]);
+    assert.equal(preset.status, 2);
+    assert.match(preset.stderr, /Unknown preset "max"/);
+    write(root, "bad.yml", "gates: [unclosed\n");
+    try {
+      const bad = run(["--json", "--gates-file", "bad.yml"]);
+      assert.equal(bad.status, 1);
+      assert.match(bad.stderr, /YAMLException/);
+    } finally {
+      fs.rmSync(path.join(root, "bad.yml"), { force: true });
+    }
   });
 });
