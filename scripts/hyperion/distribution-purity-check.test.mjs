@@ -185,7 +185,7 @@ test("--fix nulls projectNumber and untracks cards/plans without deleting them",
   writeFileSync(join(dir, "scripts", "hyperion", "upgrade-lib.mjs"), 'export const MANAGED_FILES = [".github/commands.yml"];\n');
   commitAll(dir);
 
-  const dirty = spawnSync(process.execPath, [scriptPath], { cwd: dir, encoding: "utf8" });
+  const dirty = spawnSync(process.execPath, [scriptPath], { cwd: dir, encoding: "utf8", env: { ...process.env, GITHUB_ACTIONS: "" } });
   assert.equal(dirty.status, 1);
   assert.match(dirty.stderr, /-- --fix/);
   assert.doesNotMatch(dirty.stderr, /::error/, "plain output outside GitHub Actions");
