@@ -188,6 +188,10 @@ test("--fix nulls projectNumber and untracks cards/plans without deleting them",
   const dirty = spawnSync(process.execPath, [scriptPath], { cwd: dir, encoding: "utf8" });
   assert.equal(dirty.status, 1);
   assert.match(dirty.stderr, /-- --fix/);
+  assert.doesNotMatch(dirty.stderr, /::error/, "plain output outside GitHub Actions");
+
+  const inActions = spawnSync(process.execPath, [scriptPath], { cwd: dir, encoding: "utf8", env: { ...process.env, GITHUB_ACTIONS: "true" } });
+  assert.match(inActions.stderr, /::error title=Binding to the Hyperion repo,file=\.github\/cards\/config\/projects-map\.json::.*PROJECT_NUMBER in your \.env/);
 
   const fixed = spawnSync(process.execPath, [scriptPath, "--fix"], { cwd: dir, encoding: "utf8" });
   assert.equal(fixed.status, 0, fixed.stdout + fixed.stderr);

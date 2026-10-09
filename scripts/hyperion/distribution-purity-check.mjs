@@ -191,6 +191,20 @@ export function applyFixes(root, failures) {
   return messages;
 }
 
+const FIX_TEXT = {
+  nullProjectNumber: "run `npm run hyperion:distribution-purity-check -- --fix` (moves the number to PROJECT_NUMBER in your .env) and commit",
+  untrack: "run `npm run hyperion:distribution-purity-check -- --fix` (stops tracking the file, keeps your local copy) and commit",
+};
+
+/** GitHub Actions error annotation pinned to the file (no-op outside Actions). */
+function annotate(message, file) {
+  if (process.env.GITHUB_ACTIONS !== "true") return;
+  const esc = (s) => String(s).replace(/%/g, "%25").replace(/\r/g, "%0D").replace(/\n/g, "%0A");
+  const prop = (s) => esc(s).replace(/:/g, "%3A").replace(/,/g, "%2C");
+  const fileProp = file && /[./]/.test(file) ? `,file=${prop(file.replace(/\\/g, "/"))}` : "";
+  console.error(`::error title=${prop("Binding to the Hyperion repo")}${fileProp}::${esc(message)}`);
+}
+
 async function runChecks(root, checks) {
   const results = [];
   for (const [label, fn] of checks) {
@@ -227,6 +241,7 @@ async function main() {
     for (const { where, why, fix } of own) {
       console.error(`FAIL ${where}: ${why}`);
       if (fix?.hint) console.error(`     fix: ${fix.hint}`);
+      annotate(`${why} — ${FIX_TEXT[fix?.kind] || fix?.hint || "remove the binding to this repository from the branch"}`, where);
     }
   }
 
@@ -249,6 +264,7 @@ const isMain = process.argv[1] && import.meta.url === pathToFileURL(process.argv
 if (isMain) {
   main().catch((err) => {
     console.error(`FAIL: unexpected error — ${err.message}`);
+    annotate(`distribution-purity-check crashed: ${err.message} — likely a Hyperion bug; open an issue with the log.`);
     process.exit(1);
   });
 }
