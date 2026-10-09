@@ -523,7 +523,7 @@ On GitHub, explicit `status` in frontmatter always applies. Safe mode only appli
 | AZDO_PAT | Required for Azure | Azure DevOps PAT |
 | AZDO_WORK_ITEM_TYPE | Optional for Azure | Work item type (default `Task`) |
 | LINEAR_TEAM_ID | Required for Linear | Linear team id/uuid |
-| LINEAR_API_TOKEN | Required for Linear | Linear API token |
+| LINEAR_API_TOKEN | Required for Linear | Linear **personal** API key — sent raw in `Authorization` (no `Bearer` prefix; that's for OAuth app tokens, which this kit doesn't use) |
 | GITLAB_PROJECT_ID | Required for GitLab | GitLab project id/path |
 | GITLAB_TOKEN | Required for GitLab | GitLab private token |
 | GITLAB_URL | Optional for GitLab | GitLab base URL |

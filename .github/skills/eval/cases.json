@@ -170,5 +170,21 @@
   {
     "skill": "ux-audit",
     "mustContain": ["UX-<PHASE>-<NN>", "canonical decision", "## Output"]
+  },
+  {
+    "skill": "feature-flag-manager",
+    "mustContain": [".github/docs/flags/{flag_name}.md", "Removal date", "## Output"]
+  },
+  {
+    "skill": "api-contract-guide",
+    "mustContain": [".github/docs/api/{name}-contract.md", "When in doubt, treat it as breaking", "## Output"]
+  },
+  {
+    "skill": "eng-metrics",
+    "mustContain": [".github/audits/results/_summary/eng-metrics-{date}.md", "Not computable", "## Output"]
+  },
+  {
+    "skill": "compliance-audit",
+    "mustContain": [".github/audits/results/compliance/compliance-signals-{date}.md", "This is not legal advice and does not certify compliance."]
   }
 ]

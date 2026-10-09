@@ -1,6 +1,6 @@
 import test, { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -12,6 +12,8 @@ import {
   callOpenAI,
   callProvider,
   DEFAULT_ANTHROPIC_MODEL,
+  hashFile,
+  checkSkillDrift,
 } from "./llm-eval.mjs";
 
 const script = join(dirname(fileURLToPath(import.meta.url)), "llm-eval.mjs");
@@ -99,6 +101,70 @@ test("callOpenAI sends chat completions payload and reads the message content", 
     assert.equal(out, "reply");
   } finally {
     global.fetch = originalFetch;
+  }
+});
+
+test("hashFile ignores line endings, so a CRLF checkout and an LF one hash the same", () => {
+  // Regression: hashes recorded from a Windows working copy (CRLF) never matched CI's LF checkout.
+  const dir = mkdtempSync(join(tmpdir(), "llm-eval-eol-"));
+  try {
+    const lf = join(dir, "lf.md");
+    const crlf = join(dir, "crlf.md");
+    writeFileSync(lf, "# Skill\n\n## Output\n- x\n", "utf8");
+    writeFileSync(crlf, "# Skill\r\n\r\n## Output\r\n- x\r\n", "utf8");
+    assert.equal(hashFile(lf), hashFile(crlf));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("hashFile is deterministic and content-sensitive", () => {
+  const dir = mkdtempSync(join(tmpdir(), "llm-eval-hash-"));
+  try {
+    const filePath = join(dir, "skill.md");
+    writeFileSync(filePath, "hello world", "utf8");
+    const first = hashFile(filePath);
+    assert.equal(hashFile(filePath), first, "same content must hash the same way twice");
+    writeFileSync(filePath, "hello world!", "utf8");
+    assert.notEqual(hashFile(filePath), first, "changed content must produce a different hash");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("checkSkillDrift returns null when the case has no skill/skillHash to check", () => {
+  assert.equal(checkSkillDrift({ id: "t" }, "/any/root"), null);
+  assert.equal(checkSkillDrift({ id: "t", skill: "x.md" }, "/any/root"), null);
+});
+
+test("checkSkillDrift returns null when the referenced skill file doesn't exist", () => {
+  const result = checkSkillDrift({ id: "t", skill: "does/not/exist.md", skillHash: "abc" }, tmpdir());
+  assert.equal(result, null);
+});
+
+test("checkSkillDrift returns true when the skill's current hash matches, false when it doesn't", () => {
+  const dir = mkdtempSync(join(tmpdir(), "llm-eval-drift-"));
+  try {
+    writeFileSync(join(dir, "skill.md"), "original content", "utf8");
+    const realHash = hashFile(join(dir, "skill.md"));
+
+    assert.equal(checkSkillDrift({ id: "t", skill: "skill.md", skillHash: realHash }, dir), true);
+
+    writeFileSync(join(dir, "skill.md"), "edited content", "utf8");
+    assert.equal(checkSkillDrift({ id: "t", skill: "skill.md", skillHash: realHash }, dir), false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("every real llm-cases.json entry with a skill reference points at a file that actually exists", () => {
+  const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
+  const cases = loadCases();
+  for (const c of cases) {
+    if (!c.skill) continue;
+    const skillPath = join(repoRoot, c.skill);
+    assert.ok(existsSync(skillPath), `${c.id}: skill path missing: ${c.skill}`);
+    assert.ok(c.skillHash, `${c.id}: has "skill" but no "skillHash" to compare against`);
   }
 });
 
@@ -194,8 +260,8 @@ describe("llm-eval CLI --root", () => {
     });
     const r = run(root);
     assert.equal(r.status, 1, r.stdout + r.stderr);
-    assert.match(r.stdout, /OK ok \(fixture\)/);
-    assert.match(r.stdout, /OK custom \(fixture\)/);
+    assert.match(r.stdout, /OK ok \(fixture schema check\)/);
+    assert.match(r.stdout, /OK custom \(fixture schema check\)/);
     assert.match(r.stderr, /FAIL bad: missing "Nope"/);
     assert.match(r.stderr, /FAIL nogolden: golden missing \.github[\\/]skills[\\/]eval[\\/]golden[\\/]nogolden\.txt/);
     assert.match(r.stderr, /llm-eval FAILED — 2\/4 cases/);
@@ -203,7 +269,7 @@ describe("llm-eval CLI --root", () => {
 
     const pass = run(kit({ cases: [{ id: "ok", mustContain: ["Hello"] }], golden: { "ok.txt": "Hello\n", "z.txt": "" } }));
     assert.equal(pass.status, 0, pass.stdout + pass.stderr);
-    assert.match(pass.stdout, /llm-eval OK — 1 cases, 2 golden fixtures \(fixture-only\)/);
+    assert.match(pass.stdout, /llm-eval OK — 1 cases, 2 golden fixtures. This checked fixture consistency and skill drift, not real model output/);
   });
 
   it("live mode calls Anthropic first and scores the reply", () => {
@@ -214,8 +280,8 @@ describe("llm-eval CLI --root", () => {
     });
     const r = run(root, { HYPERION_LLM_EVAL_LIVE: "1", ANTHROPIC_API_KEY: "fake-a", OPENAI_API_KEY: "fake-o" }, { text: "Hello there" });
     assert.equal(r.status, 0, r.stdout + r.stderr);
-    assert.match(r.stdout, /OK a \(live\)/);
-    assert.match(r.stdout, /llm-eval OK — 1 cases, 1 golden fixtures \(live\)/);
+    assert.match(r.stdout, /OK a \(live — real model output verified\)/);
+    assert.match(r.stdout, /llm-eval OK — 1 cases verified against real model output/);
     assert.equal(r.calls.length, 1);
     assert.equal(r.calls[0].url, "https://api.anthropic.com/v1/messages");
     assert.equal(r.calls[0].headers["x-api-key"], "fake-a");

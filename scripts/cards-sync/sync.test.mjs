@@ -30,6 +30,7 @@ import {
   resolveGitLabStatusAction,
   jiraRequest,
   graphql,
+  githubGraphqlWithRetry,
   patchCardFrontmatter,
   buildRemoteFrontmatterUpdates,
   resolveHyperionStatusFromRemote,
@@ -356,6 +357,100 @@ test("graphql sends headers and returns payload.data (mocked fetch)", async () =
   } finally {
     global.fetch = originalFetch;
   }
+});
+
+function fakeResponse({ ok, status = 200, json, retryAfter = null }) {
+  return {
+    ok,
+    status,
+    statusText: ok ? "OK" : "Error",
+    headers: { get: (name) => (name.toLowerCase() === "retry-after" ? retryAfter : null) },
+    json: async () => json,
+  };
+}
+
+function stubSleep() {
+  const waits = [];
+  const sleepFn = async (ms) => {
+    waits.push(ms);
+  };
+  sleepFn.waits = waits;
+  return sleepFn;
+}
+
+test("githubGraphqlWithRetry returns data on the first try when the response is clean", async () => {
+  const fetchFn = async () => fakeResponse({ ok: true, json: { data: { ok: true } } });
+  const data = await githubGraphqlWithRetry(fetchFn, "https://api.github.com/graphql", {});
+  assert.deepEqual(data, { ok: true });
+});
+
+test("githubGraphqlWithRetry retries on a secondary-rate-limit response (Retry-After header) and succeeds", async () => {
+  let calls = 0;
+  const fetchFn = async () => {
+    calls += 1;
+    if (calls === 1) {
+      return fakeResponse({
+        ok: false,
+        status: 403,
+        retryAfter: "1",
+        json: { message: "You have exceeded a secondary rate limit" },
+      });
+    }
+    return fakeResponse({ ok: true, json: { data: { ok: true } } });
+  };
+  const sleepFn = stubSleep();
+
+  const data = await githubGraphqlWithRetry(fetchFn, "url", {}, { sleepFn });
+
+  assert.equal(calls, 2);
+  assert.deepEqual(data, { ok: true });
+  assert.deepEqual(sleepFn.waits, [1000], "must wait exactly what Retry-After said, not the exponential default");
+});
+
+test("githubGraphqlWithRetry retries on a rate-limit error message with exponential backoff when there's no Retry-After header", async () => {
+  let calls = 0;
+  const fetchFn = async () => {
+    calls += 1;
+    if (calls < 3) {
+      return fakeResponse({ ok: true, json: { errors: [{ type: "RATE_LIMITED", message: "API rate limit exceeded" }] } });
+    }
+    return fakeResponse({ ok: true, json: { data: { ok: true } } });
+  };
+  const sleepFn = stubSleep();
+
+  const data = await githubGraphqlWithRetry(fetchFn, "url", {}, { sleepFn });
+
+  assert.equal(calls, 3);
+  assert.deepEqual(data, { ok: true });
+  assert.deepEqual(sleepFn.waits, [1000, 2000], "backoff must double each attempt: 2^0s, 2^1s");
+});
+
+test("githubGraphqlWithRetry gives up and throws after maxAttempts of persistent rate limiting", async () => {
+  let calls = 0;
+  const fetchFn = async () => {
+    calls += 1;
+    return fakeResponse({ ok: false, status: 403, retryAfter: "1", json: { message: "secondary rate limit" } });
+  };
+  const sleepFn = stubSleep();
+
+  await assert.rejects(
+    () => githubGraphqlWithRetry(fetchFn, "url", {}, { maxAttempts: 3, sleepFn }),
+    /GraphQL failed/
+  );
+  assert.equal(calls, 3, "must attempt exactly maxAttempts times, not more");
+});
+
+test("githubGraphqlWithRetry does NOT retry a non-rate-limit error — fails immediately like before", async () => {
+  let calls = 0;
+  const fetchFn = async () => {
+    calls += 1;
+    return fakeResponse({ ok: true, json: { errors: [{ message: "Field 'foo' doesn't exist on type 'Query'" }] } });
+  };
+  const sleepFn = stubSleep();
+
+  await assert.rejects(() => githubGraphqlWithRetry(fetchFn, "url", {}, { sleepFn }), /GraphQL failed/);
+  assert.equal(calls, 1, "a non-rate-limit error must not be retried at all");
+  assert.deepEqual(sleepFn.waits, []);
 });
 
 test("getLabelId creates a missing label", async () => {

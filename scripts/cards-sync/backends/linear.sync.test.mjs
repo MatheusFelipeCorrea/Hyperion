@@ -29,7 +29,7 @@ function actionsFrom(lines) {
 function linearApi(handlers) {
   return mockFetch((req) => {
     assert.equal(req.url, "https://api.linear.app/graphql");
-    assert.equal(req.headers.Authorization, "Bearer lin-token");
+    assert.equal(req.headers.Authorization, "lin-token");
     const { query, variables } = req.body;
     for (const [needle, handler] of handlers) {
       if (query.includes(needle)) {
