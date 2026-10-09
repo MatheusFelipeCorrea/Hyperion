@@ -90,7 +90,7 @@ Origem padrão: repo/ref em `hyperion-origin.json` (override: `--repo`, `--ref`,
 - `npm run hyperion:pipeline-apply -- --refresh-gates --yes` re-renderiza `hyperion-product-ci.yml` quando o `ci.gates` mudou (exceto se tiver `hyperion:no-auto-refresh`).
 - Nenhum dos dois mexe em `hyperion-security.yml` nem em `hyperion-validate.yml`: para atualizar um deles, apague o arquivo e rode `npm run hyperion:pipeline-apply -- --yes` (só escreve o que falta).
 
-Se um upgrade antigo copiou os workflows do próprio kit para o produto, o `hyperion:upgrade` lista quais são e o que fazer: apagar esses arquivos e rodar `npm run hyperion:pipeline-apply -- --yes`.
+Se um upgrade antigo copiou os workflows do próprio kit para o produto, o `hyperion:doctor` (como aviso) e o `hyperion:upgrade` listam quais são e o que fazer: apagar esses arquivos e rodar `npm run hyperion:pipeline-apply -- --yes`.
 
 Grava `.github/hyperion-kit.json` com `commit` + timestamp (pin para o próximo check).
 
