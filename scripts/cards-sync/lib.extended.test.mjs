@@ -216,7 +216,12 @@ test("discoverGitHubProjectNumber reports ambiguous / not_found candidates", asy
   } finally {
     api.restore();
   }
-  api = graphqlRoute({});
+  // Answer all three lookups (repo, user, organization) with "no Project" — an unmocked request would now fail the test.
+  api = graphqlRoute({
+    repository: () => ({ data: { repository: null } }),
+    user: () => ({ data: { user: null } }),
+    organization: () => ({ data: { organization: null } }),
+  });
   try {
     assert.deepEqual(await lib.discoverGitHubProjectNumber(base), { discovered: false, reason: "not_found", candidates: [] });
   } finally {
