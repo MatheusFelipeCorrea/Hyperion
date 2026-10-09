@@ -72,21 +72,19 @@ test("forward and reverse refuse to run without project id and token", async () 
 test("forward updates existing issues, creates new ones, applies status label/state and links child to parent", async () => {
   const feature = cardMarkdown({ id: "PROJ-F1", type: "Feature", status: "In Progress" });
   const story = cardMarkdown({ id: "PROJ-S1", parent: "PROJ-F1", status: "Done", categories: ["Backend"] });
-  // GitLab search is substring-based, so a child whose PARENT_CARD_ID is PROJ-F1 also matches "CARD_ID: PROJ-F1".
+  // A child whose PARENT_CARD_ID is PROJ-F1 must not be taken for PROJ-F1's issue.
   const decoy = remoteDescription("stories/PROJ-S9.md", cardMarkdown({ id: "PROJ-S9", parent: "PROJ-F1" }));
   resetCards({ "features/PROJ-F1.md": feature, "stories/PROJ-F1/PROJ-S1.md": story });
 
   const api = gitlabApi((req) => {
     if (req.method === "GET" && req.path === issuesPath) {
       assert.equal(req.query.get("state"), "all");
-      assert.equal(req.query.get("per_page"), "20");
-      if (req.query.get("search") === "CARD_ID: PROJ-F1") {
-        return [
-          { iid: 99, description: decoy },
-          { iid: 11, description: remoteDescription("features/PROJ-F1.md", feature) },
-        ];
-      }
-      return [];
+      assert.equal(req.query.get("per_page"), "100");
+      assert.equal(req.query.get("search"), "CARD_ID:");
+      return [
+        { iid: 99, description: decoy },
+        { iid: 11, description: remoteDescription("features/PROJ-F1.md", feature) },
+      ];
     }
     if (req.method === "POST" && req.path === issuesPath) return jsonResponse({ iid: 12 }, 201);
     if (req.method === "PUT" && /\/issues\/(11|12)$/.test(req.path)) return {};
@@ -109,6 +107,7 @@ test("forward updates existing issues, creates new ones, applies status label/st
     assert.ok(lines.some((l) => l.includes("Parent-child links: 1")));
     assert.ok(lines.some((l) => l.includes("=== GITLAB SYNC COMPLETE ===")));
 
+    assert.equal(api.calls.filter((c) => c.method === "GET").length, 1, "one search indexes every card");
     const writes = api.calls.filter((c) => c.method !== "GET");
     assert.deepEqual(
       writes.map((c) => `${c.method} ${new URL(c.url).pathname}`),
@@ -122,13 +121,13 @@ test("forward updates existing issues, creates new ones, applies status label/st
     );
     assert.ok(writes.every((c) => c.url.startsWith("https://gitlab.acme.dev/api/v4/")), "trailing slash on gitlabUrl is stripped");
     assert.equal(writes[0].body.title, "[Feature] Card PROJ-F1");
-    assert.deepEqual(writes[0].body.labels, []);
+    assert.deepEqual(writes[0].body.labels, ["status:Doing"], "the update keeps the status label");
     assert.match(writes[0].body.description, /CARD_ID: PROJ-F1/);
-    assert.deepEqual(writes[1].body, { state_event: "reopen", labels: ["status:Doing"] });
+    assert.deepEqual(writes[1].body, { state_event: "reopen" });
     assert.equal(writes[2].body.title, "[Story] Card PROJ-S1");
-    assert.deepEqual(writes[2].body.labels, ["Backend"]);
+    assert.deepEqual(writes[2].body.labels, ["Backend", "status:Done"]);
     assert.match(writes[2].body.description, /SOURCE_FILE: \.github\/cards\/stories\/PROJ-F1\/PROJ-S1\.md/);
-    assert.deepEqual(writes[3].body, { state_event: "close", labels: ["Backend", "status:Done"] });
+    assert.deepEqual(writes[3].body, { state_event: "close" });
     assert.deepEqual(writes[4].body, { target_project_id: "acme/app", target_issue_iid: 11, link_type: "relates_to" });
     assert.equal(writes[0].headers["Content-Type"], "application/json");
   } finally {
@@ -165,11 +164,12 @@ test("forward keeps going when status update or linking fails, and when create r
     assert.equal(skipped.cardId, "PROJ-F2");
     assert.equal(skipped.mapped, "Backlog");
     assert.match(skipped.reason, /GitLab request failed \(403 Forbidden\): \{"raw":"forbidden"\}/);
+    const creates = api.calls.filter((c) => c.method === "POST" && c.url.endsWith("/issues"));
+    assert.deepEqual(creates[0].body.labels, ["status:Backlog"], "a failed state change still leaves the status label on the issue");
 
     const s2Status = actions.find((a) => a.action === "STATUS_SET" && a.cardId === "PROJ-S2");
     assert.equal(s2Status.gitlabStateEvent, "close", "empty 204 body is accepted");
-    const s2Put = api.calls.find((c) => c.method === "PUT" && c.url.endsWith("/issues/22"));
-    assert.deepEqual(s2Put.body.labels, ["status:Done"], "status label already in categories is not duplicated");
+    assert.deepEqual(creates[1].body.labels, ["status:Done"], "status label already in categories is not duplicated");
 
     assert.deepEqual(actions.find((a) => a.cardId === "PROJ-S3"), { action: "CREATED", cardId: "PROJ-S3", gitlabIssueIid: null });
     assert.ok(!actions.some((a) => a.cardId === "PROJ-S3" && a.action.startsWith("STATUS")), "no iid → no status call");
@@ -181,6 +181,28 @@ test("forward keeps going when status update or linking fails, and when create r
     assert.equal(linkFailed[0].child, 22);
     assert.match(linkFailed[0].reason, /409.*already assigned/);
     assert.equal(api.calls.filter((c) => c.method === "POST" && c.url.endsWith("/links")).length, 1);
+  } finally {
+    api.restore();
+  }
+});
+
+test("forward finds an existing issue past the first page instead of creating a duplicate", async () => {
+  const story = cardMarkdown({ id: "PROJ-S8", status: null });
+  resetCards({ "stories/PROJ-S8.md": story });
+  const filler = Array.from({ length: 100 }, (_, i) => ({
+    iid: 1000 + i,
+    description: remoteDescription(`stories/PROJ-X${i}.md`, cardMarkdown({ id: `PROJ-X${i}` })),
+  }));
+  const api = gitlabApi((req) => {
+    if (req.method === "GET") {
+      return req.query.get("page") === "1" ? filler : [{ iid: 8, description: remoteDescription("stories/PROJ-S8.md", story) }];
+    }
+    if (req.method === "PUT" && req.path === `${issuesPath}/8`) return {};
+  });
+  try {
+    const actions = actionsFrom(await captureLogs(() => runForwardSyncGitLab({}, management)));
+    assert.deepEqual(actions, [{ action: "UPDATED", cardId: "PROJ-S8", gitlabIssueIid: 8 }]);
+    assert.ok(!api.calls.some((c) => c.method === "POST"));
   } finally {
     api.restore();
   }
@@ -227,7 +249,7 @@ test("reverse patches local cards, recreates missing ones, skips samples/invalid
     "stories/PROJ-S7.md": "corrupted: no frontmatter here\n",
   });
 
-  const filler = Array.from({ length: 48 }, (_, i) => ({ iid: 1000 + i, title: `Unrelated ${i}`, description: "plain text", labels: [] }));
+  const filler = Array.from({ length: 98 }, (_, i) => ({ iid: 1000 + i, title: `Unrelated ${i}`, description: "plain text", labels: [] }));
   const page1 = [
     {
       iid: 4,
@@ -262,7 +284,7 @@ test("reverse patches local cards, recreates missing ones, skips samples/invalid
     assert.equal(req.method, "GET");
     assert.equal(req.path, issuesPath);
     assert.equal(req.query.get("search"), "CARD_ID:");
-    assert.equal(req.query.get("per_page"), "50");
+    assert.equal(req.query.get("per_page"), "100");
     return req.query.get("page") === "1" ? page1 : page2;
   });
   try {
@@ -270,7 +292,7 @@ test("reverse patches local cards, recreates missing ones, skips samples/invalid
     assert.deepEqual(
       api.calls.map((c) => new URL(c.url).searchParams.get("page")),
       ["1", "2"],
-      "a full page of 50 triggers the next page; a short page stops"
+      "a full page of 100 triggers the next page; a short page stops"
     );
     assert.equal(api.calls[0].headers.Accept, "application/json");
     assert.ok(lines.some((l) => l.endsWith("Backend: gitlab")));
@@ -281,7 +303,7 @@ test("reverse patches local cards, recreates missing ones, skips samples/invalid
     const patched4 = ws.read(".github/cards/stories/PROJ-S4.md");
     assert.match(patched4, /status: "?In Progress"?/, "status:Doing label maps back through the inverse statusMap");
     assert.match(patched4, /board_sync_at: "?2026-01-02T03:04:05.000Z"?/);
-    assert.ok(lines.some((l) => l.includes("Patched: .github/cards/stories/PROJ-S4.md (GitLab !4)")));
+    assert.ok(lines.some((l) => l.includes("Patched: .github/cards/stories/PROJ-S4.md (GitLab #4)")));
 
     assert.ok(ws.exists(".github/cards/stories/PROJ-S5.md"), "card missing locally is recreated from the board");
     const created5 = ws.read(".github/cards/stories/PROJ-S5.md");
@@ -290,7 +312,7 @@ test("reverse patches local cards, recreates missing ones, skips samples/invalid
 
     assert.match(ws.read(".github/cards/stories/PROJ-S6.md"), /status: "?In Progress"?/i, "opened issue without status label → In Progress");
     assert.equal(ws.read(".github/cards/stories/PROJ-S7.md"), "corrupted: no frontmatter here\n");
-    assert.ok(lines.some((l) => l.includes("SKIP (invalid frontmatter): .github/cards/stories/PROJ-S7.md (GitLab !7)")));
+    assert.ok(lines.some((l) => l.includes("SKIP (invalid frontmatter): .github/cards/stories/PROJ-S7.md (GitLab #7)")));
     assert.ok(!ws.exists(".github/cards/stories/PROJ-S8.md"), "issue without SOURCE_FILE is ignored");
     assert.ok(!ws.exists(".github/cards/stories/EXAMPLE-STORY-1.md"));
 
@@ -319,7 +341,7 @@ test("reverse surfaces the API error, including non-JSON bodies", async () => {
   }
 });
 
-test("reverse with no matching issues says so (empty list, non-array payload, or 10 pages of noise)", async () => {
+test("reverse with no matching issues says so (empty list, non-array payload, or pages of noise)", async () => {
   for (const respond of [() => [], () => ({}), () => new Response("", { status: 200 })]) {
     const api = gitlabApi(respond);
     try {
@@ -331,11 +353,11 @@ test("reverse with no matching issues says so (empty list, non-array payload, or
     }
   }
 
-  const noise = Array.from({ length: 50 }, (_, i) => ({ iid: i, description: "no metadata" }));
-  const api = gitlabApi(() => noise);
+  const noise = Array.from({ length: 100 }, (_, i) => ({ iid: i, description: "no metadata" }));
+  const api = gitlabApi((req) => (Number(req.query.get("page")) <= 12 ? noise : noise.slice(0, 3)));
   try {
     const lines = await captureLogs(() => runReverseSyncGitLab({}, management));
-    assert.equal(api.calls.length, 10, "pagination is capped at 10 pages");
+    assert.equal(api.calls.length, 13, "paging continues until a short page, with no page cap");
     assert.ok(lines.some((l) => l.includes("No GitLab issues with CARD_ID found.")));
   } finally {
     api.restore();

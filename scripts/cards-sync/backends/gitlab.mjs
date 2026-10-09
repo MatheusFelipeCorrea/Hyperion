@@ -27,8 +27,25 @@ import {
   countReverseWrite,
 } from "../sync.mjs";
 
-function gitlabCardSearchTerm(card) {
-  return `CARD_ID: ${card.cardId}`;
+const PAGE_SIZE = 100;
+
+/**
+ * Every issue whose description carries a CARD_ID. GitLab's `search` is a
+ * substring match, so the CARD_ID is re-checked on each issue.
+ *
+ * @param {(endpoint: string) => Promise<unknown>} gitlabRequest
+ */
+export async function gitlabListCardIssues(gitlabRequest, projectId) {
+  const issues = [];
+  for (let page = 1; ; page += 1) {
+    const batch = await gitlabRequest(
+      `/api/v4/projects/${encodeURIComponent(projectId)}/issues?search=${encodeURIComponent("CARD_ID:")}&state=all&per_page=${PAGE_SIZE}&page=${page}`
+    );
+    if (!Array.isArray(batch) || !batch.length) break;
+    issues.push(...batch.filter((i) => Boolean(parseCardIdFromIssueBody(String(i?.description || "")))));
+    if (batch.length < PAGE_SIZE) break;
+  }
+  return issues;
 }
 
 /**
@@ -111,25 +128,27 @@ export async function runForwardSyncGitLab(repoConfig, management) {
     return payload;
   }
 
-  async function gitlabFindIssueByCardId(card) {
-    const term = gitlabCardSearchTerm(card);
-    const data = await gitlabRequest(
-      `/api/v4/projects/${encodeURIComponent(projectId)}/issues?search=${encodeURIComponent(term)}&state=all&per_page=20`,
-      "GET"
-    );
-    const list = Array.isArray(data) ? data : [];
-    const exact = list.find((issue) => parseCardIdFromIssueBody(issue?.description || "") === card.cardId);
-    return exact || null;
+  /**
+   * Labels replace the issue's whole set, so the status label goes with every
+   * write; reverse sync reads the status from it.
+   */
+  function issueLabels(card) {
+    const labels = Array.isArray(card.categories) ? [...card.categories] : [];
+    const action = resolveGitLabStatusAction(statusMap, card.status);
+    const statusLabel = action ? `status:${action.label}` : null;
+    if (statusLabel && !labels.some((l) => normalizeText(l) === normalizeText(statusLabel))) {
+      labels.push(statusLabel);
+    }
+    return labels;
   }
 
   async function gitlabCreateIssue(card) {
     const title = buildIssueTitle(card);
     const description = buildRemoteDescriptionFromCard(card);
-    const labels = card.categories || [];
     const data = await gitlabRequest(`/api/v4/projects/${encodeURIComponent(projectId)}/issues`, "POST", {
       title,
       description,
-      labels,
+      labels: issueLabels(card),
     });
     return data;
   }
@@ -137,27 +156,19 @@ export async function runForwardSyncGitLab(repoConfig, management) {
   async function gitlabUpdateIssue(iid, card) {
     const title = buildIssueTitle(card);
     const description = buildRemoteDescriptionFromCard(card);
-    const labels = card.categories || [];
     await gitlabRequest(`/api/v4/projects/${encodeURIComponent(projectId)}/issues/${encodeURIComponent(iid)}`, "PUT", {
       title,
       description,
-      labels,
+      labels: issueLabels(card),
     });
   }
-
 
   async function gitlabApplyStatus(iid, card) {
     const action = resolveGitLabStatusAction(statusMap, card.status);
     if (!action) return { applied: false, reason: "no_status" };
-    const existingLabels = Array.isArray(card.categories) ? [...card.categories] : [];
-    const statusLabel = `status:${action.label}`;
-    if (!existingLabels.some((l) => normalizeText(l) === normalizeText(statusLabel))) {
-      existingLabels.push(statusLabel);
-    }
     try {
       await gitlabRequest(`/api/v4/projects/${encodeURIComponent(projectId)}/issues/${encodeURIComponent(iid)}`, "PUT", {
         state_event: action.state_event,
-        labels: existingLabels,
       });
       return { applied: true, gitlabStateEvent: action.state_event, mapped: action.mapped };
     } catch (error) {
@@ -191,10 +202,16 @@ export async function runForwardSyncGitLab(repoConfig, management) {
   const edges = buildEdges(syncableCards);
   log(`Parent-child links: ${edges.length}`);
 
+  const remoteByCardId = new Map();
+  for (const issue of await gitlabListCardIssues(gitlabRequest, projectId)) {
+    const cardId = parseCardIdFromIssueBody(issue.description || "");
+    if (!remoteByCardId.has(cardId)) remoteByCardId.set(cardId, issue);
+  }
+
   const actions = [];
   const issueIidByCardId = new Map();
   for (const card of syncableCards) {
-    const existing = await gitlabFindIssueByCardId(card);
+    const existing = remoteByCardId.get(card.cardId);
     if (dryRun) {
       actions.push({
         action: existing ? "UPDATE" : "CREATE",
@@ -278,19 +295,7 @@ export async function runReverseSyncGitLab(repoConfig, management) {
     return payload;
   }
 
-  const issues = [];
-  let page = 1;
-  while (page <= 10) {
-    const batch = await gitlabRequest(
-      `/api/v4/projects/${encodeURIComponent(projectId)}/issues?search=${encodeURIComponent("CARD_ID:")}&state=all&per_page=50&page=${page}`
-    );
-    if (!Array.isArray(batch) || !batch.length) break;
-    issues.push(
-      ...batch.filter((i) => Boolean(parseCardIdFromIssueBody(String(i?.description || ""))))
-    );
-    if (batch.length < 50) break;
-    page += 1;
-  }
+  const issues = await gitlabListCardIssues(gitlabRequest, projectId);
 
   if (!issues.length) {
     log("No GitLab issues with CARD_ID found.");
@@ -337,7 +342,7 @@ export async function runReverseSyncGitLab(repoConfig, management) {
         ...(remoteBoardSyncAt(issue) ? { board_sync_at: remoteBoardSyncAt(issue) } : {}),
       },
       converted,
-      logLabel: ` (GitLab !${issue.iid})`,
+      logLabel: ` (GitLab #${issue.iid})`,
     });
 
     if (result.kind === "skipped_sample") {
