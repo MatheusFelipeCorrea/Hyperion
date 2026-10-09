@@ -331,11 +331,26 @@ function composeJob(plan, apps) {
   });
 }
 
+/**
+ * The deepest app whose directory contains `dir` (the root app only owns what no nested app does).
+ * A package.json between `dir` and that app marks a separate package the plan has no app for.
+ */
+function owningApp(apps, dir, hasPackageJson = () => false) {
+  const d = dir || ".";
+  const contains = (a) => a.path === "." || d === a.path || d.startsWith(`${a.path}/`);
+  const app = apps.filter(contains).sort((a, b) => b.path.length - a.path.length)[0] || null;
+  if (!app) return null;
+  for (let p = d; p !== app.path && p !== "."; p = p.includes("/") ? p.slice(0, p.lastIndexOf("/")) : ".") {
+    if (hasPackageJson(p)) return null;
+  }
+  return app;
+}
+
 function e2eJobs(plan, repo, apps, ctx) {
   if (plan.e2e === "off") return [];
   const targets = [];
   for (const e of repo.e2e) {
-    const app = apps.find((a) => a.path === (e.dir || ".")) || apps.find((a) => a.setup?.kind === "node");
+    const app = owningApp(apps, e.dir, ctx.hasPackageJson);
     if (app && app.setup?.kind === "node") targets.push({ e, app });
   }
   const perApp = new Map();
@@ -347,17 +362,19 @@ function e2eJobs(plan, repo, apps, ctx) {
     let id = base;
     for (let n = 2; usedIds.has(id); n++) id = `${base}-${n}`;
     usedIds.add(id);
-    const pkgScripts = ctx.readScripts?.(e.dir || ".") || {};
+    const pkgScripts = ctx.readScripts?.(app.path) || {};
     const scriptName = ["test:e2e", "e2e"].find((n) => pkgScripts[n]);
     const pm = app.setup.pm;
     const runScript = scriptName ? (pm === "npm" ? `npm run ${scriptName}` : `${pm} run ${scriptName}`) : null;
     const exec = pm === "pnpm" ? "pnpm exec" : pm === "yarn" ? "yarn" : pm === "bun" ? "bunx" : "npx";
+    const configRel = app.path === "." ? e.config : e.config?.slice(app.path.length + 1);
+    const nestedConfig = (e.dir || ".") !== app.path && configRel ? ` ${e.tool === "playwright" ? "--config" : "--config-file"} ${q(configRel)}` : "";
     const steps = [CHECKOUT, ...setupSteps(app, { version: app.decisions.version }), ...installSteps(app)];
     if (e.tool === "playwright") {
       steps.push(step({ name: "Install Playwright browsers", run: `${exec} playwright install --with-deps` }));
-      steps.push(step({ name: "Playwright e2e", run: runScript || `${exec} playwright test` }));
+      steps.push(step({ name: "Playwright e2e", run: runScript || `${exec} playwright test${nestedConfig}` }));
     } else {
-      steps.push(step({ name: "Cypress e2e", run: runScript || `${exec} cypress run` }));
+      steps.push(step({ name: "Cypress e2e", run: runScript || `${exec} cypress run${nestedConfig}` }));
     }
     jobs.push(
       job({
@@ -479,11 +496,11 @@ export function readGatesHash(workflowText) {
 const jobId = (text) => text.match(/^ {2}([a-z0-9-]+):$/m)?.[1] || null;
 
 /**
- * @param {{ scan: object, plan: object, kitRootRel?: string, defaultBranch?: string, readScripts?: (dir: string) => Record<string,string> }} input
+ * @param {{ scan: object, plan: object, kitRootRel?: string, defaultBranch?: string, readScripts?: (dir: string) => Record<string,string>, hasPackageJson?: (dir: string) => boolean }} input
  */
-export function renderProductCiFromGates({ scan, plan, kitRootRel = "", defaultBranch = "main", readScripts = null }) {
+export function renderProductCiFromGates({ scan, plan, kitRootRel = "", defaultBranch = "main", readScripts = null, hasPackageJson = undefined }) {
   const branches = plan.branches || [defaultBranch];
-  const ctx = { kitRootRel, prBase: branches[0], readScripts };
+  const ctx = { kitRootRel, prBase: branches[0], readScripts, hasPackageJson };
   const needsSchedule = plan.apps.some((a) => a.decisions.audit.mode !== "off" && a.decisions.audit.fix === "pr");
   const publishTags = Boolean(plan.docker.publish?.tags) && scan.repo.dockerfiles.length > 0;
 
@@ -568,5 +585,6 @@ export function renderProductCiForRepo(root, { gates, kitRootRel = "", defaultBr
       return {};
     }
   };
-  return { scan, plan, content: renderProductCiFromGates({ scan, plan, kitRootRel, defaultBranch, readScripts }) };
+  const hasPackageJson = (dir) => fs.existsSync(path.join(root, dir, "package.json"));
+  return { scan, plan, content: renderProductCiFromGates({ scan, plan, kitRootRel, defaultBranch, readScripts, hasPackageJson }) };
 }
