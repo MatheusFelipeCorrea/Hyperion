@@ -21,10 +21,12 @@ Ajuda de adotante: [SUPPORT.md](SUPPORT.md). Histórico de mudanças: [CHANGELOG
 |--------|-------|------------------------|
 | **`main`** | O que `git clone`/`hyperion:upgrade` puxa. Sempre limpa — zero vínculo com este repositório específico (sem GitHub Project vinculado, sem card real, sem config pessoal propagada). | Só `qa`, manualmente, depois de tudo verde |
 | **`dev`** | Integração — todo `feat/*`/`fix/*` abre PR pra cá | Contribuidores e mantenedor |
-| **`qa`** | Release candidate — valida antes de promover pra `main` | `dev`, quando um lote está pronto |
+| **`qa`** | Release candidate — o PR `dev` → `qa` roda a varredura pesada do `qa-release-gate.yml` antes de promover pra `main` | `dev`, quando um lote está pronto |
 | **`internal`** | Uso real do próprio Hyperion nele mesmo (board vinculado, cards reais) | Nunca manda PR de volta — só puxa de `main` |
 
 Nada entra direto na `main` — nem atualização de dependência: o Dependabot abre PR para `dev` (`target-branch: dev`) e segue o mesmo caminho `dev` → `qa` → `main`. O `hyperion-validate` (Ubuntu e Windows) é check obrigatório em `dev`, `qa` e `main`.
+
+Na `qa` entra também o **`qa-gate`** (`qa-release-gate.yml`), lento demais pra rodar em todo PR: testes em Ubuntu/Windows/macOS × Node 22/24; todas as validações + cobertura mínima de 65% das linhas; instalação real num produto novo (`create-hyperion`) e upgrade de um produto que está na `main` para o candidato (preservando `project.yml` e os workflows do produto); e2e de cards contra o repo sandbox; actionlint + shellcheck nos workflows e templates; links externos de todo `.md`; segredos no histórico inteiro (trufflehog); build e smoke da imagem Docker. Se falhar, corrija na `dev` e o PR de promoção roda de novo.
 
 **A `main` nunca deve ter vínculo com este repositório específico.** Um check dedicado (`npm run hyperion:distribution-purity-check`, rodando em todo PR pra `main`/`dev`/`qa` via `hyperion-validate.yml`) garante isso automaticamente — projectNumber tem que ser nulo, `hyperion-sync-cards.yml` não pode ter gatilho de push, `CODEOWNERS`/`FUNDING.yml`/`dependabot.yml` não podem propagar via upgrade, e nenhum card real pode existir fora de `_examples/`. **Se esse check (ou qualquer outro do `hyperion-validate.yml`) falhar, o PR não pode ser mergeado — sem exceção, mesmo que pareça um detalhe pequeno.** Corrija na branch de origem e deixe rodar de novo.
 

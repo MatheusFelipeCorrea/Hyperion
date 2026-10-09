@@ -1,0 +1,241 @@
+name: QA release gate
+
+# The heavy sweep for a dev → qa promotion — everything too slow for the
+# per-PR checks on dev (hyperion-validate + security stay there, fast).
+# Branch protection on qa requires the final `qa-gate` job, which fails if any
+# job below failed or was cancelled.
+#
+# Not named hyperion-*.yml: this is the kit's own CI, never a product's.
+
+on:
+  pull_request:
+    branches: [qa]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: qa-release-gate-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    name: tests (${{ matrix.os }}, node ${{ matrix.node }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        node: ["22", "24"]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci
+      - run: npm test
+
+  validation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci
+      - name: Distribution purity
+        run: npm run -s hyperion:distribution-purity-check
+      - name: project.yml
+        run: npm run -s hyperion:project-verify
+      - name: Docs (internal links, translated pairs, prose drift)
+        run: |
+          npm run -s docs:check
+          npm run -s docs:prose-check
+      - name: Runtime rules + skills
+        run: |
+          npm run -s hyperion:check-rules
+          npm run -s skills:validate
+          npm run -s hyperion:skills-catalog -- --check
+          npm run -s hyperion:skills-eval
+          npm run -s hyperion:llm-eval
+      - name: Example cards
+        run: npm run -s cards:validate
+      - name: Coverage (lines ≥ 65%)
+        run: |
+          mkdir -p coverage
+          node --experimental-test-coverage --test-coverage-exclude='**/*.test.mjs' \
+            --test-reporter=dot --test-reporter-destination=stdout \
+            --test-reporter=lcov --test-reporter-destination=coverage/lcov.info \
+            --test scripts/hyperion/*.test.mjs scripts/cards-sync/*.test.mjs scripts/cards-sync/backends/*.test.mjs
+          node scripts/hyperion/coverage-gate.mjs --file coverage/lcov.info --metric lines --min 65 --mode block
+
+  install-and-upgrade:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CANDIDATE: ${{ github.workspace }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci
+
+      - name: Fresh product (create-hyperion, nested kit)
+        run: |
+          set -euo pipefail
+          P="$RUNNER_TEMP/fresh"
+          node "$CANDIDATE/scripts/hyperion/create-hyperion.mjs" "$P" --yes --from "$CANDIDATE"
+          cd "$P"
+          mkdir -p src && echo 'export {};' > src/index.js
+          printf '{ "name": "acme-app", "version": "1.0.0", "scripts": { "test": "node -e 0" } }\n' > package.json
+          cp Hyperion/.github/project.example.yml .github/project.yml
+          cd Hyperion
+          node scripts/hyperion/doctor.mjs
+          node scripts/hyperion/project-verify.mjs --root ..
+          node scripts/hyperion/adopt-check.mjs --root ..
+          node scripts/hyperion/pipeline-plan.mjs
+          if [ -d ../.github/workflows ]; then
+            echo "::error::create-hyperion wrote workflows into the product: $(ls ../.github/workflows)"
+            exit 1
+          fi
+
+      - name: Existing product on main → upgrade to this candidate
+        run: |
+          set -euo pipefail
+          P="$RUNNER_TEMP/existing"
+          mkdir -p "$P/src" "$P/.github/workflows" "$P/Hyperion"
+          echo 'export {};' > "$P/src/index.js"
+          printf '{ "name": "acme-app", "version": "1.0.0", "scripts": { "test": "node -e 0" } }\n' > "$P/package.json"
+          echo 'name: product-ci' > "$P/.github/workflows/ci.yml"
+          git -C "$CANDIDATE" archive origin/main | tar -x -C "$P/Hyperion"
+          cp "$P/Hyperion/.github/project.example.yml" "$P/.github/project.yml"
+          ( cd "$P" && sha256sum .github/project.yml .github/workflows/ci.yml > "$RUNNER_TEMP/owned.sha" )
+          ls "$P/.github/workflows" > "$RUNNER_TEMP/workflows-before"
+
+          cd "$P/Hyperion"
+          node scripts/hyperion/upgrade.mjs --from "$CANDIDATE" --yes
+          npm ci
+          node scripts/hyperion/doctor.mjs
+          node scripts/hyperion/project-verify.mjs --root ..
+          node scripts/hyperion/adopt-check.mjs --root ..
+
+          ( cd "$P" && sha256sum -c "$RUNNER_TEMP/owned.sha" )
+          ls "$P/.github/workflows" | diff "$RUNNER_TEMP/workflows-before" -
+
+      - name: Flat layout upgrade never copies workflows
+        run: |
+          set -euo pipefail
+          P="$RUNNER_TEMP/flat"
+          mkdir -p "$P/.github/workflows"
+          cd "$P" && git init -q
+          printf '{ "name": "acme-app", "version": "1.0.0" }\n' > package.json
+          echo 'name: product-ci' > .github/workflows/ci.yml
+          node "$CANDIDATE/scripts/hyperion/upgrade.mjs" --from "$CANDIDATE" --yes
+          extra=""
+          for f in .github/workflows/*; do
+            [ "$(basename "$f")" = "ci.yml" ] || extra="$extra $(basename "$f")"
+          done
+          if [ -n "$extra" ]; then
+            echo "::error::upgrade copied the kit's workflows into the product: $extra"
+            exit 1
+          fi
+          node scripts/hyperion/adopt-check.mjs --root .
+
+  e2e-cards:
+    # Real forward + reverse sync against the disposable sandbox repo.
+    if: vars.E2E_TARGET_REPO != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    concurrency:
+      group: e2e-sandbox
+      cancel-in-progress: false
+    env:
+      E2E_TARGET_REPO: ${{ vars.E2E_TARGET_REPO }}
+      E2E_GITHUB_TOKEN: ${{ secrets.E2E_GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+      - name: Forward sync (cards → board)
+        run: node scripts/cards-sync/e2e/e2e-forward-sync.mjs
+      - name: Reverse sync (board → cards)
+        run: node scripts/cards-sync/e2e/e2e-reverse-sync.mjs
+
+  workflows-lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - name: actionlint (+ shellcheck warnings and errors)
+        env:
+          SHELLCHECK_OPTS: --severity=warning
+        run: |
+          bash <(curl -sSfL https://raw.githubusercontent.com/rhysd/actionlint/v1.7.7/scripts/download-actionlint.bash) 1.7.7
+          ./actionlint -color
+          ./actionlint -color scripts/hyperion/templates/workflows/*.yml
+
+  external-links:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - name: External links in every Markdown file
+        uses: lycheeverse/lychee-action@v2
+        with:
+          args: >-
+            --no-progress --max-retries 3 --timeout 30
+            --accept 200..=299,403,429
+            --exclude-path node_modules
+            './**/*.md'
+          fail: true
+
+  secrets-history:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: trufflehog — full history, verified secrets only
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/trufflesecurity/trufflehog/v3.97.9/scripts/install.sh \
+            | sh -s -- -b "$RUNNER_TEMP/bin" v3.97.9
+          "$RUNNER_TEMP/bin/trufflehog" git "file://$PWD" --only-verified --fail --no-update
+
+  docker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - run: npm ci
+      - name: Build the CLI image
+        run: docker build -t hyperion-cli:qa -f Dockerfile .
+      - name: Smoke run against this checkout
+        run: |
+          docker run --rm -v "$PWD:/workspace" hyperion-cli:qa help
+          docker run --rm -v "$PWD:/workspace" hyperion-cli:qa doctor
+
+  qa-gate:
+    if: always()
+    needs: [tests, validation, install-and-upgrade, e2e-cards, workflows-lint, external-links, secrets-history, docker]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Every QA job passed (or was skipped on purpose)
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          echo "$NEEDS" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'
+          if echo "$NEEDS" | jq -e 'to_entries | any(.value.result == "failure" or .value.result == "cancelled")' > /dev/null; then
+            echo "::error::QA gate failed — fix on dev and re-run the promotion PR"
+            exit 1
+          fi
