@@ -6,10 +6,13 @@ name: Internal branch sync (main → internal)
 # distribution-purity-check fails any PR to dev/qa/main that carries them.
 #
 # The board link is the PROJECT_NUMBER repository variable, never a committed
-# projectNumber, so every branch's projects-map.json stays null.
+# projectNumber, so every branch's projects-map.json stays null. Repository
+# variables only reach a step that maps them (env: PROJECT_NUMBER:
+# ${{ vars.PROJECT_NUMBER }}), and only internal's own workflows do that.
 #
 # Not named hyperion-*.yml on purpose: hyperion:upgrade copies those into
-# products. No-op when the repository has no `internal` branch (a fresh clone).
+# products. Runs only in MatheusFelipeCorrea/Hyperion (never in forks), and is
+# a no-op when the repository has no `internal` branch.
 #
 # Merge path: direct merge through the API. GITHUB_TOKEN can't push commits that
 # touch .github/workflows, so when main changed a workflow (or the merge
@@ -32,6 +35,7 @@ permissions:
 
 jobs:
   merge-main:
+    if: github.repository == 'MatheusFelipeCorrea/Hyperion'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -44,11 +48,15 @@ jobs:
           api="https://api.github.com/repos/$REPO"
           auth=(-H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json")
 
-          branch=$(curl -sS -o /dev/null -w '%{http_code}' "${auth[@]}" "$api/branches/internal")
-          if [ "$branch" = "404" ]; then
-            echo "No internal branch in $REPO — nothing to sync."
-            exit 0
-          fi
+          branch=$(curl -sS -o branch.json -w '%{http_code}' "${auth[@]}" "$api/branches/internal")
+          case "$branch" in
+            200) ;;
+            404) echo "No internal branch in $REPO — nothing to sync."; exit 0 ;;
+            *)
+              detail=$(jq -r '.message // empty' branch.json 2>/dev/null || true)
+              echo "::error::Could not check whether $REPO has an internal branch (HTTP $branch${detail:+: $detail}). Not merging; re-run once the API answers 200 (branch exists) or 404 (no branch)."
+              exit 1 ;;
+          esac
 
           code=$(curl -sS -o merge.json -w '%{http_code}' -X POST "${auth[@]}" "$api/merges" \
             -d '{"base":"internal","head":"main","commit_message":"chore(internal): sync main into internal"}')
