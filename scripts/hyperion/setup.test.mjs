@@ -2,7 +2,7 @@ import { after, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { cleanupTmp, FAULT_SPAWN, hyperionDir, kitWorkspace, linearEnv, makeBin, runNodeAsync } from "./test-support/cli-harness.mjs";
+import { cleanupTmp, FAULT_SPAWN, hyperionDir, kitWorkspace, linearEnv, makeBin, repoRoot, runNodeAsync } from "./test-support/cli-harness.mjs";
 
 const setup = join(hyperionDir, "setup.mjs");
 const ghFail = makeBin({ gh: "fail" });
@@ -17,6 +17,22 @@ describe("setup.mjs language flags", { concurrency: true }, () => {
     const r = await run(kitWorkspace(), ["--locale=not a tag!", "--skip-cards"]);
     assert.equal(r.status, 1);
     assert.match(r.stdout, /Invalid language tag\(s\): not a tag!/);
+  });
+
+  it("rejects empty --languages entries up front, in the repo language, without touching project.yml", async () => {
+    const cwd = kitWorkspace();
+    for (const args of [["--languages", ","], ["--languages=pt-BR,,en"], ["--languages="]]) {
+      const r = await run(cwd, [...args, "--skip-cards"]);
+      assert.equal(r.status, 1, r.out);
+      assert.match(r.stdout, /❌ --languages has an empty entry \('.*'\) — pass comma-separated BCP 47 tags/);
+      assert.doesNotMatch(r.out, /FATAL/);
+    }
+    assert.equal(readFileSync(join(cwd, ".github", "project.yml"), "utf8"), "version: 1\nname: App\nlocale: en\n");
+
+    const pt = kitWorkspace({ ".github/project.yml": "version: 1\nname: App\nlocale: pt-BR\n" });
+    const r = await run(pt, ["--locale", "pt-BR", "--languages", " , ", "--skip-cards"]);
+    assert.equal(r.status, 1, r.out);
+    assert.match(r.stdout, /--languages tem uma entrada vazia \(' , '\)/);
   });
 
   it("cannot save a language before project.yml exists, and stops on blockers", async () => {
@@ -46,7 +62,11 @@ describe("setup.mjs bootstrap", { concurrency: true }, () => {
     assert.equal(r.status, 0, r.out);
     assert.match(r.stdout, /Language saved: pt-BR, en \(primary pt-BR\)/);
     assert.match(readFileSync(join(cwd, ".github", "project.yml"), "utf8"), /locale: pt-BR/);
-    assert.match(r.stdout, /Cursor rules install skipped/);
+    assert.match(r.stdout, /Installed \.cursor\/rules\/hyperion\.mdc/);
+    assert.equal(
+      readFileSync(join(cwd, ".cursor", "rules", "hyperion.mdc"), "utf8"),
+      readFileSync(join(repoRoot, ".cursor", "rules", "hyperion.mdc"), "utf8")
+    );
     assert.ok(existsSync(join(cwd, ".github", "workflows")), "pipeline-apply --yes writes hyperion-* workflows");
     assert.match(r.stdout, /init\.mjs --yes --skip-sync --install-hook/);
     assert.match(r.stdout, /Hyperion setup complete\./);
@@ -54,9 +74,11 @@ describe("setup.mjs bootstrap", { concurrency: true }, () => {
   });
 
   it("without --yes only plans the pipeline; a failing cards:init fails setup", async () => {
-    const cwd = kitWorkspace({}, { backend: "azure" });
+    // A directory where the rules file goes makes install-cursor-rules fail: setup only warns.
+    const cwd = kitWorkspace({ ".cursor/rules/hyperion.mdc": null, ".cursor/rules/hyperion.mdc/keep": "" }, { backend: "azure" });
     const r = await run(cwd, [], { GITHUB_REPOSITORY: "acme/app" });
     assert.equal(r.status, 1, r.out);
+    assert.match(r.stdout, /Cursor rules install skipped/);
     assert.match(r.stdout, /pipeline-plan\.mjs/);
     assert.equal(existsSync(join(cwd, ".github", "workflows")), false);
     assert.match(r.stdout, /cards:init failed — fix issues above/);
