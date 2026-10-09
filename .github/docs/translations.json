@@ -7,6 +7,7 @@
     { "pt-BR": ".github/docs/integration/github-cli-setup.md", "en": ".github/docs/integration/github-cli-setup-en.md" },
     { "pt-BR": ".github/docs/integration/pipeline-merge.md", "en": ".github/docs/integration/pipeline-merge-en.md" },
     { "pt-BR": ".github/docs/meta/fluxo-completo.md", "en": ".github/docs/meta/full-flow-en.md" },
+    { "pt-BR": ".github/docs/meta/fluxo-de-branches-e-pipeline.md", "en": ".github/docs/meta/branch-and-pipeline-flow-en.md" },
     { "pt-BR": ".github/docs/meta/language-policy.md", "en": ".github/docs/meta/language-policy-en.md" },
     { "pt-BR": ".github/docs/meta/node-and-docker.md", "en": ".github/docs/meta/node-and-docker-en.md" },
     { "pt-BR": ".github/docs/meta/onde-ficam-os-outputs.md", "en": ".github/docs/meta/where-outputs-go-en.md" },
