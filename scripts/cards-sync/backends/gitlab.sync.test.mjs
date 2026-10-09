@@ -4,7 +4,8 @@ import { rmSync } from "node:fs";
 import { cardMarkdown, captureLogs, jsonResponse, mockFetch, setupWorkspace } from "./sync-fixture.mjs";
 
 const ws = setupWorkspace();
-const { runForwardSyncGitLab, runReverseSyncGitLab, resolveGitLabStatusAction } = await import("./gitlab.mjs");
+const { runForwardSyncGitLab, runReverseSyncGitLab, resolveGitLabStatusAction, gitlabListCardIssues, gitlabIssueLabels, GITLAB_MAX_PAGES } =
+  await import("./gitlab.mjs");
 const { buildRemoteDescriptionFromCard, parseCardFile } = await import("../lib.mjs");
 
 const management = {
@@ -169,7 +170,7 @@ test("forward keeps going when status update or linking fails, and when create r
 
     const s2Status = actions.find((a) => a.action === "STATUS_SET" && a.cardId === "PROJ-S2");
     assert.equal(s2Status.gitlabStateEvent, "close", "empty 204 body is accepted");
-    assert.deepEqual(creates[1].body.labels, ["status:Done"], "status label already in categories is not duplicated");
+    assert.deepEqual(creates[1].body.labels, ["status:Done"], "a status:* category gives way to the managed status label");
 
     assert.deepEqual(actions.find((a) => a.cardId === "PROJ-S3"), { action: "CREATED", cardId: "PROJ-S3", gitlabIssueIid: null });
     assert.ok(!actions.some((a) => a.cardId === "PROJ-S3" && a.action.startsWith("STATUS")), "no iid → no status call");
@@ -357,8 +358,123 @@ test("reverse with no matching issues says so (empty list, non-array payload, or
   const api = gitlabApi((req) => (Number(req.query.get("page")) <= 12 ? noise : noise.slice(0, 3)));
   try {
     const lines = await captureLogs(() => runReverseSyncGitLab({}, management));
-    assert.equal(api.calls.length, 13, "paging continues until a short page, with no page cap");
+    assert.equal(api.calls.length, 13, "without an x-next-page header, paging continues until a short page");
     assert.ok(lines.some((l) => l.includes("No GitLab issues with CARD_ID found.")));
+  } finally {
+    api.restore();
+  }
+});
+
+test("gitlabListCardIssues follows x-next-page, falls back to short pages without it, and stops at a page cap", async () => {
+  const issue = (iid) => ({ iid, description: remoteDescription(`stories/PROJ-P${iid}.md`, cardMarkdown({ id: `PROJ-P${iid}` })) });
+  const pageOf = (n) => (n === 100 ? Array.from({ length: 100 }, (_, i) => issue(i + 1)) : [issue(n)]);
+
+  const requested = [];
+  const nextPage = { 1: "3", 3: "" };
+  const followed = await gitlabListCardIssues(async (endpoint) => {
+    const page = Number(new URLSearchParams(endpoint.split("?")[1]).get("page"));
+    requested.push(page);
+    return { payload: pageOf(page === 1 ? 1 : 100), headers: new Headers({ "x-next-page": nextPage[page] }) };
+  }, "acme/app");
+  assert.deepEqual(requested, [1, 3], "the header picks the next page, and an empty one ends the listing even after a full page");
+  assert.equal(followed.length, 101);
+
+  let calls = 0;
+  await assert.rejects(
+    gitlabListCardIssues(async () => {
+      calls += 1;
+      return { payload: pageOf(100), headers: new Headers({ "x-next-page": String(calls + 1) }) };
+    }, "acme/app"),
+    new RegExp(`stopped at the ${GITLAB_MAX_PAGES}-page safety cap \\(${GITLAB_MAX_PAGES * 100} issues`)
+  );
+  assert.equal(calls, GITLAB_MAX_PAGES);
+
+  calls = 0;
+  await assert.rejects(
+    gitlabListCardIssues(
+      async () => {
+        calls += 1;
+        return { payload: pageOf(100) };
+      },
+      "acme/app",
+      { maxPages: 3 }
+    ),
+    /3-page safety cap/,
+    "full pages without the header are capped too"
+  );
+  assert.equal(calls, 3);
+});
+
+test("gitlabIssueLabels keeps labels Hyperion doesn't manage and replaces the ones it does", () => {
+  const card = parseCardFile(
+    cardMarkdown({ id: "PROJ-L1", status: "In Progress", categories: ["Backend", "status:Review"] }),
+    ".github/cards/stories/PROJ-L1.md"
+  );
+  const previous = parseCardFile(cardMarkdown({ id: "PROJ-L1", categories: ["Backend", "Legacy"] }), ".github/cards/stories/PROJ-L1.md");
+  const existing = {
+    description: buildRemoteDescriptionFromCard(previous),
+    labels: ["needs-design", "backend", "Legacy", "status:Backlog", "Status:Old", "priority::high"],
+  };
+
+  assert.deepEqual(gitlabIssueLabels(card, management.statusMap, existing), ["needs-design", "priority::high", "Backend", "status:Doing"]);
+  assert.deepEqual(gitlabIssueLabels(card, management.statusMap), ["Backend", "status:Doing"], "create: no existing labels");
+
+  const noStatus = { ...card, status: null };
+  assert.deepEqual(
+    gitlabIssueLabels(noStatus, {}, existing),
+    ["needs-design", "status:Backlog", "Status:Old", "priority::high", "Backend"],
+    "a card without a status leaves the issue's status labels alone"
+  );
+});
+
+test("forward update sends the issue's own labels back with the managed ones", async () => {
+  const story = cardMarkdown({ id: "PROJ-S7", status: "Done", categories: ["Frontend"] });
+  resetCards({ "stories/PROJ-S7.md": story });
+  const api = gitlabApi((req) => {
+    if (req.method === "GET") {
+      return [{ iid: 7, state: "opened", description: remoteDescription("stories/PROJ-S7.md", story), labels: ["Frontend", "customer", "status:Doing"] }];
+    }
+    if (req.method === "PUT") return {};
+  });
+  try {
+    await captureLogs(() => runForwardSyncGitLab({}, management));
+    const update = api.calls.find((c) => c.method === "PUT" && c.body.title);
+    assert.deepEqual(update.body.labels, ["customer", "Frontend", "status:Done"]);
+  } finally {
+    api.restore();
+  }
+});
+
+test("duplicate issues for one CARD_ID: forward updates and reverse reads the open one with the lowest iid", async () => {
+  const story = cardMarkdown({ id: "PROJ-S10", status: "Backlog" });
+  resetCards({ "stories/PROJ-S10.md": story });
+  const description = remoteDescription("stories/PROJ-S10.md", story);
+  const issues = [
+    { iid: 30, state: "opened", description, labels: ["status:Doing"] },
+    { iid: 7, state: "closed", description, labels: ["status:Done"] },
+    { iid: 12, state: "opened", description, labels: ["status:Backlog"] },
+  ];
+  let api = gitlabApi((req) => {
+    if (req.method === "GET") return issues;
+    if (req.method === "PUT" && req.path === `${issuesPath}/12`) return {};
+  });
+  try {
+    const actions = actionsFrom(await captureLogs(() => runForwardSyncGitLab({}, management)));
+    assert.equal(actions[0].action, "UPDATED");
+    assert.equal(actions[0].gitlabIssueIid, 12);
+  } finally {
+    api.restore();
+  }
+
+  resetCards({ "stories/PROJ-S10.md": cardMarkdown({ id: "PROJ-S10", status: "To do" }) });
+  api = gitlabApi(() => issues);
+  try {
+    const lines = await captureLogs(() => runReverseSyncGitLab({}, management));
+    assert.ok(lines.some((l) => l.includes("GitLab issues found: 3")));
+    assert.ok(lines.some((l) => l.includes("Ignored 2 duplicate issue(s): another issue carries the same CARD_ID.")));
+    assert.match(ws.read(".github/cards/stories/PROJ-S10.md"), /status: "?Backlog"?/, "read from #12, not #30 (Doing) or #7 (Done)");
+    assert.ok(lines.some((l) => l.includes("Patched: .github/cards/stories/PROJ-S10.md (GitLab #12)")));
+    assert.ok(!lines.some((l) => l.includes("(GitLab #30)") || l.includes("(GitLab #7)")));
   } finally {
     api.restore();
   }
