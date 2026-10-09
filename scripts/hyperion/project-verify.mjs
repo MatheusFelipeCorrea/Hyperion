@@ -5,10 +5,11 @@
  *      npm run hyperion:project-verify -- --root .
  */
 import { existsSync, readFileSync, statSync } from "node:fs";
-import { join, resolve, dirname } from "node:path";
+import { join, resolve, dirname, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { readProjectCommands } from "./repo-detect.mjs";
 import { hasCatalog, validateLanguageConfig } from "./i18n.mjs";
+import { ciError, ciErrorList } from "./ci-annotate.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -182,10 +183,14 @@ async function main() {
   const ymlPath = join(root, ".github", "project.yml");
   if (!existsSync(ymlPath)) {
     console.error("FAIL: missing .github/project.yml — run /discover Configure or /migrate");
+    ciError("There is no .github/project.yml. Create it with /discover (Configure) or /migrate, or copy .github/project.example.yml.", {
+      title: "project.yml missing",
+    });
     process.exit(1);
   }
 
   const text = readFileSync(ymlPath, "utf8");
+  const problems = [];
   let failed = 0;
   const warnings = [];
 
@@ -195,6 +200,7 @@ async function main() {
   } else if (!schemaResult.ok) {
     for (const e of schemaResult.errors) {
       console.error(`FAIL schema: ${e}`);
+      problems.push(`schema: ${e}`);
       failed++;
     }
   } else {
@@ -204,6 +210,7 @@ async function main() {
   const version = extractTopKey(text, "version");
   if (!version || !/^\d+$/.test(version)) {
     console.error("FAIL: project.yml must have integer `version:`");
+    problems.push("`version:` must be an integer");
     failed++;
   } else {
     console.log(`OK version: ${version}`);
@@ -212,6 +219,7 @@ async function main() {
   const name = extractTopKey(text, "name");
   if (!name) {
     console.error("FAIL: project.yml must have `name:`");
+    problems.push("`name:` is required");
     failed++;
   } else {
     console.log(`OK name: ${name}`);
@@ -227,6 +235,7 @@ async function main() {
   const lang = validateLanguageConfig(text);
   for (const e of lang.errors) {
     console.error(`FAIL language: ${e}`);
+    problems.push(`language: ${e}`);
     failed++;
   }
   warnings.push(...lang.warnings);
@@ -245,6 +254,7 @@ async function main() {
   for (const { kind, rel } of [...extractAppPaths(text), ...extractDocsPaths(text)]) {
     if (!pathExists(root, rel)) {
       console.error(`FAIL ${kind}: path missing → ${rel}`);
+      problems.push(`${kind}: path ${rel} does not exist in the repository`);
       failed++;
     } else {
       try {
@@ -260,6 +270,12 @@ async function main() {
 
   if (failed) {
     console.error(`\nproject-verify FAILED (${failed})`);
+    const rel = relative(process.env.GITHUB_WORKSPACE || process.cwd(), ymlPath).replace(/\\/g, "/");
+    ciErrorList(
+      "project.yml invalid",
+      problems.map((message) => ({ file: rel, message })),
+      `${failed} problem(s) in .github/project.yml (rules: .github/project.schema.json, example: .github/project.example.yml). Reproduce: npm run hyperion:project-verify`
+    );
     process.exit(1);
   }
   console.log("project-verify OK");
@@ -267,5 +283,6 @@ async function main() {
 
 main().catch((err) => {
   console.error(`FAIL: unexpected error — ${err.message}`);
+  ciError(`${err.message} — likely a Hyperion bug; open an issue with the log.`, { title: "project-verify crashed" });
   process.exit(1);
 });

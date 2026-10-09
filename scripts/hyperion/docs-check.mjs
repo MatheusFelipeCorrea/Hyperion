@@ -6,6 +6,7 @@
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { ciErrorList } from "./ci-annotate.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const LINK_RE = /\[([^\]]*)\]\(([^)]+)\)/g;
@@ -110,6 +111,11 @@ function main() {
   if (broken.length) {
     console.error(`Broken links: ${broken.length}`);
     for (const b of broken.slice(0, 40)) console.error(`  ${b.file} → ${b.link}`);
+    ciErrorList(
+      "Broken doc link",
+      broken.map((b) => ({ file: b.file, message: `Link target not found: ${b.link}` })),
+      `${broken.length} Markdown link(s) point to files that do not exist. Fix or remove them (paths are relative to the file that contains the link). Reproduce: npm run docs:check`
+    );
     process.exit(1);
   }
 
@@ -118,6 +124,11 @@ function main() {
   if (translations.errors.length) {
     console.error(`Translation pairs: ${translations.errors.length} problem(s)`);
     for (const e of translations.errors) console.error(`  ${e}`);
+    ciErrorList(
+      "Translated doc pair",
+      translations.errors,
+      "Every pair in .github/docs/translations.json must exist on both sides and link to each other. Fix the pairs above. Reproduce: npm run docs:check"
+    );
     process.exit(1);
   }
 

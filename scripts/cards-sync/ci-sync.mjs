@@ -20,6 +20,7 @@ import { spawnSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { resolveHyperionPaths } from "../hyperion/paths.mjs";
+import { ciFail } from "../hyperion/ci-annotate.mjs";
 import {
   detectRepoFromGit,
   assertCiProjectConfigured,
@@ -97,6 +98,7 @@ async function main() {
   const projectCheck = await assertCiProjectConfigured(paths.projectsMapPath, repositorySlug, { backend });
   if (!projectCheck.ok) {
     console.error(`[ci-sync] FATAL: ${projectCheck.message}`);
+    ciFail(paths.workspaceRoot, "cards.fail.project", {}, { message: projectCheck.message });
     process.exit(1);
   }
   if (projectCheck.projectNumber) {
@@ -109,6 +111,7 @@ async function main() {
   const validateCode = runScript("validate.mjs");
   if (validateCode !== 0) {
     console.error("[ci-sync] FATAL: card validation failed");
+    ciFail(paths.workspaceRoot, "cards.fail.validate");
     process.exit(validateCode);
   }
 
@@ -119,12 +122,14 @@ async function main() {
     const reverseCode = runScript("sync.mjs", reverseArgs, dryRun ? { DRY_RUN: "true" } : {});
     if (reverseCode !== 0) {
       console.error("[ci-sync] FATAL: reverse sync failed");
+      ciFail(paths.workspaceRoot, "cards.fail.reverse");
       process.exit(reverseCode);
     }
 
     if (!skipGuard && !dryRun) {
       log("Step 2b/4: board ↔ repo alignment check (pre-forward, directional)");
       if (!(await checkAlignmentOrExit({ backend, phase: "pre-forward" }))) {
+        ciFail(paths.workspaceRoot, "cards.fail.drift");
         process.exit(1);
       }
     } else if (dryRun) {
@@ -140,6 +145,7 @@ async function main() {
   let forwardCode = runScript("sync.mjs", forwardArgs, dryRun ? { DRY_RUN: "true" } : {});
   if (forwardCode !== 0) {
     console.error("[ci-sync] FATAL: forward sync failed");
+    ciFail(paths.workspaceRoot, "cards.fail.forward");
     process.exit(forwardCode);
   }
 
@@ -150,6 +156,7 @@ async function main() {
       const reverseCode = runScript("sync.mjs", ["--reverse"]);
       if (reverseCode !== 0) {
         console.error("[ci-sync] FATAL: post-forward reverse sync failed");
+        ciFail(paths.workspaceRoot, "cards.fail.reverse");
         process.exit(reverseCode);
       }
       return checkAlignmentOrExit({ backend, phase: "post-forward" });
@@ -160,10 +167,12 @@ async function main() {
       forwardCode = runScript("sync.mjs", ["--forward"]);
       if (forwardCode !== 0) {
         console.error("[ci-sync] FATAL: forward retry failed");
+        ciFail(paths.workspaceRoot, "cards.fail.forward");
         process.exit(forwardCode);
       }
       if (!(await verifyReverse())) {
         console.error("[ci-sync] FATAL: board still diverges after forward retry");
+        ciFail(paths.workspaceRoot, "cards.fail.postVerify");
         process.exit(1);
       }
       log("Post-forward verify passed after retry.");
@@ -182,5 +191,6 @@ async function main() {
 main().catch((error) => {
   console.error("[ci-sync] FATAL ERROR");
   console.error(error);
+  ciFail(paths.workspaceRoot, "cards.fail.unexpected", { script: "ci-sync", error: error?.message || error });
   process.exit(1);
 });
