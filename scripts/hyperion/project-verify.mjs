@@ -112,11 +112,6 @@ function extractAppPaths(text) {
     if (rootM) paths.push({ kind: `apps.${currentApp}.root`, rel: rootM[1].trim().replace(/^["']|["']$/g, "") });
     const manM = line.match(/^\s{4}manifest:\s*(.+)$/);
     if (manM) paths.push({ kind: `apps.${currentApp}.manifest`, rel: manM[1].trim().replace(/^["']|["']$/g, "") });
-    const srcM = line.match(/^\s{6}-\s+(.+)$/);
-    // source_dirs list items — only if previous context was source_dirs; heuristic: indented list under apps
-    if (srcM && /source_dirs:/.test(lines[lines.indexOf(line) - 1] || "")) {
-      paths.push({ kind: `apps.${currentApp}.source_dirs`, rel: srcM[1].trim().replace(/^["']|["']$/g, "") });
-    }
   }
   // Second pass for source_dirs blocks
   let app = null;
@@ -159,10 +154,15 @@ function extractAppPaths(text) {
 }
 
 function extractDocsPaths(text) {
-  const block = text.match(/^docs:\s*\n([\s\S]*?)(?=\n[a-zA-Z_]|\n*$)/m);
-  if (!block) return [];
   const out = [];
-  for (const line of block[1].split(/\r?\n/)) {
+  let inDocs = false;
+  for (const line of text.split(/\r?\n/)) {
+    if (/^docs:\s*$/.test(line)) {
+      inDocs = true;
+      continue;
+    }
+    if (/^[a-zA-Z_]/.test(line)) inDocs = false;
+    if (!inDocs) continue;
     const m = line.match(/^\s{2}(\w+):\s*(.+)$/);
     if (!m) continue;
     const val = m[2].trim().replace(/^["']|["']$/g, "");

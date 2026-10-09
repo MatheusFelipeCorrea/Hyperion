@@ -223,6 +223,50 @@ describe("project-verify CLI branches", () => {
     assert.match(r.stderr, /FAIL docs\.adr: path missing → docs\/adr/);
   });
 
+  it("checks every key under docs:, not just the first", () => {
+    const root = repo({
+      "docs/requirements.md": "# req",
+      ".github/project.yml": "version: 1\nname: x\nuncertainties: []\ndocs:\n  requirements: docs/requirements.md\n  adr: docs/adr\n  architecture: docs/arch.md\n",
+    });
+    const r = run(root);
+    assert.equal(r.status, 1, r.stdout + r.stderr);
+    assert.match(r.stdout, /OK docs\.requirements: docs\/requirements\.md$/m);
+    assert.match(r.stderr, /FAIL docs\.adr: path missing → docs\/adr/);
+    assert.match(r.stderr, /FAIL docs\.architecture: path missing → docs\/arch\.md/);
+    assert.match(r.stderr, /project-verify FAILED \(2\)/);
+
+    const empty = run(repo({ ".github/project.yml": "version: 1\nname: x\nuncertainties: []\ndocs:\ncommands:\n  test: npm test\n" }));
+    assert.equal(empty.status, 0, empty.stdout + empty.stderr);
+    assert.doesNotMatch(empty.stdout + empty.stderr, /docs\.test/);
+  });
+
+  it("reports each source_dirs item once, even when item lines repeat across apps", () => {
+    const root = repo({
+      "apps/web": null,
+      "apps/api": null,
+      ".github/project.yml": [
+        "version: 1",
+        "name: x",
+        "uncertainties: []",
+        "apps:",
+        "  web:",
+        "    root: apps/web",
+        "    source_dirs:",
+        "      - shared/gone",
+        "  api:",
+        "    root: apps/api",
+        "    source_dirs:",
+        "      - shared/gone",
+        "",
+      ].join("\n"),
+    });
+    const r = run(root);
+    assert.equal(r.status, 1, r.stdout + r.stderr);
+    assert.equal(r.stderr.match(/FAIL apps\.web\.source_dirs: path missing → shared\/gone/g)?.length, 1, r.stderr);
+    assert.equal(r.stderr.match(/FAIL apps\.api\.source_dirs: path missing → shared\/gone/g)?.length, 1, r.stderr);
+    assert.match(r.stderr, /project-verify FAILED \(2\)/);
+  });
+
   it("reports YAML parse errors when the schema is present", () => {
     const root = repo({
       ".github/project.schema.json": readFileSync(schemaSrc, "utf8"),
