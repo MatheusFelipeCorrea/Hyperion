@@ -67,15 +67,23 @@ export function checkSyncCardsNoPushTrigger(root, fail) {
   }
 }
 
+/** internal-*.yml workflows that legitimately live on main (they act on internal from there). */
+export const DISTRIBUTED_INTERNAL_WORKFLOWS = new Set(["internal-sync.yml"]);
+
 /**
- * Workflows triggered by a push to `internal` only exist on that branch (the
- * repo using its own kit). Finding one here means internal was merged back.
+ * internal-*.yml workflows and workflows triggered by a push to `internal`
+ * only exist on that branch (the repo using its own kit). Finding one here
+ * means internal was merged back.
  */
 export function checkNoInternalOnlyWorkflows(root, fail) {
   const dir = join(root, ".github", "workflows");
   if (!existsSync(dir)) return;
   for (const name of readdirSync(dir).filter((f) => /\.ya?ml$/.test(f))) {
     const rel = `.github/workflows/${name}`;
+    if (/^internal-/.test(name) && !DISTRIBUTED_INTERNAL_WORKFLOWS.has(name)) {
+      fail(rel, "internal-*.yml workflows only exist on the `internal` branch — internal-only files never leave that branch (internal only pulls from main)");
+      continue;
+    }
     let doc;
     try {
       doc = load(readFileSync(join(dir, name), "utf8"));
@@ -173,7 +181,7 @@ async function main() {
   const checks = [
     ["projects-map.json has no real projectNumber", checkNoProjectNumber],
     ["hyperion-sync-cards.yml has no push trigger", checkSyncCardsNoPushTrigger],
-    ["no internal-only workflow (push to internal)", checkNoInternalOnlyWorkflows],
+    ["no internal-only workflow (internal-*.yml or push to internal)", checkNoInternalOnlyWorkflows],
     ["CODEOWNERS/FUNDING.yml/dependabot.yml not in MANAGED_FILES", checkNotManagedFiles],
     ["no real cards outside _examples/", checkNoRealCards],
     [".github/plans/ has no leaked planning docs", checkNoLeakedPlans],
