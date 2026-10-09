@@ -4,12 +4,13 @@
  * Run: npm run docs:prose-check
  */
 import { readFileSync, readdirSync, statSync } from "node:fs";
-import { dirname, join, relative } from "node:path";
+import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { ciErrorList } from "./ci-annotate.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const root = join(__dirname, "../..");
+const rootArg = process.argv.indexOf("--root");
+const root = rootArg === -1 ? join(__dirname, "../..") : resolve(process.argv[rootArg + 1] || ".");
 
 /** { pattern, message, glob? } — pattern tested against file content */
 const RULES = [
@@ -40,12 +41,17 @@ const SKIP_DIRS = new Set(["node_modules", ".git", "audits/results"]);
 
 const SKIP_FILES = new Set(["CHANGELOG.md"]);
 
+/** Entries match a trailing run of path segments, so "audits/results" skips .github/audits/results. */
+function isSkippedDir(p) {
+  const rel = relative(root, p).split(sep).join("/");
+  return [...SKIP_DIRS].some((entry) => rel === entry || rel.endsWith(`/${entry}`));
+}
+
 function walk(dir, files = []) {
   for (const name of readdirSync(dir)) {
-    if (SKIP_DIRS.has(name)) continue;
     const p = join(dir, name);
     if (statSync(p).isDirectory()) {
-      walk(p, files);
+      if (!isSkippedDir(p)) walk(p, files);
     } else if ([...SCAN_EXT].some((ext) => name.endsWith(ext)) && !SKIP_FILES.has(name)) {
       files.push(p);
     }

@@ -21,7 +21,7 @@ function argValue(flag) {
 function usage() {
   console.log(`Usage:
   npm run hyperion:spec-review-verify -- --review <path.md>
-  npm run hyperion:spec-review-verify -- --latest
+  npm run hyperion:spec-review-verify -- --latest [--root <repo-root>]
 
 Requires frontmatter/body: card_id, verdict (APPROVED|APPROVED WITH WARNINGS|BLOCKED),
 ## Summary, ## Checklist, ## Blocking issues, ## Recommended next step.
@@ -33,8 +33,8 @@ files are covered by hyperion:review-verify instead).
 
 /** Spec-review and pr-reviewer both write into .github/plans/reviews/ — only
  * consider spec-review's own naming (anything NOT prefixed pr-<number>-review). */
-function findLatestSpecReview() {
-  const dir = join(root, ".github/plans/reviews");
+function findLatestSpecReview(repoRoot) {
+  const dir = join(repoRoot, ".github/plans/reviews");
   if (!existsSync(dir)) return null;
   const files = readdirSync(dir)
     .filter((f) => f.endsWith("-review.md") && !f.startsWith(".") && !/^pr-.+-review\.md$/i.test(f))
@@ -63,7 +63,7 @@ function main() {
 
   let reviewPath = argValue("--review");
   if (process.argv.includes("--latest") || !reviewPath) {
-    if (!reviewPath) reviewPath = findLatestSpecReview();
+    if (!reviewPath) reviewPath = findLatestSpecReview(resolve(argValue("--root") || root));
   }
   if (!reviewPath) {
     console.error("No review specified and none found under .github/plans/reviews/ (spec-review naming)");

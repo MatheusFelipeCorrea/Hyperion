@@ -92,7 +92,8 @@ export function checkTranslations(root) {
 }
 
 function main() {
-  const root = join(__dirname, "../..");
+  const rootArg = process.argv.indexOf("--root");
+  const root = rootArg === -1 ? join(__dirname, "../..") : resolve(process.argv[rootArg + 1] || ".");
   const files = walk(root);
   const broken = [];
 

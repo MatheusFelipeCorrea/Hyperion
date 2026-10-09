@@ -9,12 +9,13 @@
  * Live: HYPERION_LLM_EVAL_LIVE=1 OPENAI_API_KEY=... npm run hyperion:llm-eval
  */
 import { readFileSync, existsSync, readdirSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { ciError } from "./ci-annotate.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const root = join(__dirname, "../..");
+const rootArg = process.argv.indexOf("--root");
+const root = rootArg === -1 ? join(__dirname, "../..") : resolve(process.argv[rootArg + 1] || ".");
 const evalRoot = join(root, ".github/skills/eval");
 const casesPath = join(evalRoot, "llm-cases.json");
 const goldenDir = join(evalRoot, "golden");
