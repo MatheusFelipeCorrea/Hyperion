@@ -1,4 +1,5 @@
-﻿import fs from "node:fs/promises";
+﻿import "./load-env.mjs";
+import fs from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
 import { execSync } from "node:child_process";

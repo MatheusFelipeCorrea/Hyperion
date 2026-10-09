@@ -51,6 +51,7 @@
 | Doc | O que responde |
 |-----|----------------|
 | [fluxo-completo.md](./meta/fluxo-completo.md) | SDLC ponta a ponta |
+| [fluxo-de-branches-e-pipeline.md](./meta/fluxo-de-branches-e-pipeline.md) | Branches, PRs e o que cada pipe verifica (repo do Hyperion e produto) · [EN](./meta/branch-and-pipeline-flow-en.md) |
 | [definition-of-done.md](./meta/definition-of-done.md) | Gates `*-verify` |
 | [onde-ficam-os-outputs.md](./meta/onde-ficam-os-outputs.md) | Onde a IA grava arquivos |
 | [skills-output-map.md](./reference/skills-output-map.md) | Mapa skill → pasta |
