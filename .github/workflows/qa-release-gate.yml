@@ -100,7 +100,7 @@ jobs:
           node scripts/hyperion/adopt-check.mjs --root ..
           node scripts/hyperion/pipeline-plan.mjs
           if [ -d ../.github/workflows ]; then
-            echo "::error::create-hyperion wrote workflows into the product: $(ls ../.github/workflows)"
+            echo "::error title=create-hyperion wrote product workflows::Found $(ls ../.github/workflows | tr '\n' ' ')in the new product's .github/workflows. Installing must not add CI on its own; product workflows come from /pipeline (pipeline-apply)."
             exit 1
           fi
 
@@ -124,8 +124,14 @@ jobs:
           node scripts/hyperion/project-verify.mjs --root ..
           node scripts/hyperion/adopt-check.mjs --root ..
 
-          ( cd "$P" && sha256sum -c "$RUNNER_TEMP/owned.sha" )
-          ls "$P/.github/workflows" | diff "$RUNNER_TEMP/workflows-before" -
+          if ! ( cd "$P" && sha256sum -c "$RUNNER_TEMP/owned.sha" ); then
+            echo "::error title=Upgrade overwrote product files::hyperion:upgrade changed a file the product owns (.github/project.yml or .github/workflows/ci.yml — see FAILED above). Products' own files must survive an upgrade byte for byte: keep them out of MANAGED_FILES/MANAGED_DIRS in scripts/hyperion/upgrade-lib.mjs."
+            exit 1
+          fi
+          if ! ls "$P/.github/workflows" | diff "$RUNNER_TEMP/workflows-before" -; then
+            echo "::error title=Upgrade changed product workflows::hyperion:upgrade added or removed files in the product's .github/workflows (diff above). Product workflows are rendered only by /pipeline (pipeline-apply), never by upgrade."
+            exit 1
+          fi
 
       - name: Flat layout upgrade never copies workflows
         run: |
@@ -141,7 +147,7 @@ jobs:
             [ "$(basename "$f")" = "ci.yml" ] || extra="$extra $(basename "$f")"
           done
           if [ -n "$extra" ]; then
-            echo "::error::upgrade copied the kit's workflows into the product: $extra"
+            echo "::error title=Upgrade copied kit workflows::hyperion:upgrade put$extra into a flat-layout product. The kit's own CI must never propagate; check MANAGED_DIRS in scripts/hyperion/upgrade-lib.mjs."
             exit 1
           fi
           node scripts/hyperion/adopt-check.mjs --root .
@@ -231,7 +237,8 @@ jobs:
           NEEDS: ${{ toJSON(needs) }}
         run: |
           echo "$NEEDS" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'
-          if echo "$NEEDS" | jq -e 'to_entries | any(.value.result == "failure" or .value.result == "cancelled")' > /dev/null; then
-            echo "::error::QA gate failed — fix on dev and re-run the promotion PR"
+          failed=$(echo "$NEEDS" | jq -r '[to_entries[] | select(.value.result == "failure" or .value.result == "cancelled") | .key] | join(", ")')
+          if [ -n "$failed" ]; then
+            echo "::error title=QA gate failed::Failed or cancelled: $failed. Open those jobs for the reason, fix it in a PR into dev; merging that fix updates this dev → qa PR and re-runs the gate."
             exit 1
           fi
