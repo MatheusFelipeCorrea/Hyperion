@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
-import { listCardsMarkdownFiles, checkCardPathLayout, parseProjectYmlBackend } from "./lib.mjs";
+import { listCardsMarkdownFiles, checkCardPathLayout, parseFrontmatter, parseProjectYmlBackend } from "./lib.mjs";
 import { resolveHyperionPaths } from "../hyperion/paths.mjs";
 import { ciFailList } from "../hyperion/ci-annotate.mjs";
 
@@ -24,75 +24,6 @@ const ALLOWED_STATUS = new Set([
   "In Revision",
   "Done",
 ]);
-
-function parseFrontmatter(content) {
-  const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n([\s\S]*)$/);
-  if (!match) return null;
-
-  const yamlBlock = match[1];
-  const body = match[2];
-  const meta = {};
-
-  let currentKey = null;
-  let currentArray = null;
-
-  for (const line of yamlBlock.split("\n")) {
-    const trimmed = line.trimEnd();
-
-    // YAML simple arrays
-    if (/^\s*-\s+/.test(trimmed) && currentKey && currentArray !== null) {
-      const value = trimmed
-        .replace(/^\s*-\s+/, "")
-        .replace(/^["']|["']$/g, "")
-        .trim();
-      if (value) currentArray.push(value);
-      continue;
-    }
-
-    if (currentKey && currentArray !== null) {
-      meta[currentKey] = currentArray;
-      currentArray = null;
-      currentKey = null;
-    }
-
-    const kvMatch = trimmed.match(/^([a-zA-Z_]+)\s*:\s*(.*)$/);
-    if (!kvMatch) continue;
-
-    const key = kvMatch[1];
-    let value = kvMatch[2].trim();
-
-    if (value === "") {
-      currentKey = key;
-      currentArray = [];
-      continue;
-    }
-
-    if (value === "null") {
-      meta[key] = null;
-      continue;
-    }
-
-    const inlineArray = value.match(/^\[([^\]]*)\]$/);
-    if (inlineArray) {
-      meta[key] = inlineArray[1]
-        .split(",")
-        .map((v) => v.trim().replace(/^["']|["']$/g, ""))
-        .filter(Boolean);
-      continue;
-    }
-
-    value = value.replace(/^["']|["']$/g, "");
-    const num = Number(value);
-    if (!Number.isNaN(num) && value !== "") meta[key] = num;
-    else meta[key] = value;
-  }
-
-  if (currentKey && currentArray !== null) {
-    meta[currentKey] = currentArray;
-  }
-
-  return { meta, body };
-}
 
 /**
  * Returns { card, reason }. `card` is null when the file can't be parsed as
@@ -158,7 +89,7 @@ try {
     console.log("[validate] Suggestion: run `project-discovery` in Configure mode, then re-run validate.");
   } else {
     const projectRaw = await fs.readFile(projectYmlPath, "utf8");
-    const localeMatch = projectRaw.match(/^\s*locale\s*:\s*([^\s#]+)\s*$/m);
+    const localeMatch = projectRaw.match(/^\s*locale\s*:\s*["']?([^\s#"']+)["']?\s*(?:#.*)?$/m);
 
     const locale = localeMatch?.[1];
     const backend = parseProjectYmlBackend(projectRaw);

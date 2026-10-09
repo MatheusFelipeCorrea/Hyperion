@@ -182,6 +182,20 @@ test("checkDirectionalBoardAlignment separates external drift from forward-pendi
   assert.equal(simple.files.length, 4);
 });
 
+test("card files with non-ASCII names are still guarded (git path quoting)", async () => {
+  const dir = initRepo(makeTempDir("hyperion-guard-utf8-"));
+  const file = `${P}/Ação-1.md`;
+  writeFile(dir, file, card({ id: "Ação-1", status: "Backlog" }));
+  const base = commitAll(dir, "base");
+  writeFile(dir, file, card({ id: "Ação-1", status: "Done" }));
+
+  const result = await checkDirectionalBoardAlignment(dir, ".github/cards", { baseRef: base, ignoreFields: [] });
+  assert.equal(result.aligned, false);
+  assert.deepEqual(result.externalDrifts, [{ file, fields: [{ field: "status", head: "Backlog", base: "Backlog", board: "Done" }] }]);
+  assert.deepEqual(listCardDiffFilesAfterReverse(dir, ".github/cards").files, [file]);
+  assert.deepEqual(checkBoardRepoAlignment(dir, ".github/cards"), { aligned: false, files: [file], gitAvailable: true });
+});
+
 test("git unavailable: fail-open by default, fail-closed with strictGit", async () => {
   const dir = makeTempDir("hyperion-guard-nogit-");
   await withoutGit(async () => {
