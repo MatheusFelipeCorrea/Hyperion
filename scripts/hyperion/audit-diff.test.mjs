@@ -121,7 +121,11 @@ describe("audit-diff CLI", () => {
       fs.rmSync(dir, { recursive: true, force: true });
     }
   }
-  const run = (args) => spawnSync(process.execPath, [SCRIPT, ...args], { encoding: "utf8" });
+  const env = { ...process.env, GIT_CEILING_DIRECTORIES: os.tmpdir() };
+  delete env.HYPERION_ROOT;
+  delete env.GIT_DIR;
+  delete env.GIT_WORK_TREE;
+  const run = (args) => spawnSync(process.execPath, [SCRIPT, ...args], { cwd: os.tmpdir(), env, encoding: "utf8" });
 
   it("--help prints usage", () => {
     const r = run(["--help"]);

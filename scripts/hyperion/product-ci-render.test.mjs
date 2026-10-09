@@ -308,6 +308,7 @@ describe("e2e, IaC, OpenAPI and edge cases", () => {
     });
     write(repo, "web/pnpm-lock.yaml", "");
     write(repo, "web/playwright.config.ts", "export default {}");
+    write(repo, "admin/e2e/cypress.config.js", "module.exports = {}");
     write(repo, "cy/cypress.config.js", "module.exports = {}");
     write(repo, "gosvc/go.mod", "module example.com/gosvc\n\ngo 1.22\n");
     write(repo, "gosvc/.golangci.yml", "linters: {}\n");
@@ -328,12 +329,17 @@ describe("e2e, IaC, OpenAPI and edge cases", () => {
       },
     });
     const doc = load(content);
+    // cy/ has no package.json and no app contains it, so it gets no job; gosvc/ is not a node app.
     assert.deepEqual(Object.keys(doc.jobs).filter((id) => id.startsWith("e2e-")).sort(), ["e2e-admin", "e2e-web"]);
     const web = job(doc, "e2e-web");
     assert.equal(web["continue-on-error"], true);
+    assert.equal(web.defaults.run["working-directory"], "web");
     assert.equal(stepNamed(web, /^Install Playwright browsers/).run, "pnpm exec playwright install --with-deps\n");
     assert.equal(stepNamed(web, /^Playwright e2e/).run, "pnpm run test:e2e\n");
-    assert.equal(stepNamed(job(doc, "e2e-admin"), /^Cypress e2e/).run, "pnpm exec cypress run\n");
+    const admin = job(doc, "e2e-admin");
+    assert.equal(admin.defaults.run["working-directory"], "admin");
+    assert.equal(stepNamed(admin, /^Cypress e2e/).run, 'pnpm exec cypress run --config-file "e2e/cypress.config.js"\n');
+    assert.doesNotMatch(content, /cy\/cypress\.config\.js/);
 
     const iac = job(doc, "iac");
     assert.ok(stepNamed(iac, /^terraform fmt/));
@@ -348,17 +354,78 @@ describe("e2e, IaC, OpenAPI and edge cases", () => {
     assert.match(content, /# NOTE \(tools\): migrate requested but no migration command detected/);
   });
 
-  // Known bug: e2e job ids are `e2e-<app>` per config, so two configs on one app collide.
-  it("keeps e2e job ids unique when one app has both Playwright and Cypress", { todo: "duplicate e2e-<app> job ids" }, () => {
+  it("keeps e2e job ids unique when one app has both Playwright and Cypress", () => {
     const both = fs.mkdtempSync(path.join(os.tmpdir(), "hyperion-render-e2e-dup-"));
     try {
       write(both, "package.json", { scripts: { test: "vitest" }, devDependencies: { vitest: "^2" } });
       write(both, "playwright.config.ts", "export default {}");
       write(both, "cypress.config.ts", "export default {}");
-      const ids = renderProductCiForRepo(both, { gates: { e2e: "warn" } }).content.match(/^ {2}e2e-[\w-]+:$/gm);
-      assert.equal(new Set(ids).size, 2, `e2e job ids: ${ids.join(" ")}`);
+      const e2eIds = () => {
+        const { content } = renderProductCiForRepo(both, { gates: { e2e: "warn" } });
+        return content.match(/^ {2}e2e-[\w-]+:$/gm).map((l) => l.trim().slice(0, -1));
+      };
+      const ids = e2eIds();
+      assert.equal(new Set(ids).size, ids.length, `duplicate e2e job ids: ${ids.join(" ")}`);
+      assert.deepEqual(e2eIds(), ids, "ids are stable across renders");
+      assert.deepEqual([...ids].sort(), ["e2e-root-cypress", "e2e-root-playwright"]);
+      const doc = load(renderProductCiForRepo(both, { gates: { e2e: "warn" } }).content);
+      assert.ok(stepNamed(job(doc, "e2e-root-cypress"), /^Cypress e2e/));
+      assert.ok(stepNamed(job(doc, "e2e-root-playwright"), /^Playwright e2e/));
     } finally {
       fs.rmSync(both, { recursive: true, force: true });
+    }
+  });
+
+  it("the gates hash covers e2e job ownership, so --refresh-gates repairs older e2e jobs", async () => {
+    const both = fs.mkdtempSync(path.join(os.tmpdir(), "hyperion-render-e2e-hash-"));
+    try {
+      write(both, "package.json", { scripts: { test: "vitest" }, devDependencies: { vitest: "^2" } });
+      write(both, "playwright.config.ts", "export default {}");
+      write(both, "cypress.config.ts", "export default {}");
+      const gates = { e2e: "warn" };
+      const { plan, content } = renderProductCiForRepo(both, { gates });
+      const planOnly = gatesHash(plan);
+      assert.notEqual(readGatesHash(content), planOnly, "e2e ownership is part of the hash");
+      assert.equal(readGatesHash(renderProductCiForRepo(both, { gates: { e2e: "off" } }).content), gatesHash(renderProductCiForRepo(both, { gates: { e2e: "off" } }).plan));
+
+      // A product CI rendered before the fix: plan-only hash and two `e2e-root` jobs.
+      const old = content
+        .replace(readGatesHash(content), planOnly)
+        .replace(/^ {2}e2e-root-(cypress|playwright):$/gm, "  e2e-root:");
+      write(both, ".github/workflows/hyperion-product-ci.yml", old);
+      const { inspectProductCiGates } = await import("./pipeline-lib.mjs");
+      const state = await inspectProductCiGates(both, gates);
+      assert.equal(state.currentHash, planOnly);
+      assert.notEqual(state.currentHash, state.expectedHash, "reported outdated, not up to date");
+      assert.equal(state.expectedHash, readGatesHash(content));
+
+      fs.mkdirSync(path.join(both, "e2e"));
+      fs.renameSync(path.join(both, "cypress.config.ts"), path.join(both, "e2e", "cypress.config.ts"));
+      assert.notEqual(readGatesHash(renderProductCiForRepo(both, { gates }).content), readGatesHash(content), "moving a config changes the hash");
+    } finally {
+      fs.rmSync(both, { recursive: true, force: true });
+    }
+  });
+
+  it("a root app owns e2e configs outside nested apps and runs them with an explicit config path", () => {
+    const rooted = fs.mkdtempSync(path.join(os.tmpdir(), "hyperion-render-e2e-root-"));
+    try {
+      write(rooted, "package.json", { scripts: { test: "vitest" }, devDependencies: { vitest: "^2" } });
+      write(rooted, "tests/e2e/playwright.config.ts", "export default {}");
+      write(rooted, "web/package.json", { scripts: { lint: "eslint .", "test:e2e": "cypress run" }, devDependencies: { eslint: "^9" } });
+      write(rooted, "web/package-lock.json", "{}");
+      write(rooted, "web/cypress.config.ts", "export default {}");
+      // A separate package with no gates is not an app; root must not run its e2e config.
+      write(rooted, "tools/lib/package.json", { name: "lib" });
+      write(rooted, "tools/lib/cypress.config.ts", "export default {}");
+      const { content } = renderProductCiForRepo(rooted, { gates: { e2e: "warn" } });
+      const doc = load(content);
+      assert.deepEqual(Object.keys(doc.jobs).filter((id) => id.startsWith("e2e-")).sort(), ["e2e-root", "e2e-web"]);
+      assert.doesNotMatch(content, /tools\/lib\/cypress\.config\.ts/);
+      assert.equal(stepNamed(job(doc, "e2e-root"), /^Playwright e2e/).run, 'npx playwright test --config "tests/e2e/playwright.config.ts"\n');
+      assert.equal(stepNamed(job(doc, "e2e-web"), /^Cypress e2e/).run, "npm run test:e2e\n");
+    } finally {
+      fs.rmSync(rooted, { recursive: true, force: true });
     }
   });
 
