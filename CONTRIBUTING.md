@@ -42,7 +42,15 @@ O vínculo nunca é "limpo" ao promover — ele simplesmente nunca entra em `dev
     PROJECT_OWNER: ${{ vars.PROJECT_OWNER }}
   ```
 
-A cada push na `main`, o `internal-sync.yml` mergeia a `main` na `internal` (só roda em `MatheusFelipeCorrea/Hyperion`, nunca em fork); se a `main` mexeu em workflow (o `GITHUB_TOKEN` não pode) ou houver conflito, ele abre um PR `main` → `internal` para merge manual. Com o secret `INTERNAL_SYNC_TOKEN` (PAT fine-grained, Contents + Workflows) esses merges também ficam automáticos. No caminho contrário, o `distribution-purity-check` barra qualquer PR para `dev`/`qa`/`main` que traga card real, workflow `internal-*.yml` (exceto o próprio `internal-sync.yml`) ou workflow de push na `internal`.
+A cada push na `main`, o `internal-sync.yml` mergeia a `main` na `internal` (só roda em `MatheusFelipeCorrea/Hyperion`, nunca em fork); se o merge direto falhar (conflito, ou a `main` mexeu em workflow e o token não pode escrever workflows), ele abre um PR `main` → `internal` para merge manual.
+
+**Secret `INTERNAL_SYNC_TOKEN`** (Settings → Secrets and variables → Actions): um PAT fine-grained ou token de GitHub App, só neste repositório, com **Contents**, **Pull requests** e **Workflows** em read & write. Quando existe, o `internal-sync.yml` usa ele para o merge e para abrir o PR; sem ele, cai no `GITHUB_TOKEN` e o run emite um `::warning`. O motivo: o GitHub não dispara workflow nenhum a partir de eventos criados pelo `GITHUB_TOKEN`. Sem o secret:
+
+- o PR `main` → `internal` abre **sem nenhum check** (dá para disparar fechando e reabrindo o PR, e o corpo do PR avisa isso);
+- o commit de merge na `internal` não roda os workflows de push dela (`internal-cards-sync.yml`);
+- todo merge que traz mudança de workflow vira PR manual.
+
+No caminho contrário, o `distribution-purity-check` barra qualquer PR para `dev`/`qa`/`main` que traga card real, workflow `internal-*.yml` (exceto o próprio `internal-sync.yml`) ou workflow de push na `internal`.
 
 ## Como contribuir
 
