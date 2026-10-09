@@ -17,6 +17,8 @@ Ajuda de adotante: [SUPPORT.md](SUPPORT.md). Histórico de mudanças: [CHANGELOG
 
 ## Fluxo de branches
 
+O passo a passo completo — conduta de branch, caminho de um PR, promoção, o que cada pipe verifica e o que fazer quando falha — está em [fluxo-de-branches-e-pipeline.md](.github/docs/meta/fluxo-de-branches-e-pipeline.md) ([EN](.github/docs/meta/branch-and-pipeline-flow-en.md)).
+
 | Branch | Papel | Quem manda PR pra cá |
 |--------|-------|------------------------|
 | **`main`** | O que `git clone`/`hyperion:upgrade` puxa. Sempre limpa — zero vínculo com este repositório específico (sem GitHub Project vinculado, sem card real, sem config pessoal propagada). | Só `qa`, manualmente, depois de tudo verde |
@@ -24,9 +26,9 @@ Ajuda de adotante: [SUPPORT.md](SUPPORT.md). Histórico de mudanças: [CHANGELOG
 | **`qa`** | Release candidate — valida antes de promover pra `main` | `dev`, quando um lote está pronto |
 | **`internal`** | Uso real do próprio Hyperion nele mesmo (board vinculado, cards reais) | Nunca manda PR de volta — só puxa de `main` |
 
-Nada entra direto na `main` — nem atualização de dependência: o Dependabot abre PR para `dev` (`target-branch: dev`) e segue o mesmo caminho `dev` → `qa` → `main`. O `hyperion-validate` (Ubuntu e Windows) é check obrigatório em `dev`, `qa` e `main`.
+Nada entra direto na `main` — nem atualização de dependência: o Dependabot abre PR para `dev` (`target-branch: dev`) e segue o mesmo caminho `dev` → `qa` → `main`. O `hyperion-validate` (Ubuntu e Windows) e o `distribution-purity` são checks obrigatórios em `dev`, `qa` e `main`.
 
-**A `main` nunca deve ter vínculo com este repositório específico.** Um check dedicado (`npm run hyperion:distribution-purity-check`, rodando em todo PR pra `main`/`dev`/`qa` via `hyperion-validate.yml`) garante isso automaticamente — projectNumber tem que ser nulo, `hyperion-sync-cards.yml` não pode ter gatilho de push, `CODEOWNERS`/`FUNDING.yml`/`dependabot.yml` não podem propagar via upgrade, e nenhum card real pode existir fora de `_examples/`. **Se esse check (ou qualquer outro do `hyperion-validate.yml`) falhar, o PR não pode ser mergeado — sem exceção, mesmo que pareça um detalhe pequeno.** Corrija na branch de origem e deixe rodar de novo.
+**A `main` nunca deve ter vínculo com este repositório específico.** Um check dedicado (`npm run hyperion:distribution-purity-check`, rodando em todo PR pra `main`/`dev`/`qa` via `kit-purity.yml` — workflow só do kit, fora do prefixo `hyperion-*`, então o `hyperion:upgrade` nunca o leva pros produtos) garante isso automaticamente — projectNumber tem que ser nulo, `hyperion-sync-cards.yml` não pode ter gatilho de push, `CODEOWNERS`/`FUNDING.yml`/`dependabot.yml` não podem propagar via upgrade, e nenhum card real pode existir fora de `_examples/`. Fora do repositório do kit (num produto) o script não checa nada e sai com 0. **Se esse check (ou qualquer outro do `hyperion-validate.yml`) falhar, o PR não pode ser mergeado — sem exceção, mesmo que pareça um detalhe pequeno.** Corrija na branch de origem e deixe rodar de novo.
 
 ## Como contribuir
 
@@ -47,6 +49,14 @@ Nada entra direto na `main` — nem atualização de dependência: o Dependabot 
    Sem Node: `./bin/hyperion` — [node-and-docker.md](.github/docs/meta/node-and-docker.md). Gates: [definition-of-done.md](.github/docs/meta/definition-of-done.md).
 5. Commit com mensagem descritiva
 6. Abra um Pull Request (use o template do repositório)
+
+### Testando de verdade sem vincular o kit
+
+Testar sync com board, cards reais ou instalação **não** deve deixar rastro no seu fork do kit — o `distribution-purity-check` barra o PR se deixar:
+
+- **Seu board, sem commit:** coloque `PROJECT_NUMBER`, `PROJECT_OWNER` e `PROJECT_SYNC_TOKEN` no `.env` (ou `.env.local`) — os dois são gitignored e os scripts `cards:*` carregam sozinhos (só as variáveis que o Hyperion lê; as já exportadas têm prioridade). Não edite o `projects-map.json`.
+- **Cards e instalação num repo sandbox:** crie um repo descartável e instale sua cópia de trabalho nele — `npm run hyperion:upgrade -- --from ../Hyperion --yes` (rodado dentro do sandbox) — e teste `/setup`, `/pipeline`, cards e sync lá. Os cards de teste vivem no sandbox, nunca no fork do kit.
+- **Se algo escapou:** `npm run hyperion:distribution-purity-check -- --fix` mostra o plano sem mexer em nada; com `--fix --yes` ele zera o `projectNumber` (e mostra o valor pra você levar ao `.env`) e tira cards/planos do git sem apagá-los do disco (ficam em `.git/info/exclude`). Antes, copia cada arquivo pra `.git/hyperion-backup/<data>/` e imprime como restaurar — rebase/squash/cherry-pick do commit que os destrackeia, checkout através dele ou `git clean -X` podem apagar a cópia de trabalho, o backup não. Recusa rodar na branch `internal`. O que ele não corrige sozinho vem com o comando sugerido. Depois é só commitar.
 
 ## Tipos de contribuição
 
