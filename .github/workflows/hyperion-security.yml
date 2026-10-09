@@ -66,6 +66,6 @@ jobs:
           fi
 
       - name: Check for secrets
-        uses: trufflesecurity/trufflehog@v3.97.1
+        uses: trufflesecurity/trufflehog@v3.97.9
         with:
           extra_args: --only-verified
