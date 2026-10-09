@@ -3,6 +3,7 @@ import path from "node:path";
 import process from "node:process";
 import { listCardsMarkdownFiles, checkCardPathLayout } from "./lib.mjs";
 import { resolveHyperionPaths } from "../hyperion/paths.mjs";
+import { ciFailList } from "../hyperion/ci-annotate.mjs";
 
 const paths = resolveHyperionPaths(process.cwd());
 const workspaceRoot = paths.workspaceRoot;
@@ -267,6 +268,7 @@ for (const card of cards) {
 if (errors.length) {
   console.log("[validate] ❌ Cards validation failed:");
   for (const e of errors) console.log(`- ${e}`);
+  ciFailList(workspaceRoot, "cards.fail.validate", errors);
   process.exit(1);
 }
 

@@ -5,8 +5,9 @@
  * Check: npm run hyperion:check-rules
  */
 import { readFileSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
+import { ciErrorList } from "./ci-annotate.mjs";
 import {
   AGENTS_MARKER_END,
   AGENTS_MARKER_START,
@@ -62,14 +63,14 @@ const outputs = [
   }),
 ];
 
-let drift = false;
+const drifted = [];
 
 for (const { path, content } of outputs) {
   if (checkOnly) {
     const current = normalizeEol(readFileSync(path, "utf8"));
     if (current !== content) {
       console.error(`Drift detected: ${path.replace(/\\/g, "/")}`);
-      drift = true;
+      drifted.push(relative(join(__dirname, "../.."), path));
     }
     continue;
   }
@@ -78,8 +79,13 @@ for (const { path, content } of outputs) {
 }
 
 if (checkOnly) {
-  if (drift) {
+  if (drifted.length) {
     console.error("\nRuntime rules out of sync. Run: npm run hyperion:generate-rules");
+    ciErrorList(
+      "Runtime rules out of sync",
+      drifted.map((file) => ({ file, message: "Generated from .github/commands.yml and the skills catalog, but not regenerated (or edited by hand)." })),
+      "Run npm run hyperion:generate-rules and commit the regenerated files together with your .github/commands.yml / skills change."
+    );
     process.exit(1);
   }
   console.log("Runtime rules in sync with .github/commands.yml");
