@@ -18,6 +18,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { resolveHyperionPaths } from "../hyperion/paths.mjs";
+import { ciFail } from "../hyperion/ci-annotate.mjs";
 import { parseHistoryLines } from "./history.mjs";
 
 export function buildSlackPayload(text) {
@@ -99,6 +100,7 @@ async function main() {
     console.error(`[notify] WARN: ${failure.reason?.message || failure.reason}`);
   }
   if (failures.length === results.length && results.length > 0) {
+    ciFail(resolveHyperionPaths(process.cwd()).workspaceRoot, "cards.fail.notify", { count: failures.length });
     process.exitCode = 1;
   }
 }
