@@ -1,6 +1,6 @@
 import test, { after } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, writeFileSync, rmSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -12,6 +12,8 @@ import {
   checkNoRealCards,
   checkNoLeakedPlans,
   checkNoLeakedPaths,
+  detectKit,
+  excludePattern,
 } from "./distribution-purity-check.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -36,8 +38,38 @@ function commitAll(dir) {
 
 function makeFailCollector() {
   const failures = [];
-  const fail = (where, why) => failures.push({ where, why });
+  const fail = (where, why, fix = null) => failures.push({ where, why, fix });
   return { failures, fail };
+}
+
+function run(dir, args = [], env = {}) {
+  return spawnSync(process.execPath, [scriptPath, ...args], { cwd: dir, encoding: "utf8", env: { ...process.env, ...env } });
+}
+
+function tracked(dir, pathspec = ".github") {
+  return spawnSync("git", ["-c", "core.quotePath=false", "ls-files", "--", pathspec], { cwd: dir, encoding: "utf8" }).stdout;
+}
+
+/** A kit-looking checkout with one bound board, a real card and a leaked plan. */
+function makeDirtyKitRepo(cardNames = ["TEST-001.md"]) {
+  const dir = makeRepo();
+  mkdirSync(join(dir, ".github", "cards", "config"), { recursive: true });
+  mkdirSync(join(dir, ".github", "cards", "stories"), { recursive: true });
+  mkdirSync(join(dir, ".github", "plans"), { recursive: true });
+  mkdirSync(join(dir, "scripts", "hyperion"), { recursive: true });
+  writeFileSync(
+    join(dir, "package.json"),
+    JSON.stringify({ name: "hyperion", repository: { type: "git", url: "https://github.com/MatheusFelipeCorrea/Hyperion.git" } })
+  );
+  writeFileSync(
+    join(dir, ".github", "cards", "config", "projects-map.json"),
+    JSON.stringify({ default: { projectNumber: 99 }, repositories: {} })
+  );
+  for (const name of cardNames) writeFileSync(join(dir, ".github", "cards", "stories", name), `# ${name}\n`);
+  writeFileSync(join(dir, ".github", "plans", "notes.md"), "notes\n");
+  writeFileSync(join(dir, "scripts", "hyperion", "upgrade-lib.mjs"), 'export const MANAGED_FILES = [".github/commands.yml"];\n');
+  commitAll(dir);
+  return dir;
 }
 
 after(() => {
@@ -172,18 +204,86 @@ test("checkNoLeakedPaths passes clean, fails on a committed absolute personal pa
   assert.match(failures[0].where, /leak\.mjs/);
 });
 
-test("--fix nulls projectNumber and untracks cards/plans without deleting them", () => {
+test("checkNoRealCards and checkNoLeakedPlans report non-ASCII file names verbatim", () => {
   const dir = makeRepo();
-  mkdirSync(join(dir, ".github", "cards", "config"), { recursive: true });
   mkdirSync(join(dir, ".github", "cards", "stories"), { recursive: true });
   mkdirSync(join(dir, ".github", "plans"), { recursive: true });
-  mkdirSync(join(dir, "scripts", "hyperion"), { recursive: true });
-  const mapPath = join(dir, ".github", "cards", "config", "projects-map.json");
-  writeFileSync(mapPath, JSON.stringify({ default: { projectNumber: 99 }, repositories: {} }));
-  writeFileSync(join(dir, ".github", "cards", "stories", "TEST-001.md"), "# my test card\n");
-  writeFileSync(join(dir, ".github", "plans", "notes.md"), "notes\n");
-  writeFileSync(join(dir, "scripts", "hyperion", "upgrade-lib.mjs"), 'export const MANAGED_FILES = [".github/commands.yml"];\n');
+  writeFileSync(join(dir, ".github", "cards", "stories", "ação-001.md"), "# card\n");
+  writeFileSync(join(dir, ".github", "plans", "revisão.md"), "notes\n");
   commitAll(dir);
+
+  let { failures, fail } = makeFailCollector();
+  checkNoRealCards(dir, fail);
+  assert.deepEqual(failures.map((f) => f.where), [".github/cards/stories/ação-001.md"]);
+
+  ({ failures, fail } = makeFailCollector());
+  checkNoLeakedPlans(dir, fail);
+  assert.deepEqual(failures.map((f) => f.where), [".github/plans/revisão.md"]);
+});
+
+test("checkSyncCardsNoPushTrigger suggests upstream/dev in a fork with an upstream remote", () => {
+  const dir = makeRepo();
+  mkdirSync(join(dir, ".github", "workflows"), { recursive: true });
+  writeFileSync(join(dir, ".github", "workflows", "hyperion-sync-cards.yml"), "on:\n  push:\n    branches: [main]\n");
+
+  let { failures, fail } = makeFailCollector();
+  checkSyncCardsNoPushTrigger(dir, fail);
+  assert.match(failures[0].fix.hint, /--source=origin\/dev /);
+
+  spawnSync("git", ["remote", "add", "upstream", "https://example.invalid/kit.git"], { cwd: dir });
+  ({ failures, fail } = makeFailCollector());
+  checkSyncCardsNoPushTrigger(dir, fail);
+  assert.match(failures[0].fix.hint, /--source=upstream\/dev /);
+});
+
+test("detectKit recognises the kit (or a fork) and nothing else", () => {
+  const dir = makeRepo();
+  assert.equal(detectKit(dir).isKit, false, "no package.json");
+
+  const kitPkg = { name: "hyperion", repository: { type: "git", url: "https://github.com/MatheusFelipeCorrea/Hyperion.git" } };
+  writeFileSync(join(dir, "package.json"), JSON.stringify(kitPkg));
+  assert.equal(detectKit(dir).isKit, true);
+
+  writeFileSync(join(dir, "package.json"), JSON.stringify({ ...kitPkg, repository: "git@github.com:MatheusFelipeCorrea/Hyperion.git" }));
+  assert.equal(detectKit(dir).isKit, true, "string repository form");
+
+  writeFileSync(join(dir, "package.json"), JSON.stringify({ ...kitPkg, name: "acme-app" }));
+  assert.equal(detectKit(dir).isKit, false, "product package.json");
+
+  writeFileSync(join(dir, "package.json"), JSON.stringify({ ...kitPkg, repository: "https://github.com/acme/Hyperion.git" }));
+  assert.equal(detectKit(dir).isKit, false, "another repo named hyperion");
+
+  writeFileSync(join(dir, "package.json"), JSON.stringify(kitPkg));
+  mkdirSync(join(dir, ".github"), { recursive: true });
+  writeFileSync(join(dir, ".github", "hyperion-kit.json"), "{}\n");
+  assert.equal(detectKit(dir).isKit, false, "upgraded product");
+});
+
+test("excludePattern anchors the path and escapes glob metacharacters, ! and #", () => {
+  assert.equal(excludePattern(".github/cards/a.md"), "/.github/cards/a.md");
+  assert.equal(excludePattern(".github/cards/a*b?.md"), "/.github/cards/a\\*b\\?.md");
+  assert.equal(excludePattern(".github/cards/[x] !#1.md"), "/.github/cards/\\[x\\] \\!\\#1.md");
+  assert.equal(excludePattern("dir/back\\slash.md"), "/dir/back\\\\slash.md");
+  assert.equal(excludePattern("dir/trailing  "), "/dir/trailing\\ \\ ");
+});
+
+test("outside the kit the script checks nothing and --fix --yes changes nothing", () => {
+  const dir = makeDirtyKitRepo();
+  writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "acme-app", private: true }));
+  commitAll(dir);
+
+  const plain = run(dir);
+  assert.equal(plain.status, 0, plain.stdout + plain.stderr);
+  assert.match(plain.stdout, /not the Hyperion kit repository/);
+
+  const fix = run(dir, ["--fix", "--yes"]);
+  assert.equal(fix.status, 0, fix.stdout + fix.stderr);
+  assert.match(tracked(dir), /TEST-001\.md/);
+  assert.equal(JSON.parse(readFileSync(join(dir, ".github", "cards", "config", "projects-map.json"), "utf8")).default.projectNumber, 99);
+});
+
+test("a failing run points at --fix, with plain output outside GitHub Actions", () => {
+  const dir = makeDirtyKitRepo();
 
   const dirty = spawnSync(process.execPath, [scriptPath], { cwd: dir, encoding: "utf8", env: { ...process.env, GITHUB_ACTIONS: "" } });
   assert.equal(dirty.status, 1);
@@ -192,16 +292,67 @@ test("--fix nulls projectNumber and untracks cards/plans without deleting them",
 
   const inActions = spawnSync(process.execPath, [scriptPath], { cwd: dir, encoding: "utf8", env: { ...process.env, GITHUB_ACTIONS: "true" } });
   assert.match(inActions.stderr, /::error title=Binding to the Hyperion repo,file=\.github\/cards\/config\/projects-map\.json::.*PROJECT_NUMBER in your \.env/);
+});
 
-  const fixed = spawnSync(process.execPath, [scriptPath, "--fix"], { cwd: dir, encoding: "utf8" });
+test("--fix without --yes prints the plan and changes nothing", () => {
+  const dir = makeDirtyKitRepo();
+  const mapPath = join(dir, ".github", "cards", "config", "projects-map.json");
+
+  const preview = run(dir, ["--fix"]);
+  assert.equal(preview.status, 1, preview.stdout + preview.stderr);
+  assert.match(preview.stdout, /--fix plan \(nothing changed yet\)/);
+  assert.match(preview.stdout, /default=#99/);
+  assert.match(preview.stdout, /untrack .*TEST-001\.md/);
+  assert.match(preview.stdout, /--fix --yes/);
+  assert.equal(JSON.parse(readFileSync(mapPath, "utf8")).default.projectNumber, 99);
+  assert.match(tracked(dir), /TEST-001\.md/);
+  assert.ok(!existsSync(join(dir, ".git", "hyperion-backup")));
+});
+
+test("--fix --yes backs files up, untracks them with escaped excludes, and the backup survives git clean -X", () => {
+  const cards = ["TEST-001.md", "ação-002.md", "[draft] #3!.md"];
+  const dir = makeDirtyKitRepo(cards);
+  const mapPath = join(dir, ".github", "cards", "config", "projects-map.json");
+  rmSync(join(dir, ".git", "info"), { recursive: true, force: true });
+
+  const fixed = run(dir, ["--fix", "--yes"]);
   assert.equal(fixed.status, 0, fixed.stdout + fixed.stderr);
   assert.match(fixed.stdout, /PROJECT_NUMBER=<n> in \.env/);
   assert.equal(JSON.parse(readFileSync(mapPath, "utf8")).default.projectNumber, null);
-  assert.ok(existsSync(join(dir, ".github", "cards", "stories", "TEST-001.md")), "card stays on disk");
-  const tracked = spawnSync("git", ["ls-files", ".github"], { cwd: dir, encoding: "utf8" }).stdout;
-  assert.doesNotMatch(tracked, /TEST-001\.md|notes\.md/);
-  const status = spawnSync("git", ["status", "--porcelain", "--untracked-files=all"], { cwd: dir, encoding: "utf8" }).stdout;
-  assert.doesNotMatch(status, /\?\? .*TEST-001\.md/, "excluded, so `git add -A` won't bring it back");
+
+  const stamps = readdirSync(join(dir, ".git", "hyperion-backup"));
+  assert.equal(stamps.length, 1);
+  const backupDir = join(dir, ".git", "hyperion-backup", stamps[0]);
+  assert.ok(fixed.stdout.includes(`Backup of every untracked file: ${backupDir}`), fixed.stdout);
+  assert.match(fixed.stdout, /git clean -X/);
+  assert.match(fixed.stdout, /Copy-Item -Recurse -Force/);
+
+  for (const name of cards) {
+    assert.ok(existsSync(join(dir, ".github", "cards", "stories", name)), `${name} stays on disk`);
+    assert.equal(readFileSync(join(backupDir, ".github", "cards", "stories", name), "utf8"), `# ${name}\n`);
+  }
+  assert.ok(existsSync(join(backupDir, ".github", "plans", "notes.md")));
+
+  const stillTracked = tracked(dir);
+  for (const name of [...cards, "notes.md"]) assert.ok(!stillTracked.includes(name), `${name} untracked`);
+  const status = spawnSync("git", ["-c", "core.quotePath=false", "status", "--porcelain", "--untracked-files=all"], { cwd: dir, encoding: "utf8" }).stdout;
+  for (const name of cards) assert.ok(!status.includes(`?? .github/cards/stories/${name}`), `${name} excluded, so \`git add -A\` won't bring it back`);
+  assert.ok(existsSync(join(dir, ".git", "info", "exclude")), ".git/info/ recreated");
+
+  spawnSync("git", ["clean", "-fdXq"], { cwd: dir });
+  assert.ok(!existsSync(join(dir, ".github", "cards", "stories", "TEST-001.md")), "git clean -X deletes excluded working copies");
+  assert.equal(readFileSync(join(backupDir, ".github", "cards", "stories", "TEST-001.md"), "utf8"), "# TEST-001.md\n");
+});
+
+test("--fix refuses on the internal branch", () => {
+  const dir = makeDirtyKitRepo();
+  spawnSync("git", ["checkout", "-q", "-b", "internal"], { cwd: dir });
+
+  const refused = run(dir, ["--fix", "--yes"]);
+  assert.equal(refused.status, 1);
+  assert.match(refused.stderr, /refused on branch `internal`/);
+  assert.match(tracked(dir), /TEST-001\.md/);
+  assert.ok(!existsSync(join(dir, ".git", "hyperion-backup")));
 });
 
 test("running as a script exits 0 on a clean repo and 1 on a dirty one", () => {
@@ -218,7 +369,7 @@ test("running as a script exits 0 on a clean repo and 1 on a dirty one", () => {
   );
   commitAll(dir);
 
-  const clean = spawnSync(process.execPath, [scriptPath], { cwd: dir, encoding: "utf8" });
+  const clean = run(dir, ["--assume-kit"]);
   assert.equal(clean.status, 0, clean.stdout + clean.stderr);
   assert.match(clean.stdout, /distribution-purity-check OK/);
 
@@ -227,7 +378,7 @@ test("running as a script exits 0 on a clean repo and 1 on a dirty one", () => {
     JSON.stringify({ default: { projectNumber: 99 }, repositories: {} })
   );
   commitAll(dir);
-  const dirty = spawnSync(process.execPath, [scriptPath], { cwd: dir, encoding: "utf8" });
+  const dirty = run(dir, ["--assume-kit"]);
   assert.equal(dirty.status, 1, dirty.stdout + dirty.stderr);
   assert.match(dirty.stdout + dirty.stderr, /FAILED/);
 });
