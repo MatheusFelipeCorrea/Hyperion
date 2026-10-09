@@ -10,6 +10,7 @@ import {
   discoverGitHubProjectNumber,
   LABELS_OVERLAY_FILENAME,
   STATUS_COLUMNS_OVERLAY_FILENAME,
+  parseProjectYmlBackend,
   resolveOverlayFilePath,
 } from "./lib.mjs";
 
@@ -105,9 +106,8 @@ async function detectBackend(repoConfig) {
   if (cfgBackend) return String(cfgBackend).toLowerCase();
 
   try {
-    const raw = await fs.readFile(projectYmlPath, "utf8");
-    const backendMatch = raw.match(/management:\s*[\s\S]*?backend\s*:\s*([^\s#]+)\s*(?:\n|$)/m);
-    if (backendMatch?.[1]) return String(backendMatch[1]).toLowerCase();
+    const backend = parseProjectYmlBackend(await fs.readFile(projectYmlPath, "utf8"));
+    if (backend) return backend;
   } catch {}
 
   return "github";
@@ -459,7 +459,8 @@ if (await fs.stat(statusColumnsOverlayPath).then(() => true).catch(() => false))
 
 // remote project checks (only if we have token + projectNumber)
 const projectOwner = process.env.PROJECT_OWNER || repoConfig.projectOwner || repoOwner;
-const projectNumber = Number(process.env.PROJECT_NUMBER || "0") || Number(repoConfig.projectNumber || "0");
+const envProjectNumber = Number(process.env.PROJECT_NUMBER || "0");
+const projectNumber = envProjectNumber || Number(repoConfig.projectNumber || "0");
 
 log("info", `Resolved project: owner="${projectOwner}", number=${projectNumber}`);
 
@@ -673,20 +674,32 @@ if (!project) {
     process.exit(0);
   }
 
-  const wants = await askYesNo("Project not found. Can I set projects-map.json.projectNumber to 0 and re-run sync to auto-create?");
-  if (!wants) {
-    warn("Auto-create skipped. You can set projectNumber to 0 manually, then run sync.mjs.");
+  if (envProjectNumber) {
+    warn(`The number comes from the PROJECT_NUMBER environment variable (PROJECT_NUMBER=${process.env.PROJECT_NUMBER}), which overrides projects-map.json.`);
+    warn("Remove PROJECT_NUMBER (or set it to an existing Project) where it is defined — shell, .env file or CI variables — then re-run cards:doctor.");
     process.exit(0);
   }
 
-  // Edit config: set default.projectNumber = 0
+  const fromRepoEntry = Object.hasOwn(config.repositories?.[repositorySlug] || {}, "projectNumber");
+  const projectNumberKey = fromRepoEntry ? `repositories["${repositorySlug}"].projectNumber` : "default.projectNumber";
+
+  const wants = await askYesNo(`Project not found. Can I set projects-map.json ${projectNumberKey} to 0 and re-run sync to auto-create?`);
+  if (!wants) {
+    warn(`Auto-create skipped. You can set ${projectNumberKey} to 0 in projects-map.json manually, then run sync.mjs.`);
+    process.exit(0);
+  }
+
   try {
     const raw = await fs.readFile(configPath, "utf8");
     const obj = JSON.parse(raw);
-    if (!obj.default) obj.default = {};
-    obj.default.projectNumber = 0;
+    if (fromRepoEntry) {
+      obj.repositories[repositorySlug].projectNumber = 0;
+    } else {
+      if (!obj.default) obj.default = {};
+      obj.default.projectNumber = 0;
+    }
     await fs.writeFile(configPath, JSON.stringify(obj, null, 2) + "\n", "utf8");
-    ok("projects-map.json updated: default.projectNumber=0");
+    ok(`projects-map.json updated: ${projectNumberKey}=0`);
   } catch (e) {
     error(`Could not edit projects-map.json: ${e.message}`);
     process.exit(1);

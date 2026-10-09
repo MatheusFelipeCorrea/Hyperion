@@ -65,6 +65,20 @@ test("migrate-layout: --yes moves files into the nested layout", () => {
   }
 });
 
+test("migrate-layout: cards with CRLF line endings are read and moved byte-for-byte", () => {
+  const crlf = card({ card_id: "S-3", type: "Story", parent: "E-1" }).replace(/\n/g, "\r\n");
+  const ws = createWorkspace({ files: { ".github/cards/stories/S-3.md": crlf } });
+  try {
+    const run = runCli("migrate-layout.mjs", ["--yes"], { ws });
+    assert.equal(run.status, 0, run.out);
+    assert.doesNotMatch(run.stdout, /SKIP/);
+    assert.match(run.stdout, /Moved: \.github\/cards\/stories\/S-3\.md → \.github\/cards\/stories\/E-1\/S-3\.md/);
+    assert.equal(ws.read(".github/cards/stories/E-1/S-3.md"), crlf);
+  } finally {
+    ws.cleanup();
+  }
+});
+
 test("migrate-layout: an occupied destination is a conflict → exit 1, file kept", () => {
   const ws = createWorkspace({
     files: {

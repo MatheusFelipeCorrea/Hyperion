@@ -37,12 +37,14 @@ async function main() {
   log("Hyperion cards init (GitHub automation bootstrap)");
   log("");
 
-  const repositorySlug = process.env.GITHUB_REPOSITORY || detectRepoFromGit() || "unknown/unknown";
+  const repoFromGit = process.env.GITHUB_REPOSITORY ? null : detectRepoFromGit();
+  const repositorySlug = process.env.GITHUB_REPOSITORY || repoFromGit || "unknown/unknown";
+  const repoSource = process.env.GITHUB_REPOSITORY ? "GITHUB_REPOSITORY" : repoFromGit ? "git auto-detect" : "fallback";
   const [repoOwner, repoName] = repositorySlug.split("/");
   const token =
     process.env.PROJECT_SYNC_TOKEN || process.env.GITHUB_TOKEN || detectTokenFromGhCli();
 
-  log(`Repository: ${repositorySlug} (${detectRepoFromGit() ? "git auto-detect" : "env/fallback"})`);
+  log(`Repository: ${repositorySlug} (${repoSource})`);
   log(`Token: ${token ? "available" : "missing — see .github/docs/integration/github-cli-setup.md (gh auth login)"}`);
 
   const config = await readJsonIfExists(configPath);
@@ -63,7 +65,7 @@ async function main() {
 
   if (backend === "github" && token && repoOwner !== "unknown") {
     log("");
-    log("Step 1/5 — Auto-discover GitHub Project number...");
+    log("Step 1/6 — Auto-discover GitHub Project number...");
     try {
       const discovery = await discoverGitHubProjectNumber({
         token,
@@ -93,7 +95,7 @@ async function main() {
       log(`  ⚠️  Project discovery failed: ${error.message}`);
     }
   } else {
-    log("Step 1/5 — Skipped project discovery (no token or repo)");
+    log("Step 1/6 — Skipped project discovery (no token or repo)");
   }
 
   log("");
@@ -110,29 +112,29 @@ async function main() {
   }
 
   log("");
-  log("Step 3/6 — Validate cards...");
+  log("Step 4/6 — Validate cards...");
   const validateCode = runScript("validate.mjs");
   if (validateCode !== 0) process.exit(validateCode);
 
   log("");
-  log("Step 4/6 — Dry-run sync...");
+  log("Step 5/6 — Dry-run sync...");
   const dryRunCode = runScript("sync.mjs", ["--dry-run"]);
   if (dryRunCode !== 0) process.exit(dryRunCode);
 
   if (argSkipSync) {
     log("");
-    log("Step 5/6 — Skipped real sync (--skip-sync)");
+    log("Step 6/6 — Skipped real sync (--skip-sync)");
   } else if (!token) {
     log("");
-    log("Step 5/6 — Skipped real sync (no token). Run: npm run cards:sync");
+    log("Step 6/6 — Skipped real sync (no token). Run: npm run cards:sync");
   } else if (argYes) {
     log("");
-    log("Step 5/6 — Real sync (--yes)...");
+    log("Step 6/6 — Real sync (--yes)...");
     const syncCode = runScript("sync.mjs");
     if (syncCode !== 0) process.exit(syncCode);
   } else {
     log("");
-    log("Step 5/6 — Real sync skipped.");
+    log("Step 6/6 — Real sync skipped.");
     log("Run `npm run cards:sync` or `npm run cards:init -- --yes` to push to GitHub.");
   }
 

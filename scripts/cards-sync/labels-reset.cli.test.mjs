@@ -117,6 +117,14 @@ test("labels-reset: Azure DevOps and Linear have nothing to reset (exit 0); unkn
     assert.equal(azure.tools.length + linear.tools.length + jira.tools.length, 0, "no gh/git calls for non-GitHub backends");
   }));
 
+test("labels-reset: project.yml backend with an inline comment is honoured (not silently github)", () =>
+  withWorkspace({ config: { default: { labels: CATALOG } }, projectYml: "management:\n  backend: linear # tracker\n" }, (ws) => {
+    const run = runCli("labels-reset.mjs", ["--yes"], { ws });
+    assert.equal(run.status, 0, run.out);
+    assert.match(run.stdout, /Backend is Linear — nothing to reset here\./);
+    assert.equal(run.tools.length, 0);
+  }));
+
 const GITLAB_ENV = { GITLAB_PROJECT_ID: "group/app", GITLAB_TOKEN: "gl-token" };
 const LABELS_FILE = {
   "labels.en.json": [{ name: "type:bug", color: "d73a4a", description: "Bug report" }, { name: "area:api", color: "0e8a16" }, { name: "plain", color: "cccccc" }],
@@ -185,6 +193,12 @@ test("labels-reset (GitLab): list failure is FATAL; missing env exits 1 before a
     const failing = runCli("labels-reset.mjs", ["--yes"], { ws, env: GITLAB_ENV, state: { gitlab: { labels: [], listStatus: 500 } } });
     assert.equal(failing.status, 1, failing.out);
     assert.match(failing.stderr, /FATAL: GitLab request failed \(500\): \{"message":"upstream error"\}/);
+
+    const proxyPage = `<html>\n<head><title>502 Bad Gateway</title></head>\n<body>${"x".repeat(500)}</body>\n</html>`;
+    const badGateway = runCli("labels-reset.mjs", ["--yes"], { ws, env: GITLAB_ENV, state: { responses: [{ url: "/labels", status: 502, body: proxyPage }] } });
+    assert.equal(badGateway.status, 1, badGateway.out);
+    assert.match(badGateway.stderr, /FATAL: GitLab request failed \(502\): <html> <head><title>502 Bad Gateway<\/title><\/head> <body>x+\n/);
+    assert.doesNotMatch(badGateway.stderr, /JSON|x{250}/);
 
     const missing = runCli("labels-reset.mjs", ["--yes"], { ws, env: { GITLAB_TOKEN: "gl-token" } });
     assert.equal(missing.status, 1, missing.out);
