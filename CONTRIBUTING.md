@@ -24,13 +24,37 @@ O passo a passo completo — conduta de branch, caminho de um PR, promoção, o 
 | **`main`** | O que `git clone`/`hyperion:upgrade` puxa. Sempre limpa — zero vínculo com este repositório específico (sem GitHub Project vinculado, sem card real, sem config pessoal propagada). | Só `qa`, manualmente, depois de tudo verde |
 | **`dev`** | Integração — todo `feat/*`/`fix/*` abre PR pra cá | Contribuidores e mantenedor |
 | **`qa`** | Release candidate — o PR `dev` → `qa` roda a varredura pesada do `qa-release-gate.yml` antes de promover pra `main` | `dev`, quando um lote está pronto |
-| **`internal`** | Uso real do próprio Hyperion nele mesmo (board vinculado, cards reais) | Nunca manda PR de volta — só puxa de `main` |
+| **`internal`** | Uso real do próprio Hyperion nele mesmo (board vinculado, cards reais) | Ninguém — recebe a `main` automaticamente (`internal-sync.yml`) e nunca manda PR de volta |
 
 Nada entra direto na `main` — nem atualização de dependência: o Dependabot abre PR para `dev` (`target-branch: dev`) e segue o mesmo caminho `dev` → `qa` → `main`. O `hyperion-validate` (Ubuntu e Windows) e o `distribution-purity` são checks obrigatórios em `dev`, `qa` e `main`.
 
 Na `qa` entra também o **`qa-gate`** (`qa-release-gate.yml`), lento demais pra rodar em todo PR: testes em Ubuntu/Windows/macOS × Node 22/24; todas as validações + cobertura mínima de **95% das linhas** (`npm run kit:coverage`; arquivo que nenhum teste importa conta como 0%, então script novo sem teste derruba o gate); instalação real num produto novo (`create-hyperion`) e upgrade de um produto que está na `main` para o candidato (preservando `project.yml` e os workflows do produto); e2e de cards contra o repo sandbox; actionlint + shellcheck nos workflows e templates; links externos de todo `.md`; segredos no histórico inteiro (trufflehog); build e smoke da imagem Docker. Se falhar, corrija na `dev` e o PR de promoção roda de novo.
 
 **A `main` nunca deve ter vínculo com este repositório específico.** Um check dedicado (`npm run hyperion:distribution-purity-check`, rodando em todo PR pra `main`/`dev`/`qa` via `kit-purity.yml` — workflow só do kit, fora do prefixo `hyperion-*`, então o `hyperion:upgrade` nunca o leva pros produtos) garante isso automaticamente — projectNumber tem que ser nulo, `hyperion-sync-cards.yml` não pode ter gatilho de push, `CODEOWNERS`/`FUNDING.yml`/`dependabot.yml` não podem propagar via upgrade, e nenhum card real pode existir fora de `_examples/`. Fora do repositório do kit (num produto) o script não checa nada e sai com 0. **Se esse check (ou qualquer outro do `hyperion-validate.yml`) falhar, o PR não pode ser mergeado — sem exceção, mesmo que pareça um detalhe pequeno.** Corrija na branch de origem e deixe rodar de novo.
+
+### Branch `internal` (o kit usando o próprio kit)
+
+O vínculo nunca é "limpo" ao promover — ele simplesmente nunca entra em `dev`/`qa`/`main`. A `internal` é a `main` **mais arquivos que só ela tem**, sem editar nenhum arquivo que a `main` também tenha; por isso o merge `main` → `internal` nunca conflita:
+
+- **Board:** as variáveis de repositório `PROJECT_NUMBER` (e `PROJECT_OWNER`, se o board não for do dono do repo), em Settings → Variables. Variável de repositório **não** chega sozinha nos scripts: só o workflow que mapeia no `env:` do step repassa (`PROJECT_NUMBER: ${{ vars.PROJECT_NUMBER }}`), e aí `sync.mjs`/`ci-sync.mjs`/`pr-board-guard.mjs` usam esse valor no lugar do `projects-map.json`. Só os workflows da `internal` mapeiam; os de `dev`/`qa`/`main` não podem mapear (a variável vale pro repo todo, e eles ligariam essas branches ao board real). O `projects-map.json` continua `null` em todas as branches.
+- **Cards reais:** `.github/cards/{epics,features,stories,tasks}/` existem só na `internal`, commitados direto nela.
+- **Sync dos cards:** `.github/workflows/internal-cards-sync.yml`, que só existe na `internal` (push em `internal`) e mapeia as variáveis em todo step que chama os scripts de cards:
+
+  ```yaml
+  env:
+    PROJECT_NUMBER: ${{ vars.PROJECT_NUMBER }}
+    PROJECT_OWNER: ${{ vars.PROJECT_OWNER }}
+  ```
+
+A cada push na `main`, o `internal-sync.yml` mergeia a `main` na `internal` (só roda em `MatheusFelipeCorrea/Hyperion`, nunca em fork); se o merge direto falhar (conflito, ou a `main` mexeu em workflow e o token não pode escrever workflows), ele abre um PR `main` → `internal` para merge manual.
+
+**Secret `INTERNAL_SYNC_TOKEN`** (Settings → Secrets and variables → Actions): um PAT fine-grained ou token de GitHub App, só neste repositório, com **Contents**, **Pull requests** e **Workflows** em read & write. Quando existe, o `internal-sync.yml` usa ele para o merge e para abrir o PR; sem ele, cai no `GITHUB_TOKEN` e o run emite um `::warning`. O motivo: o GitHub não dispara workflow nenhum a partir de eventos criados pelo `GITHUB_TOKEN`. Sem o secret:
+
+- o PR `main` → `internal` abre **sem nenhum check** (dá para disparar fechando e reabrindo o PR, e o corpo do PR avisa isso);
+- o commit de merge na `internal` não roda os workflows de push dela (`internal-cards-sync.yml`);
+- todo merge que traz mudança de workflow vira PR manual.
+
+No caminho contrário, o `distribution-purity-check` barra qualquer PR para `dev`/`qa`/`main` que traga card real, workflow `internal-*.yml` (exceto o próprio `internal-sync.yml`) ou workflow de push na `internal`.
 
 ## Como contribuir
 

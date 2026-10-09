@@ -8,6 +8,7 @@ import { spawnSync } from "node:child_process";
 import {
   checkNoProjectNumber,
   checkSyncCardsNoPushTrigger,
+  checkNoInternalOnlyWorkflows,
   checkNotManagedFiles,
   checkNoRealCards,
   checkNoLeakedPlans,
@@ -121,6 +122,40 @@ test("checkSyncCardsNoPushTrigger passes on dispatch-only, fails with a push tri
   ({ failures, fail } = makeFailCollector());
   checkSyncCardsNoPushTrigger(dir, fail);
   assert.equal(failures.length, 1);
+});
+
+test("checkNoInternalOnlyWorkflows ignores other triggers, fails on push to internal", () => {
+  const dir = makeRepo();
+  const wfDir = join(dir, ".github", "workflows");
+  mkdirSync(wfDir, { recursive: true });
+  writeFileSync(join(wfDir, "internal-sync.yml"), "on:\n  push:\n    branches: [main]\njobs: {}\n");
+  writeFileSync(join(wfDir, "hyperion-validate.yml"), "on:\n  pull_request:\n    branches: [main, dev, qa]\njobs: {}\n");
+
+  let { failures, fail } = makeFailCollector();
+  checkNoInternalOnlyWorkflows(dir, fail);
+  assert.equal(failures.length, 0);
+
+  writeFileSync(join(wfDir, "internal-cards-sync.yml"), "on:\n  push:\n    branches:\n      - internal\njobs: {}\n");
+  ({ failures, fail } = makeFailCollector());
+  checkNoInternalOnlyWorkflows(dir, fail);
+  assert.equal(failures.length, 1);
+  assert.match(failures[0].where, /internal-cards-sync\.yml/);
+});
+
+test("checkNoInternalOnlyWorkflows fails on internal-*.yml by name, except internal-sync.yml", () => {
+  const dir = makeRepo();
+  const wfDir = join(dir, ".github", "workflows");
+  mkdirSync(wfDir, { recursive: true });
+  writeFileSync(join(wfDir, "internal-sync.yml"), "on:\n  push:\n    branches: [main]\njobs: {}\n");
+  writeFileSync(join(wfDir, "internal-report.yaml"), "on:\n  workflow_dispatch:\njobs: {}\n");
+  writeFileSync(join(wfDir, "internal-broken.yml"), "on: [unclosed\n");
+
+  const { failures, fail } = makeFailCollector();
+  checkNoInternalOnlyWorkflows(dir, fail);
+  assert.deepEqual(
+    failures.map((f) => f.where).sort(),
+    [".github/workflows/internal-broken.yml", ".github/workflows/internal-report.yaml"],
+  );
 });
 
 test("checkNotManagedFiles passes normally, fails if CODEOWNERS/FUNDING.yml/dependabot.yml get listed", async () => {

@@ -29,5 +29,9 @@ jobs:
         with:
           node-version: "22"
 
+      # The check parses workflow YAML (internal-only workflow detection) with js-yaml.
+      - name: Install dependencies
+        run: npm ci
+
       - name: Distribution purity check (no binding to this repo)
         run: node scripts/hyperion/distribution-purity-check.mjs
