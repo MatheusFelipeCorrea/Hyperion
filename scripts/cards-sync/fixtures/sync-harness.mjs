@@ -93,15 +93,18 @@ export function makeWorkspace({ cards = {}, config = projectsMap(), files = {} }
 /**
  * Directory holding fake `gh` / `git` executables (cross-platform) that print `outputs[name]`.
  * Pass it as PATH to steer sync.mjs's token/repo auto-detection without touching real CLIs.
+ * The output lives in a sidecar `<name>.out` file so shell metacharacters (& | < > ^ % ')
+ * and empty strings are printed verbatim.
  */
 export function fakeBin(ws, outputs = {}) {
   const dir = ws.path("fake-bin");
   mkdirSync(dir, { recursive: true });
   for (const [name, output] of Object.entries(outputs)) {
+    writeFileSync(join(dir, `${name}.out`), output ? `${output}\n` : "");
     if (process.platform === "win32") {
-      writeFileSync(join(dir, `${name}.cmd`), `@echo ${output}\r\n`);
+      writeFileSync(join(dir, `${name}.cmd`), `@type "%~dp0${name}.out"\r\n`);
     } else {
-      writeFileSync(join(dir, name), `#!/bin/sh\necho '${output}'\n`);
+      writeFileSync(join(dir, name), `#!/bin/sh\ncat "$(dirname "$0")/${name}.out"\n`);
       chmodSync(join(dir, name), 0o755);
     }
   }
@@ -129,13 +132,17 @@ const CLEAN_ENV = {
   JIRA_PROJECT_KEY: undefined,
   JIRA_EMAIL: undefined,
   JIRA_API_TOKEN: undefined,
+  JIRA_ISSUE_TYPE: undefined,
   AZDO_ORG_URL: undefined,
   AZDO_PROJECT: undefined,
   AZDO_PAT: undefined,
+  AZDO_WORK_ITEM_TYPE: undefined,
   LINEAR_TEAM_ID: undefined,
   LINEAR_API_TOKEN: undefined,
+  GITLAB_URL: undefined,
   GITLAB_PROJECT_ID: undefined,
   GITLAB_TOKEN: undefined,
+  GITLAB_ISSUE_TYPE: undefined,
 };
 
 /**
