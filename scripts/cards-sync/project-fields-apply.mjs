@@ -86,8 +86,6 @@ async function renameField(fieldId, newName) {
 
 async function createField(project, key, name, repoConfig) {
   const spec = REQUIRED_FIELDS.find((f) => f.key === key);
-  if (!spec) throw new Error(`No creation spec for field key "${key}"`);
-
   if (spec.kind === "single_select") {
     await addSingleSelectField(project.id, name, spec.options, spec.key);
   } else if (spec.kind === "number") {
