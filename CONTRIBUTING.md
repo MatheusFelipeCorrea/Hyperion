@@ -22,11 +22,21 @@ Ajuda de adotante: [SUPPORT.md](SUPPORT.md). Histórico de mudanças: [CHANGELOG
 | **`main`** | O que `git clone`/`hyperion:upgrade` puxa. Sempre limpa — zero vínculo com este repositório específico (sem GitHub Project vinculado, sem card real, sem config pessoal propagada). | Só `qa`, manualmente, depois de tudo verde |
 | **`dev`** | Integração — todo `feat/*`/`fix/*` abre PR pra cá | Contribuidores e mantenedor |
 | **`qa`** | Release candidate — valida antes de promover pra `main` | `dev`, quando um lote está pronto |
-| **`internal`** | Uso real do próprio Hyperion nele mesmo (board vinculado, cards reais) | Nunca manda PR de volta — só puxa de `main` |
+| **`internal`** | Uso real do próprio Hyperion nele mesmo (board vinculado, cards reais) | Ninguém — recebe a `main` automaticamente (`internal-sync.yml`) e nunca manda PR de volta |
 
 Nada entra direto na `main` — nem atualização de dependência: o Dependabot abre PR para `dev` (`target-branch: dev`) e segue o mesmo caminho `dev` → `qa` → `main`. O `hyperion-validate` (Ubuntu e Windows) é check obrigatório em `dev`, `qa` e `main`.
 
 **A `main` nunca deve ter vínculo com este repositório específico.** Um check dedicado (`npm run hyperion:distribution-purity-check`, rodando em todo PR pra `main`/`dev`/`qa` via `hyperion-validate.yml`) garante isso automaticamente — projectNumber tem que ser nulo, `hyperion-sync-cards.yml` não pode ter gatilho de push, `CODEOWNERS`/`FUNDING.yml`/`dependabot.yml` não podem propagar via upgrade, e nenhum card real pode existir fora de `_examples/`. **Se esse check (ou qualquer outro do `hyperion-validate.yml`) falhar, o PR não pode ser mergeado — sem exceção, mesmo que pareça um detalhe pequeno.** Corrija na branch de origem e deixe rodar de novo.
+
+### Branch `internal` (o kit usando o próprio kit)
+
+O vínculo nunca é "limpo" ao promover — ele simplesmente nunca entra em `dev`/`qa`/`main`. A `internal` é a `main` **mais arquivos que só ela tem**, sem editar nenhum arquivo que a `main` também tenha; por isso o merge `main` → `internal` nunca conflita:
+
+- **Board:** a variável de repositório `PROJECT_NUMBER` (Settings → Variables), lida pelo `sync.mjs`/`ci-sync.mjs`. O `projects-map.json` continua `null` em todas as branches.
+- **Cards reais:** `.github/cards/{epics,features,stories,tasks}/` existem só na `internal`, commitados direto nela.
+- **Sync dos cards:** `.github/workflows/internal-cards-sync.yml`, que só existe na `internal` (push em `internal`).
+
+A cada push na `main`, o `internal-sync.yml` mergeia a `main` na `internal`; se a `main` mexeu em workflow (o `GITHUB_TOKEN` não pode) ou houver conflito, ele abre um PR `main` → `internal` para merge manual. Com o secret `INTERNAL_SYNC_TOKEN` (PAT fine-grained, Contents + Workflows) esses merges também ficam automáticos. No caminho contrário, o `distribution-purity-check` barra qualquer PR para `dev`/`qa`/`main` que traga card real ou workflow de push na `internal`.
 
 ## Como contribuir
 

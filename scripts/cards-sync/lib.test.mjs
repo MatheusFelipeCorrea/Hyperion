@@ -287,6 +287,22 @@ test("assertCiProjectConfigured requires projectNumber when env set", async () =
   }
 });
 
+test("assertCiProjectConfigured accepts PROJECT_NUMBER from env (no committed projectNumber)", async () => {
+  const prev = { req: process.env.CARDS_CI_REQUIRE_PROJECT, num: process.env.PROJECT_NUMBER };
+  process.env.CARDS_CI_REQUIRE_PROJECT = "true";
+  process.env.PROJECT_NUMBER = "25";
+  try {
+    const result = await assertCiProjectConfigured("/nonexistent/projects-map.json", "org/repo");
+    assert.equal(result.ok, true);
+    assert.equal(result.projectNumber, 25);
+  } finally {
+    for (const [key, value] of [["CARDS_CI_REQUIRE_PROJECT", prev.req], ["PROJECT_NUMBER", prev.num]]) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+});
+
 test("assertCiProjectConfigured skips projectNumber for non-GitHub backend", async () => {
   const prev = process.env.CARDS_CI_REQUIRE_PROJECT;
   process.env.CARDS_CI_REQUIRE_PROJECT = "true";

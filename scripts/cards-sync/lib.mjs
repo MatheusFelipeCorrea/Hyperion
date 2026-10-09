@@ -519,18 +519,22 @@ export async function assertCiProjectConfigured(configPath, repositorySlug, { ba
 
   const config = (await readJsonIfExists(configPath)) || {};
   const repoConfig = resolveRepoConfig(config, repositorySlug);
-  const projectNumber = Number(repoConfig.projectNumber || 0);
+  const projectNumber = Number(process.env.PROJECT_NUMBER || 0) || Number(repoConfig.projectNumber || 0);
 
   if (projectNumber <= 0) {
     return {
       ok: false,
       reason: "missing_project_number",
       message:
-        "CI pull-before-push requires projectNumber in projects-map.json. Run: npm run cards:doctor",
+        "CI pull-before-push requires a GitHub Project: set projectNumber in projects-map.json or the PROJECT_NUMBER env/repository variable. Run: npm run cards:doctor",
     };
   }
 
-  return { ok: true, projectNumber, projectOwner: repoConfig.projectOwner || null };
+  return {
+    ok: true,
+    projectNumber,
+    projectOwner: process.env.PROJECT_OWNER || repoConfig.projectOwner || null,
+  };
 }
 
 /** Resolve cards-sync backend from env, project.yml, or projects-map.json. */

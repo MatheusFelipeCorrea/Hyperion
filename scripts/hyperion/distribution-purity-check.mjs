@@ -16,10 +16,11 @@
  * Run: npm run hyperion:distribution-purity-check
  *      npm run hyperion:distribution-purity-check -- --root .
  */
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { execSync, execFileSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
+import { load } from "js-yaml";
 
 function argValue(flag) {
   const i = process.argv.indexOf(flag);
@@ -63,6 +64,28 @@ export function checkSyncCardsNoPushTrigger(root, fail) {
   const onBlock = text.match(/(?:^|\n)on:\s*\n([\s\S]*?)(?=\n\S|$)/)?.[1] || "";
   if (/^\s*push:/m.test(onBlock)) {
     fail(rel, "has a `push:` trigger — this repo has no real GitHub Project to sync to, a push-triggered run will always fail (or worse, auto-create one)");
+  }
+}
+
+/**
+ * Workflows triggered by a push to `internal` only exist on that branch (the
+ * repo using its own kit). Finding one here means internal was merged back.
+ */
+export function checkNoInternalOnlyWorkflows(root, fail) {
+  const dir = join(root, ".github", "workflows");
+  if (!existsSync(dir)) return;
+  for (const name of readdirSync(dir).filter((f) => /\.ya?ml$/.test(f))) {
+    const rel = `.github/workflows/${name}`;
+    let doc;
+    try {
+      doc = load(readFileSync(join(dir, name), "utf8"));
+    } catch {
+      continue; // malformed YAML is actionlint's job, not this gate's
+    }
+    const branches = [doc?.on?.push?.branches].flat().filter(Boolean);
+    if (branches.includes("internal")) {
+      fail(rel, "runs on push to `internal` — internal-only files never leave that branch (internal only pulls from main)");
+    }
   }
 }
 
@@ -150,6 +173,7 @@ async function main() {
   const checks = [
     ["projects-map.json has no real projectNumber", checkNoProjectNumber],
     ["hyperion-sync-cards.yml has no push trigger", checkSyncCardsNoPushTrigger],
+    ["no internal-only workflow (push to internal)", checkNoInternalOnlyWorkflows],
     ["CODEOWNERS/FUNDING.yml/dependabot.yml not in MANAGED_FILES", checkNotManagedFiles],
     ["no real cards outside _examples/", checkNoRealCards],
     [".github/plans/ has no leaked planning docs", checkNoLeakedPlans],
