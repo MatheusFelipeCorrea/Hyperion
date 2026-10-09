@@ -630,17 +630,15 @@ if (!projectNumber || projectNumber <= 0) {
   // before it ever considers creating one — check the same way here
   // (persist: false, so this stays a read-only preview) instead of
   // unconditionally reporting "missing".
-  const discovery = token
-    ? await discoverGitHubProjectNumber({
-        token,
-        owner: repoOwner,
-        repoName,
-        repoConfig,
-        configPath,
-        repositorySlug,
-        persist: false,
-      })
-    : { discovered: false, reason: "no_token" };
+  const discovery = await discoverGitHubProjectNumber({
+    token,
+    owner: repoOwner,
+    repoName,
+    repoConfig,
+    configPath,
+    repositorySlug,
+    persist: false,
+  });
 
   if (discovery.discovered) {
     ok(`sync.mjs would auto-discover GitHub Project #${discovery.projectNumber}: "${discovery.projectTitle}"`);
