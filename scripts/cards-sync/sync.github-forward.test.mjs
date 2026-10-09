@@ -606,7 +606,8 @@ test("forward dispatches to the configured non-GitHub backend; setup errors prin
 test("forward falls back to the gh CLI token and an SSH git remote, warning that it uses the local identity", () => {
   const cards = { "stories/APP-1.md": card({ id: "APP-1" }) };
   withWorkspace({ cards, config: projectsMap({ projectNumber: 1 }) }, (ws) => {
-    const bin = fakeBin(ws, { gh: "gh-local-token", git: "git@github.com:octo/web.git" });
+    const ghToken = "gh-local&token|<x>^%PATH%'";
+    const bin = fakeBin(ws, { gh: ghToken, git: "git@github.com:octo/web.git" });
     const run = runSync(ws, [], {
       env: { PROJECT_SYNC_TOKEN: undefined, GITHUB_REPOSITORY: undefined, Path: undefined, PATH: bin },
       state: { repoSlug: "octo/web", projects: [project({ repos: ["octo/web"], fields: [kitStatusField()], views: KIT_VIEWS })] },
@@ -615,7 +616,7 @@ test("forward falls back to the gh CLI token and an SSH git remote, warning that
     assert.ok(run.logs.includes("Repository: octo/web"));
     assert.ok(run.logs.includes("Token source: gh-cli"));
     assert.ok(run.logs.some((l) => l.startsWith("Warning: no PROJECT_SYNC_TOKEN/GITHUB_TOKEN set — falling back to your local `gh auth token` session.")));
-    assert.ok(run.calls.every((c) => c.headers.Authorization === "Bearer gh-local-token"));
+    assert.ok(run.calls.every((c) => c.headers.Authorization === `Bearer ${ghToken}`));
     assert.equal(run.state.issues[0].title, "[Story] Card APP-1");
   });
 });
