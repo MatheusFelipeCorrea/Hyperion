@@ -22,19 +22,52 @@ export const HYPERION_WORKFLOWS = {
 
 export const LEGACY_WORKFLOWS = ["ci.yml", "sync-cards.yml", "security.yml"];
 
-/** Detect origin default branch (main, master, …). Falls back to main. */
-export function detectDefaultBranch(root = workspaceRoot) {
+function originHeadBranch(root) {
   try {
     const ref = execSync("git symbolic-ref refs/remotes/origin/HEAD", {
       encoding: "utf8",
       cwd: root,
       stdio: ["pipe", "pipe", "pipe"],
     }).trim();
-    const match = ref.match(/refs\/remotes\/origin\/(.+)$/);
-    if (match?.[1]) return match[1];
+    return ref.match(/refs\/remotes\/origin\/(.+)$/)?.[1] || null;
   } catch {
-    /* no origin HEAD */
+    return null;
   }
+}
+
+// Asks git rather than reading .git/refs/heads/*, which breaks in a worktree or submodule
+// (.git is a file there).
+function existingMainBranch(root) {
+  for (const candidate of ["main", "master"]) {
+    try {
+      execSync(`git rev-parse --verify --quiet ${candidate}`, {
+        cwd: root,
+        stdio: ["ignore", "ignore", "ignore"],
+      });
+      return candidate;
+    } catch {
+      /* branch doesn't exist */
+    }
+  }
+  return null;
+}
+
+/**
+ * Branch that generated workflows target. Only origin/HEAD counts as known; otherwise
+ * an existing main/master (or "main") is assumed — never the checked-out branch, which
+ * on a feature branch would bake `feature/x` into every workflow.
+ * @returns {{ branch: string, known: boolean }}
+ */
+export function detectWorkflowBaseBranch(root = workspaceRoot) {
+  const origin = originHeadBranch(root);
+  if (origin) return { branch: origin, known: true };
+  return { branch: existingMainBranch(root) || "main", known: false };
+}
+
+/** Detect origin default branch (main, master, …). Falls back to main. */
+export function detectDefaultBranch(root = workspaceRoot) {
+  const origin = originHeadBranch(root);
+  if (origin) return origin;
 
   try {
     const ref = execSync("git symbolic-ref HEAD", {
@@ -48,22 +81,7 @@ export function detectDefaultBranch(root = workspaceRoot) {
     /* detached or no git */
   }
 
-  // Last resort: ask git directly whether main/master exist as branches.
-  // (Reading .git/refs/heads/* directly would break in a worktree or
-  // submodule, where .git is a file pointing elsewhere, not a directory.)
-  for (const candidate of ["main", "master"]) {
-    try {
-      execSync(`git rev-parse --verify --quiet ${candidate}`, {
-        cwd: root,
-        stdio: ["ignore", "ignore", "ignore"],
-      });
-      return candidate;
-    } catch {
-      /* branch doesn't exist */
-    }
-  }
-
-  return "main";
+  return existingMainBranch(root) || "main";
 }
 
 export function normalizeKitRootRel(kitRootRel) {
@@ -639,7 +657,7 @@ jobs:
 }
 
 /** Audit hyperion-cards-pr-recheck.yml */
-export function auditPrRecheckWorkflow(content, { kitRootRel = "", defaultBranch } = {}) {
+export function auditPrRecheckWorkflow(content, { kitRootRel = "", defaultBranch, defaultBranchKnown = true } = {}) {
   const text = String(content || "");
   const issues = [];
   if (!text.trim()) return { ok: false, issues: ["missing_file"] };
@@ -649,7 +667,7 @@ export function auditPrRecheckWorkflow(content, { kitRootRel = "", defaultBranch
   if (!/hyperion-board-changed/m.test(text)) issues.push("missing_dispatch_type");
   if (normalizeKitRootRel(kitRootRel) && !/working-directory:\s*/m.test(text)) issues.push("missing_working_directory");
   const base = text.match(/\bbase:\s*["']([^"']+)["']/)?.[1];
-  if (defaultBranch && base && base !== defaultBranch) issues.push("base_branch_mismatch");
+  if (defaultBranch && defaultBranchKnown && base && base !== defaultBranch) issues.push("base_branch_mismatch");
   return { ok: issues.length === 0, issues };
 }
 
@@ -1003,12 +1021,12 @@ export function normalizeProductCi(value) {
 export async function inspectProductCiGates(root, gates, { kitRootRel = "", defaultBranch = "main" } = {}) {
   const rel = `${WORKFLOWS_DIR}/${HYPERION_WORKFLOWS.productCi}`;
   const existing = await readTextIfExists(path.join(root, rel));
-  const { readGatesHash, renderProductCiForRepo, gatesHash } = await import("./product-ci-render.mjs");
-  const { plan } = renderProductCiForRepo(root, { gates, kitRootRel, defaultBranch });
+  const { readGatesHash, renderProductCiForRepo } = await import("./product-ci-render.mjs");
+  const { plan, content } = renderProductCiForRepo(root, { gates, kitRootRel, defaultBranch });
   return {
     exists: existing !== null,
     currentHash: existing ? readGatesHash(existing) : null,
-    expectedHash: gatesHash(plan),
+    expectedHash: readGatesHash(content),
     noAutoRefresh: hasNoAutoRefreshMarker(existing),
     apps: plan.apps.length,
   };
@@ -1102,11 +1120,8 @@ export async function detectPipeline(root = workspaceRoot) {
 
   let productCiGates = null;
   if (config.gates) {
-    const { kitRootRel } = resolvePipelineRenderOptions(root);
-    productCiGates = await inspectProductCiGates(root, config.gates, {
-      kitRootRel,
-      defaultBranch: detectDefaultBranch(root),
-    });
+    const { kitRootRel, defaultBranch } = resolvePipelineRenderOptions(root);
+    productCiGates = await inspectProductCiGates(root, config.gates, { kitRootRel, defaultBranch });
   }
 
   if (provider !== "none") config.provider = provider;
@@ -1334,9 +1349,11 @@ export function resolvePipelineRenderOptions(root = workspaceRoot, { kitRootRel 
   const kit =
     kitRootRel !== null ? normalizeKitRootRel(kitRootRel) : normalizeKitRootRel(resolveHyperionPaths(root).kitRootRel);
   const { primary, languages, multilingual } = resolveLanguages(root);
+  const base = detectWorkflowBaseBranch(root);
   return {
     kitRootRel: kit,
-    defaultBranch: detectDefaultBranch(root),
+    defaultBranch: base.branch,
+    defaultBranchKnown: base.known,
     syncMode: readCardsSyncMode(root),
     i18n: { primary, languages, multilingual },
   };
@@ -1344,9 +1361,11 @@ export function resolvePipelineRenderOptions(root = workspaceRoot, { kitRootRel 
 
 export async function auditHyperionPipelineFiles(root = workspaceRoot, options = {}) {
   const paths = resolveHyperionPaths(root);
+  const base = options.defaultBranch ? { branch: options.defaultBranch, known: true } : detectWorkflowBaseBranch(root);
   const renderOpts = {
     kitRootRel: paths.kitRootRel || "",
-    defaultBranch: options.defaultBranch || detectDefaultBranch(root),
+    defaultBranch: base.branch,
+    defaultBranchKnown: base.known,
     syncMode: readCardsSyncMode(root),
   };
 

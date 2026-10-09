@@ -376,6 +376,37 @@ describe("e2e, IaC, OpenAPI and edge cases", () => {
     }
   });
 
+  it("the gates hash covers e2e job ownership, so --refresh-gates repairs older e2e jobs", async () => {
+    const both = fs.mkdtempSync(path.join(os.tmpdir(), "hyperion-render-e2e-hash-"));
+    try {
+      write(both, "package.json", { scripts: { test: "vitest" }, devDependencies: { vitest: "^2" } });
+      write(both, "playwright.config.ts", "export default {}");
+      write(both, "cypress.config.ts", "export default {}");
+      const gates = { e2e: "warn" };
+      const { plan, content } = renderProductCiForRepo(both, { gates });
+      const planOnly = gatesHash(plan);
+      assert.notEqual(readGatesHash(content), planOnly, "e2e ownership is part of the hash");
+      assert.equal(readGatesHash(renderProductCiForRepo(both, { gates: { e2e: "off" } }).content), gatesHash(renderProductCiForRepo(both, { gates: { e2e: "off" } }).plan));
+
+      // A product CI rendered before the fix: plan-only hash and two `e2e-root` jobs.
+      const old = content
+        .replace(readGatesHash(content), planOnly)
+        .replace(/^ {2}e2e-root-(cypress|playwright):$/gm, "  e2e-root:");
+      write(both, ".github/workflows/hyperion-product-ci.yml", old);
+      const { inspectProductCiGates } = await import("./pipeline-lib.mjs");
+      const state = await inspectProductCiGates(both, gates);
+      assert.equal(state.currentHash, planOnly);
+      assert.notEqual(state.currentHash, state.expectedHash, "reported outdated, not up to date");
+      assert.equal(state.expectedHash, readGatesHash(content));
+
+      fs.mkdirSync(path.join(both, "e2e"));
+      fs.renameSync(path.join(both, "cypress.config.ts"), path.join(both, "e2e", "cypress.config.ts"));
+      assert.notEqual(readGatesHash(renderProductCiForRepo(both, { gates }).content), readGatesHash(content), "moving a config changes the hash");
+    } finally {
+      fs.rmSync(both, { recursive: true, force: true });
+    }
+  });
+
   it("a root app owns e2e configs outside nested apps and runs them with an explicit config path", () => {
     const rooted = fs.mkdtempSync(path.join(os.tmpdir(), "hyperion-render-e2e-root-"));
     try {

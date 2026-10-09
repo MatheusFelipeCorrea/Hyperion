@@ -2386,7 +2386,7 @@ const isMain = process.argv[1] && import.meta.url === pathToFileURL(process.argv
 
 async function main() {
   const { resolveHyperionPaths } = await import("./paths.mjs");
-  const { detectDefaultBranch, readCiGatesFromProjectYml } = await import("./pipeline-lib.mjs");
+  const { detectWorkflowBaseBranch, readCiGatesFromProjectYml } = await import("./pipeline-lib.mjs");
   const root = process.cwd();
   const paths = resolveHyperionPaths(root);
   const kitRootRel = paths.kitRootRel || "";
@@ -2412,7 +2412,7 @@ async function main() {
   const scan = scanRepoForGates(root, { kitRootRel });
   let questions = buildGateQuestions(scan, { gates });
   if (argv.includes("--pending")) questions = questions.filter((x) => x.status === "new");
-  const defaultBranch = detectDefaultBranch(root);
+  const defaultBranch = detectWorkflowBaseBranch(root).branch;
   const lang = normalizeTag(flag("--lang")) || (argv.includes("--en") ? "en" : resolveLanguages(root).primary);
 
   if (argv.includes("--json")) {

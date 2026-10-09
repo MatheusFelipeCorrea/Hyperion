@@ -150,6 +150,11 @@ async function main() {
   }
 
   for (const w of plan.warnings) warn(w);
+  if (!renderOpts.defaultBranchKnown) {
+    warn(
+      `origin/HEAD is not set — generated workflows target "${renderOpts.defaultBranch}" and existing base branches are not checked. Run \`git remote set-head origin --auto\` to use the real default branch.`
+    );
+  }
 
   if (argRefreshSync) {
     log("", `Refresh sync (default branch: ${renderOpts.defaultBranch}, kit: ${renderOpts.kitRootRel || "root"})`);

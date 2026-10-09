@@ -32,6 +32,7 @@ import {
   auditGitLabHyperionCi,
   auditAzureHyperionCi,
   detectDefaultBranch,
+  detectWorkflowBaseBranch,
 } from "./pipeline-lib.mjs";
 
 describe("classifyWorkflows", () => {
@@ -482,6 +483,29 @@ describe("detectDefaultBranch (temp repos)", () => {
     assert.equal(detectDefaultBranch(fakeGit({ head: SHA, branches: ["master"] })), "master");
     assert.equal(detectDefaultBranch(makeRepo({}, { git: false })), "main");
   });
+
+  it("detectWorkflowBaseBranch only trusts origin/HEAD and never returns the checked-out branch", () => {
+    assert.deepEqual(detectWorkflowBaseBranch(fakeGit({ head: "ref: refs/heads/feature/x", originHead: "develop" })), {
+      branch: "develop",
+      known: true,
+    });
+    assert.deepEqual(detectWorkflowBaseBranch(fakeGit({ head: "ref: refs/heads/feature/x" })), { branch: "main", known: false });
+    assert.deepEqual(detectWorkflowBaseBranch(fakeGit({ head: "ref: refs/heads/feature/x", branches: ["master"] })), {
+      branch: "master",
+      known: false,
+    });
+  });
+
+  it("a fresh repo on feature/x without origin/HEAD: no base mismatch, and refresh renders main, not feature/x", () => {
+    const repo = fakeGit({ head: "ref: refs/heads/feature/x" });
+    const opts = resolvePipelineRenderOptions(repo);
+    assert.deepEqual([opts.defaultBranch, opts.defaultBranchKnown], ["main", false]);
+    const onDev = renderPrRecheckWorkflow({ defaultBranch: "dev" });
+    assert.equal(auditPrRecheckWorkflow(onDev, opts).ok, true, "a correct recheck file is not flagged");
+    assert.match(renderPrRecheckWorkflow(opts), /base: "main"/);
+    assert.doesNotMatch(renderPrRecheckWorkflow(opts), /feature\/x/);
+    assert.deepEqual(auditPrRecheckWorkflow(onDev, { defaultBranch: "main" }).issues, ["base_branch_mismatch"]);
+  });
 });
 
 describe("workflow audits (failing shapes)", () => {
@@ -791,6 +815,7 @@ describe("render options and file audit", () => {
     const opts = resolvePipelineRenderOptions(auto, { kitRootRel: "Kit\\" });
     assert.equal(opts.kitRootRel, "Kit");
     assert.equal(opts.defaultBranch, "main");
+    assert.equal(opts.defaultBranchKnown, true);
     assert.equal(opts.syncMode, "auto");
     assert.ok(Array.isArray(opts.i18n.languages));
     const nested = makeRepo({ ".github/project.yml": "kit:\n  root: Hyperion\n" });
@@ -810,7 +835,7 @@ describe("render options and file audit", () => {
       "hyperion-azure-pipelines.yml": "jobs: []\n",
     });
     const { renderOpts, findings } = await auditHyperionPipelineFiles(stale, { defaultBranch: "main" });
-    assert.deepEqual(renderOpts, { kitRootRel: "", defaultBranch: "main", syncMode: "pull-forward" });
+    assert.deepEqual(renderOpts, { kitRootRel: "", defaultBranch: "main", defaultBranchKnown: true, syncMode: "pull-forward" });
     assert.deepEqual(findings.map((f) => f.kind), [
       "github-sync-cards",
       "github-cards-pr-guard",

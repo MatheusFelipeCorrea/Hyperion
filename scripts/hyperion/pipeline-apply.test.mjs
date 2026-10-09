@@ -39,7 +39,9 @@ const FAKE_GIT = {
 function makeRepo(files = {}, { templates = true, kitDir = "", defaultBranch = "main" } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "hyperion-apply-"));
   roots.push(root);
-  const all = { ...FAKE_GIT, ".git/refs/remotes/origin/HEAD": `ref: refs/remotes/origin/${defaultBranch}\n`, ...files };
+  const all = { ...FAKE_GIT, ...files };
+  if (defaultBranch) all[".git/refs/remotes/origin/HEAD"] = `ref: refs/remotes/origin/${defaultBranch}\n`;
+  else delete all[".git/refs/remotes/origin/HEAD"];
   if (templates) {
     for (const [name, text] of Object.entries(TEMPLATES)) {
       all[path.posix.join(kitDir, "scripts/hyperion/templates/workflows", name)] = text;
@@ -187,6 +189,26 @@ describe("pipeline-apply: policies, legacy migration and failures", () => {
     assert.match(refreshed.out, /Refresh sync \(default branch: dev, kit: root\)/);
     assert.match(refreshed.out, /Refreshed \.github\/workflows\/hyperion-cards-pr-recheck\.yml \(base_branch_mismatch\)/);
     assert.match(read(root, recheck), /base: "dev"/);
+  });
+
+  it("a fresh repo on feature/x without origin/HEAD never targets feature/x and keeps a correct recheck", () => {
+    const root = makeRepo({ ".git/HEAD": "ref: refs/heads/feature/x\n" }, { defaultBranch: null });
+    const recheck = `${WF}/hyperion-cards-pr-recheck.yml`;
+    const r = apply(root, "--yes");
+    assert.equal(r.status, 0, r.out);
+    assert.match(r.out, /origin\/HEAD is not set — generated workflows target "main"/);
+    for (const name of ["hyperion-sync-cards.yml", "hyperion-cards-pr-check.yml", "hyperion-cards-pr-recheck.yml"]) {
+      assert.doesNotMatch(read(root, `${WF}/${name}`), /feature\/x/, name);
+    }
+    assert.match(read(root, recheck), /base: "main"/);
+
+    const correct = read(root, recheck).replace('base: "main"', 'base: "dev"');
+    write(root, recheck, correct);
+    const refreshed = apply(root, "--refresh-sync", "--yes");
+    assert.equal(refreshed.status, 0, refreshed.out);
+    assert.match(refreshed.out, /= \.github\/workflows\/hyperion-cards-pr-recheck\.yml \(up to date\)/);
+    assert.doesNotMatch(refreshed.out, /base_branch_mismatch/);
+    assert.equal(read(root, recheck), correct);
   });
 });
 
