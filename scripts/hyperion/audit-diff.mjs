@@ -12,6 +12,7 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { rootArg } from "./cli-args.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const root = join(__dirname, "../..");
@@ -147,7 +148,7 @@ function main() {
     process.exit(0);
   }
 
-  const repoRoot = resolve(argValue("--root") || root);
+  const repoRoot = rootArg(root);
   const asJson = process.argv.includes("--json");
 
   let fromPath = argValue("--from");

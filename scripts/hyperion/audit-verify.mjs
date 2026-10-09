@@ -7,6 +7,7 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { rootArg } from "./cli-args.mjs";
 import { recordEvent } from "./telemetry-lib.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -59,7 +60,7 @@ function main() {
     process.exit(0);
   }
 
-  const repoRoot = resolve(argValue("--root") || root);
+  const repoRoot = rootArg(root);
 
   let summaryPath = argValue("--summary");
   if (process.argv.includes("--latest") || !summaryPath) {
@@ -110,7 +111,7 @@ function main() {
     console.error(`\naudit-verify FAILED (${failed})`);
     process.exit(1);
   }
-  recordEvent(root, "agent-gate", "audit-verify");
+  recordEvent(repoRoot, "agent-gate", "audit-verify");
   console.log("audit-verify OK");
 }
 

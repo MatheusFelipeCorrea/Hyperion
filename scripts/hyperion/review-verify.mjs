@@ -8,6 +8,7 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { keyVariants } from "./i18n.mjs";
+import { rootArg } from "./cli-args.mjs";
 import { recordEvent } from "./telemetry-lib.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -65,9 +66,10 @@ function main() {
     process.exit(0);
   }
 
+  const repoRoot = rootArg(root);
   let reviewPath = argValue("--review");
   if (process.argv.includes("--latest") || !reviewPath) {
-    if (!reviewPath) reviewPath = findLatestReview(resolve(argValue("--root") || root));
+    if (!reviewPath) reviewPath = findLatestReview(repoRoot);
   }
   if (!reviewPath) {
     console.error("No review specified and none under .github/plans/reviews/");
@@ -130,7 +132,7 @@ function main() {
     console.error(`\nreview-verify FAILED (${failed})`);
     process.exit(1);
   }
-  recordEvent(root, "agent-gate", "review-verify");
+  recordEvent(repoRoot, "agent-gate", "review-verify");
   console.log("review-verify OK");
 }
 

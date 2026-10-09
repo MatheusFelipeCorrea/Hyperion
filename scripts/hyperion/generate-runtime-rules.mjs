@@ -6,8 +6,9 @@
  *        npm run hyperion:check-rules -- --root <kit-root>
  */
 import { readFileSync, writeFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { rootArg } from "./cli-args.mjs";
 import {
   AGENTS_MARKER_END,
   AGENTS_MARKER_START,
@@ -29,8 +30,7 @@ import {
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const checkOnly = process.argv.includes("--check");
-const rootArg = process.argv.indexOf("--root");
-const root = rootArg === -1 ? join(__dirname, "../..") : resolve(process.argv[rootArg + 1] || ".");
+const root = rootArg(join(__dirname, "../.."));
 
 const { commands, npmShortcuts } = loadCommands(root);
 const skillIndex = buildSkillIndex(root);

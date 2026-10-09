@@ -11,6 +11,7 @@ import {
   callAnthropic,
   callOpenAI,
   callProvider,
+  DEFAULT_ANTHROPIC_MODEL,
 } from "./llm-eval.mjs";
 
 const script = join(dirname(fileURLToPath(import.meta.url)), "llm-eval.mjs");
@@ -218,7 +219,7 @@ describe("llm-eval CLI --root", () => {
     assert.equal(r.calls.length, 1);
     assert.equal(r.calls[0].url, "https://api.anthropic.com/v1/messages");
     assert.equal(r.calls[0].headers["x-api-key"], "fake-a");
-    assert.equal(r.calls[0].body.model, "claude-haiku-4-5-20251001");
+    assert.equal(r.calls[0].body.model, DEFAULT_ANTHROPIC_MODEL);
     assert.equal(r.calls[0].body.messages[0].content, "Say hello");
   });
 

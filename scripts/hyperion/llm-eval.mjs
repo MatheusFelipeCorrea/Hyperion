@@ -9,17 +9,21 @@
  * Live: HYPERION_LLM_EVAL_LIVE=1 OPENAI_API_KEY=... npm run hyperion:llm-eval
  */
 import { readFileSync, existsSync, readdirSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { rootArg } from "./cli-args.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const rootArg = process.argv.indexOf("--root");
-const root = rootArg === -1 ? join(__dirname, "../..") : resolve(process.argv[rootArg + 1] || ".");
+const root = rootArg(join(__dirname, "../.."));
 const evalRoot = join(root, ".github/skills/eval");
 const casesPath = join(evalRoot, "llm-cases.json");
 const goldenDir = join(evalRoot, "golden");
 
 const live = String(process.env.HYPERION_LLM_EVAL_LIVE || "").toLowerCase() === "1";
+
+/** Models used in live mode when HYPERION_LLM_MODEL is unset. */
+export const DEFAULT_ANTHROPIC_MODEL = "claude-haiku-4-5-20251001";
+export const DEFAULT_OPENAI_MODEL = "gpt-4o-mini";
 
 export function loadCases() {
   if (!existsSync(casesPath)) {
@@ -61,7 +65,7 @@ export async function callAnthropic(prompt) {
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      model: process.env.HYPERION_LLM_MODEL || "claude-haiku-4-5-20251001",
+      model: process.env.HYPERION_LLM_MODEL || DEFAULT_ANTHROPIC_MODEL,
       max_tokens: 1024,
       messages: [{ role: "user", content: prompt }],
     }),
@@ -81,7 +85,7 @@ export async function callOpenAI(prompt) {
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      model: process.env.HYPERION_LLM_MODEL || "gpt-4o-mini",
+      model: process.env.HYPERION_LLM_MODEL || DEFAULT_OPENAI_MODEL,
       messages: [{ role: "user", content: prompt }],
       temperature: 0,
     }),

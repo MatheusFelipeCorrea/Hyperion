@@ -7,6 +7,7 @@
 import { readFileSync, existsSync, readdirSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { rootArg } from "./cli-args.mjs";
 import { recordEvent } from "./telemetry-lib.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -72,9 +73,10 @@ function main() {
     process.exit(0);
   }
 
+  const repoRoot = rootArg(root);
   let planPath = argValue("--plan");
   if (process.argv.includes("--latest") || !planPath) {
-    if (!planPath) planPath = findLatestPlan(resolve(argValue("--root") || root));
+    if (!planPath) planPath = findLatestPlan(repoRoot);
   }
   if (!planPath) {
     console.error("No plan specified and none found under .github/plans/implementations/");
@@ -141,7 +143,7 @@ function main() {
     console.error(`\nphase-verify FAILED (${failed})`);
     process.exit(1);
   }
-  recordEvent(root, "agent-gate", "phase-verify", { phases: targets.length });
+  recordEvent(repoRoot, "agent-gate", "phase-verify", { phases: targets.length });
   console.log(`phase-verify OK (${targets.length} phase(s))`);
 }
 

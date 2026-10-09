@@ -5,8 +5,9 @@
  *      npm run hyperion:project-verify -- --root .
  */
 import { existsSync, readFileSync, statSync } from "node:fs";
-import { join, resolve, dirname } from "node:path";
+import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { rootArg } from "./cli-args.mjs";
 import { readProjectCommands } from "./repo-detect.mjs";
 import { hasCatalog, validateLanguageConfig } from "./i18n.mjs";
 
@@ -56,12 +57,6 @@ async function validateAgainstSchema(root, text) {
     (e) => `${e.instancePath || "/"} ${e.message}${e.params?.additionalProperty ? ` (${e.params.additionalProperty})` : ""}`
   );
   return { ok: false, skipped: false, errors };
-}
-
-function argValue(flag) {
-  const i = process.argv.indexOf(flag);
-  if (i === -1) return null;
-  return process.argv[i + 1] || null;
 }
 
 function usage() {
@@ -178,7 +173,7 @@ async function main() {
     process.exit(0);
   }
 
-  const root = resolve(argValue("--root") || process.cwd());
+  const root = rootArg(process.cwd());
   const ymlPath = join(root, ".github", "project.yml");
   if (!existsSync(ymlPath)) {
     console.error("FAIL: missing .github/project.yml — run /discover Configure or /migrate");

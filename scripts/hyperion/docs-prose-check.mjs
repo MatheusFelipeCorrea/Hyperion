@@ -4,12 +4,12 @@
  * Run: npm run docs:prose-check
  */
 import { readFileSync, readdirSync, statSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { rootArg } from "./cli-args.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const rootArg = process.argv.indexOf("--root");
-const root = rootArg === -1 ? join(__dirname, "../..") : resolve(process.argv[rootArg + 1] || ".");
+const root = rootArg(join(__dirname, "../.."));
 
 /** { pattern, message, glob? } — pattern tested against file content */
 const RULES = [

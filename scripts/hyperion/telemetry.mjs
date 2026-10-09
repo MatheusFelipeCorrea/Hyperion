@@ -9,17 +9,12 @@
  *      npm run hyperion:telemetry -- --json
  */
 import { existsSync, readFileSync } from "node:fs";
-import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import { rootArg } from "./cli-args.mjs";
 import { isTelemetryEnabled, telemetryFilePath } from "./telemetry-lib.mjs";
 
-function argValue(flag) {
-  const i = process.argv.indexOf(flag);
-  return i === -1 ? null : process.argv[i + 1] || null;
-}
-
 function main() {
-  const root = resolve(argValue("--root") || process.cwd());
+  const root = rootArg(process.cwd());
   const asJson = process.argv.includes("--json");
   const filePath = telemetryFilePath(root);
 

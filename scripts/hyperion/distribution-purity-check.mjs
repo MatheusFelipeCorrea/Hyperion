@@ -17,14 +17,10 @@
  *      npm run hyperion:distribution-purity-check -- --root .
  */
 import { existsSync, readFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import { execSync, execFileSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
-
-function argValue(flag) {
-  const i = process.argv.indexOf(flag);
-  return i === -1 ? null : process.argv[i + 1] || null;
-}
+import { rootArg } from "./cli-args.mjs";
 
 function readText(root, rel) {
   const p = join(root, rel);
@@ -139,7 +135,7 @@ export function checkNoLeakedPaths(root, fail) {
 }
 
 async function main() {
-  const root = resolve(argValue("--root") || process.cwd());
+  const root = rootArg(process.cwd());
   let failed = 0;
   const fail = (where, why) => {
     console.error(`FAIL ${where}: ${why}`);

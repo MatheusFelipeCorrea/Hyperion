@@ -8,12 +8,12 @@
  *   { "file": "relative/path.md", "mustContain": ["..."], "mustMatch": ["regex"] }
  */
 import { readFileSync, readdirSync, statSync, existsSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { rootArg } from "./cli-args.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const rootArg = process.argv.indexOf("--root");
-const root = rootArg === -1 ? join(__dirname, "../..") : resolve(process.argv[rootArg + 1] || ".");
+const root = rootArg(join(__dirname, "../.."));
 const evalRoot = join(root, ".github/skills/eval");
 
 function walkSkills(dir, map = new Map()) {

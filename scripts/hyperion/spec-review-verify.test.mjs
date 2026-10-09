@@ -43,7 +43,7 @@ None.
 - APPROVED → /implement
 `
       );
-      const r = spawnSync(process.execPath, [script, "--review", file], { encoding: "utf8" });
+      const r = spawnSync(process.execPath, [script, "--review", file, "--root", dir], { encoding: "utf8" });
       assert.equal(r.status, 0, r.stderr || r.stdout);
       assert.match(r.stdout, /spec-review-verify OK/);
     } finally {
@@ -70,7 +70,7 @@ z
 w
 `
       );
-      const r = spawnSync(process.execPath, [script, "--review", file], { encoding: "utf8" });
+      const r = spawnSync(process.execPath, [script, "--review", file, "--root", dir], { encoding: "utf8" });
       assert.notEqual(r.status, 0);
     } finally {
       rmSync(dir, { recursive: true, force: true });
@@ -100,7 +100,7 @@ Not ready.
 - BLOCKED -> /spec
 `
       );
-      const r = spawnSync(process.execPath, [script, "--review", file], { encoding: "utf8" });
+      const r = spawnSync(process.execPath, [script, "--review", file, "--root", dir], { encoding: "utf8" });
       assert.equal(r.status, 0, r.stderr || r.stdout);
     } finally {
       rmSync(dir, { recursive: true, force: true });
@@ -127,7 +127,7 @@ None.
 w
 `
       );
-      const r = spawnSync(process.execPath, [script, "--review", file], { encoding: "utf8" });
+      const r = spawnSync(process.execPath, [script, "--review", file, "--root", dir], { encoding: "utf8" });
       assert.notEqual(r.status, 0);
       assert.match(r.stderr, /BLOCKED but ## Blocking issues has no listed issue/);
     } finally {
