@@ -10,12 +10,10 @@ import {
   expandCardIdsWithParents,
   filterEdgesForCards,
   filterKitSampleCards,
-  isKitSampleCardId,
   isKitSampleRemoteArtifact,
   listCardsMarkdownFiles,
   discoverGitHubProjectNumber,
   resolveRepoConfig,
-  shouldIncludeKitSamples,
   writeSyncSummary,
   parseCardIdFromIssueBody,
   parseSourceFileFromIssueBody,
@@ -70,8 +68,9 @@ import {
   DUPLICATE_MARKER,
   renderReconcileReport,
 } from "./reconcile.mjs";
-import { languagesFor, resolveLanguages, t as i18nT } from "../hyperion/i18n.mjs";
+import { keyVariants, languagesFor, resolveLanguages, t as i18nT } from "../hyperion/i18n.mjs";
 import { resolveHyperionPaths } from "../hyperion/paths.mjs";
+import { ciFail } from "../hyperion/ci-annotate.mjs";
 import {
   runForwardSyncJira,
   runReverseSyncJira,
@@ -185,7 +184,7 @@ function warnIfGhCliFallback() {
 }
 
 function readManagementHintsFromProjectYml(content) {
-  const blockMatch = content.match(/^\s*management\s*:\s*\n([\s\S]*?)(?:^\S|\Z)/m);
+  const blockMatch = content.match(/^\s*management\s*:\s*\n([\s\S]*?)(?:^\S|(?![\s\S]))/m);
   if (!blockMatch) return {};
 
   const block = blockMatch[1];
@@ -348,15 +347,31 @@ function enrichBodySubIssues(body, issueByCardId, owner, name) {
     .join("\n");
 }
 
+/** Optional leading emoji on a section heading, including variation selectors, skin tones and ZWJ sequences. */
+const HEADING_EMOJI = String.raw`(?:\p{Extended_Pictographic}[\p{Emoji_Modifier}\uFE0E\uFE0F]*(?:\u200D\p{Extended_Pictographic}[\p{Emoji_Modifier}\uFE0E\uFE0F]*)*\s*)?`;
+
+const escapeRegExp = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+let parentHeadingRe = null;
+/** `## Parent` heading in any catalog language (e.g. `## 👆 Card pai`), matched as the whole title. */
+function parentHeadingPattern() {
+  if (!parentHeadingRe) {
+    const titles = keyVariants("sync.footer.parent", { root: workspaceRoot }).map(escapeRegExp);
+    parentHeadingRe = new RegExp(String.raw`^##\s+${HEADING_EMOJI}(?:${titles.join("|")})\s*$`, "iu");
+  }
+  return parentHeadingRe;
+}
+
 function enrichBodyWithParentSection(body, card, issueByCardId, owner, name) {
   if (!card.parent || !issueByCardId?.has(card.parent)) return body;
 
-  if (/^##\s+.*\b[Pp]arent\b/i.test(body)) {
-    const lines = splitBodyLines(body);
+  const lines = splitBodyLines(body);
+  const parentHeading = parentHeadingPattern();
+  if (lines.some((line) => parentHeading.test(line))) {
     let inSection = false;
     return lines
       .map((line) => {
-        if (/^##\s+.*\b[Pp]arent\b/i.test(line)) {
+        if (parentHeading.test(line)) {
           inSection = true;
           return line;
         }
@@ -378,7 +393,7 @@ function enrichBodyWithParentSection(body, card, issueByCardId, owner, name) {
   if (subMatch?.index !== undefined) {
     return `${body.slice(0, subMatch.index)}\n${block}${body.slice(subMatch.index + 1)}`;
   }
-  const resumoMatch = body.match(/\n##\s+(?:Resumo|Summary|Resumen)/i);
+  const resumoMatch = body.match(new RegExp(String.raw`\n##\s+${HEADING_EMOJI}(?:Resumo|Summary|Resumen)`, "iu"));
   if (resumoMatch?.index !== undefined) {
     return `${body.slice(0, resumoMatch.index)}\n${block}${body.slice(resumoMatch.index + 1)}`;
   }
@@ -584,12 +599,6 @@ async function addIssueComment(issueId, body) {
     { id: issueId, body },
     issueToken
   );
-}
-
-async function searchIssueByCardId(owner, name, cardId, issueMapCache = null) {
-  if (isKitSampleCardId(cardId) && !shouldIncludeKitSamples()) return null;
-  const map = issueMapCache || (await loadIssueMapByCardId(owner, name));
-  return map.get(cardId) || null;
 }
 
 async function createIssue(repositoryId, title, body) {
@@ -1517,7 +1526,7 @@ async function detectProjectLocale() {
 // Dry-run table output
 // ---------------------------------------------------------------------------
 
-export function printDryRunTable(cards, edges) {
+export function printDryRunTable(cards, edges, existedByCardId = new Map()) {
   log("");
   log("=== DRY-RUN REPORT ===");
   log("");
@@ -1530,7 +1539,7 @@ export function printDryRunTable(cards, edges) {
   for (const card of cards) {
     const id = card.cardId.padEnd(22);
     const type = (card.type || "Story").padEnd(8);
-    const action = "CREATE ".padEnd(6);
+    const action = (existedByCardId.get(card.cardId) ? "UPDATE" : "CREATE").padEnd(6);
     const parent = (card.parent || "—").padEnd(19);
     const cats = (card.categories || []).join(", ").slice(0, 23).padEnd(23);
     log(`| ${id} | ${type} | ${action} | ${parent} | ${cats} |`);
@@ -1908,7 +1917,7 @@ async function runForwardSync() {
 
   // Print summary
   if (dryRun) {
-    printDryRunTable(cardsToSync, edges);
+    printDryRunTable(cardsToSync, edges, issueExistedByCardId);
   } else {
     log("");
     log("=== SYNC COMPLETE ===");
@@ -1935,6 +1944,7 @@ async function runForwardSync() {
 
   if (failedIssueIds.size && syncDirection !== "auto") {
     log(`${failedIssueIds.size} issue(s) failed to create/update: ${[...failedIssueIds].join(", ")}`);
+    ciFail(workspaceRoot, "cards.fail.items", { count: failedIssueIds.size, ids: [...failedIssueIds].join(", ") });
     process.exitCode = 1;
   }
 
@@ -2202,7 +2212,6 @@ async function runReverseSyncGitHub(repoConfig) {
 
   let written = 0;
   let skipped = 0;
-  let skippedSamples = 0;
   let unchanged = 0;
 
   for (const issue of issues) {
@@ -2213,12 +2222,6 @@ async function runReverseSyncGitHub(repoConfig) {
     const cardId = syncMeta?.meta?.CARD_ID || parseCardIdFromIssueBody(issue.body);
 
     if (!sourceFile) continue;
-
-    if (isKitSampleRemoteArtifact({ cardId, sourceFile })) {
-      skippedSamples += 1;
-      log(`Skipping kit sample issue #${issue.number} (${cardId || sourceFile})`);
-      continue;
-    }
 
     const projectFields = projectFieldsByIssueNumber.get(issue.number) || {};
     const remoteUpdates = buildRemoteFrontmatterUpdates(projectFields, issue, repoConfig);
@@ -2240,19 +2243,11 @@ async function runReverseSyncGitHub(repoConfig) {
       logLabel: ` (issue #${issue.number})`,
     });
 
-    if (result.kind === "skipped_sample") {
-      skippedSamples += 1;
-      log(`Skipping kit sample issue #${issue.number} (${cardId || sourceFile})`);
-      continue;
-    }
     if (result.kind === "unchanged") unchanged += 1;
     else if (result.kind === "skipped") skipped += 1;
     else written += countReverseWrite(result);
   }
 
-  if (skippedSamples > 0) {
-    log(`Skipped ${skippedSamples} kit sample issue(s) on reverse sync.`);
-  }
   if (unchanged > 0) {
     log(`Unchanged: ${unchanged} card(s) (frontmatter already matches board).`);
   }
@@ -2725,9 +2720,11 @@ if (isDirectRun) {
       // show the actionable message only, keep the stack for --verbose.
       console.error(`[cards-sync] ${message}`);
       if (process.argv.includes("--verbose")) console.error(error);
+      ciFail(workspaceRoot, "cards.fail.config", { message });
     } else {
       console.error("[cards-sync] FATAL ERROR");
       console.error(error);
+      ciFail(workspaceRoot, "cards.fail.unexpected", { script: "cards-sync", error: message });
     }
     process.exit(1);
   });

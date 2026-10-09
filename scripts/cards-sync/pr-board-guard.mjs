@@ -18,6 +18,7 @@ import "./load-env.mjs";
 import { spawnSync } from "node:child_process";
 import path from "node:path";
 import { resolveHyperionPaths } from "../hyperion/paths.mjs";
+import { ciFail } from "../hyperion/ci-annotate.mjs";
 import {
   detectRepoFromGit,
   assertCiProjectConfigured,
@@ -76,6 +77,7 @@ async function main() {
   const projectCheck = await assertCiProjectConfigured(paths.projectsMapPath, repositorySlug, { backend });
   if (!projectCheck.ok) {
     console.error(`[pr-guard] FATAL: ${projectCheck.message}`);
+    ciFail(paths.workspaceRoot, "cards.fail.project", { message: projectCheck.message });
     process.exit(1);
   }
 
@@ -85,6 +87,7 @@ async function main() {
   log("Step 1/3: validate cards");
   const validateCode = runScript("validate.mjs");
   if (validateCode !== 0) {
+    // validate.mjs already emitted the "Invalid cards" annotations.
     console.error("[pr-guard] FATAL: card validation failed");
     process.exit(validateCode);
   }
@@ -95,6 +98,7 @@ async function main() {
   const reverseCode = runScript("sync.mjs", reverseArgs, dryRun ? { DRY_RUN: "true" } : {});
   if (reverseCode !== 0) {
     console.error("[pr-guard] FATAL: reverse sync failed");
+    ciFail(paths.workspaceRoot, "cards.fail.reverse");
     process.exit(reverseCode);
   }
 
@@ -132,6 +136,7 @@ async function main() {
   if (!result.ok) {
     await logGuard(false, { reason: "external-drift" });
     console.error("[pr-guard] FATAL: merge blocked — external board drift on PR branch");
+    ciFail(paths.workspaceRoot, "cards.fail.drift");
     process.exit(1);
   }
 
@@ -142,5 +147,6 @@ async function main() {
 main().catch((error) => {
   console.error("[pr-guard] FATAL ERROR");
   console.error(error);
+  ciFail(paths.workspaceRoot, "cards.fail.unexpected", { script: "pr-board-guard", error: error?.message || error });
   process.exit(1);
 });
