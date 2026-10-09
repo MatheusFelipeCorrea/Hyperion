@@ -8,6 +8,7 @@ import {
   buildJiraDescription,
   normalizeText,
   buildOptionCandidates,
+  resolveMappedStatus,
   parseCardIdFromIssueBody,
   parseSourceFileFromIssueBody,
   parseSyncMetadataFromDescription,
@@ -54,23 +55,59 @@ export async function jiraRequest(management, endpoint, method = "GET", body = n
     payload = { raw: payloadText };
   }
   if (!response.ok) {
-    throw new Error(`Jira request failed (${response.status} ${response.statusText}): ${JSON.stringify(payload)}`);
+    const error = new Error(`Jira request failed (${response.status} ${response.statusText}): ${JSON.stringify(payload)}`);
+    error.status = response.status;
+    throw error;
   }
   return payload;
 }
 
-async function jiraSearchIssueByCardId(management, projectKey, cardId) {
-  const jql = `project = "${projectKey}" AND description ~ "\\"CARD_ID:\\"" ORDER BY updated DESC`;
-  const data = await jiraRequest(
-    management,
-    `/rest/api/2/search?jql=${encodeURIComponent(jql)}&maxResults=50&fields=summary,labels,description`,
-    "GET"
-  );
-  for (const issue of data.issues || []) {
-    const foundId = parseCardIdFromIssueBody(issue.fields?.description || "");
-    if (foundId === cardId) return issue;
+const SEARCH_PAGE_SIZE = 100;
+
+function cardIdJql(projectKey) {
+  return `project = "${projectKey}" AND description ~ "\\"CARD_ID:\\"" ORDER BY updated DESC`;
+}
+
+/**
+ * Every issue matching `jql`. Jira Cloud only serves /search/jql (paged by
+ * nextPageToken); Jira Data Center only has /search (paged by startAt), so
+ * that one is used when /search/jql answers 404.
+ */
+export async function jiraSearchAll(management, jql, fields) {
+  const query = `jql=${encodeURIComponent(jql)}&maxResults=${SEARCH_PAGE_SIZE}&fields=${fields.join(",")}`;
+  const issues = [];
+  let token = null;
+  try {
+    while (true) {
+      const tokenParam = token ? `&nextPageToken=${encodeURIComponent(token)}` : "";
+      const page = await jiraRequest(management, `/rest/api/2/search/jql?${query}${tokenParam}`);
+      const batch = page.issues || [];
+      issues.push(...batch);
+      token = page.nextPageToken;
+      if (!token || page.isLast || !batch.length) return issues;
+    }
+  } catch (error) {
+    if (error.status !== 404 || issues.length) throw error;
   }
-  return null;
+
+  let startAt = 0;
+  while (true) {
+    const page = await jiraRequest(management, `/rest/api/2/search?${query}&startAt=${startAt}`);
+    const batch = page.issues || [];
+    issues.push(...batch);
+    startAt = Number(page.startAt ?? startAt) + batch.length;
+    if (!batch.length || startAt >= Number(page.total ?? issues.length)) return issues;
+  }
+}
+
+async function jiraIndexIssuesByCardId(management) {
+  const issues = await jiraSearchAll(management, cardIdJql(management.jiraProjectKey), ["summary", "labels", "description"]);
+  const byCardId = new Map();
+  for (const issue of issues) {
+    const cardId = parseCardIdFromIssueBody(issue.fields?.description || "");
+    if (cardId && !byCardId.has(cardId)) byCardId.set(cardId, issue);
+  }
+  return byCardId;
 }
 
 async function jiraCreateIssue(management, projectKey, card) {
@@ -206,9 +243,11 @@ export async function runForwardSyncJira(repoConfig, management) {
 
   const actions = [];
   const issueByCardId = new Map();
+  const statusMap = management.statusMap || {};
+  const remoteByCardId = await jiraIndexIssuesByCardId(management);
 
   for (const card of syncableCards) {
-    const existing = await jiraSearchIssueByCardId(management, management.jiraProjectKey, card.cardId);
+    const existing = remoteByCardId.get(card.cardId);
     let issueKey;
     if (existing) {
       await jiraUpdateIssue(management, existing.key, card);
@@ -217,16 +256,16 @@ export async function runForwardSyncJira(repoConfig, management) {
       actions.push({ action: "UPDATED", cardId: card.cardId, issueKey });
     } else {
       const created = await jiraCreateIssue(management, management.jiraProjectKey, card);
-      issueKey = created.key;
-      issueByCardId.set(card.cardId, issueKey);
+      issueKey = created?.key || null;
+      if (issueKey) issueByCardId.set(card.cardId, issueKey);
       actions.push({ action: "CREATED", cardId: card.cardId, issueKey });
     }
 
-    if (card.status) {
+    if (issueKey && card.status) {
       const transitionResult = await jiraApplyStatusTransition(
         management,
         issueKey,
-        card.status,
+        resolveMappedStatus(statusMap, card.status),
         repoConfig
       );
       actions.push({
@@ -279,25 +318,13 @@ export async function runReverseSyncJira(repoConfig, management) {
   log(`Dry-run: ${dryRun ? "yes" : "no"}`);
   log("Direction: reverse (Jira -> Markdown)");
 
-  const jql = `project = "${management.jiraProjectKey}" AND description ~ "\\"CARD_ID:\\"" ORDER BY updated DESC`;
-  const maxResults = 50;
-  let startAt = 0;
-  const issues = [];
-
-  while (true) {
-    const data = await jiraRequest(
-      management,
-      `/rest/api/2/search?jql=${encodeURIComponent(jql)}&startAt=${startAt}&maxResults=${maxResults}&fields=summary,description,labels,status`,
-      "GET"
-    );
-
-    const batch = data.issues || [];
-    issues.push(...batch);
-
-    startAt = Number(data.startAt ?? 0) + batch.length;
-    const total = Number(data.total ?? issues.length);
-    if (!batch.length || startAt >= total) break;
-  }
+  const issues = await jiraSearchAll(management, cardIdJql(management.jiraProjectKey), [
+    "summary",
+    "description",
+    "labels",
+    "status",
+    "updated",
+  ]);
 
   if (!issues.length) {
     log("No Jira issues with CARD_ID found.");
