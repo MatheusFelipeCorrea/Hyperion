@@ -27,10 +27,10 @@ const GITHUB_CONFIG = {
 const field = (name, extra = {}) => ({ ...HEALTHY_PROJECT_FIELDS.find((f) => f.name === name), ...extra });
 const fieldsWith = (overrides) => HEALTHY_PROJECT_FIELDS.map((f) => (f.name in overrides ? overrides[f.name] : f)).filter(Boolean);
 const graphqlCalls = (run) => run.calls.filter((c) => c.url === "https://api.github.com/graphql");
-const SYNC_STUB = `import { writeFileSync } from "node:fs";
-writeFileSync("sync-ran.txt", "ran");
-process.exit(Number(process.env.STUB_SYNC_EXIT || 0));
-`;
+// Doctor runs the kit's real sync.mjs (the workspaces have no scripts/ of their own), unattended
+// (CARDS_SYNC_YES) and with fetch mocked in grandchildren (`chain`); with no cards it stops early.
+const SYNC_ENV = { CARDS_SYNC_YES: "true" };
+const SYNC_RAN = /\[cards-sync\] No card files found/;
 
 function withWorkspace(opts, fn) {
   const ws = createWorkspace(opts);
@@ -126,6 +126,7 @@ test("doctor: org-level Project with a non-select Status and no Sprint; bare con
     assert.match(run.stdout, /statusColumnsFile missing/);
     assert.match(run.stdout, /Missing required Project fields: Sprint/);
     assert.match(run.stdout, /cards:project-fields-apply -- --yes/);
+    assert.ok(run.stdout.includes("3) Or set projects-map.json default.projectNumber=0 and let sync auto-create"), run.stdout);
     assert.match(run.stdout, /Status field was not found as a single-select field\./);
     assert.match(run.stdout, /Sprint iteration field not found \(expected: Sprint\)\./);
     assert.deepEqual(
@@ -181,6 +182,22 @@ test("doctor: user-level Project, PROJECT_OWNER/NUMBER env, localized Status map
       assert.deepEqual(graphqlCalls(run)[1].body.variables, { owner: "octo", number: 8 });
     }
   ));
+
+test("doctor: missing-fields advice names the projectNumber entry in effect (repositories entry, PROJECT_NUMBER env)", () =>
+  withWorkspace({ config: { default: { projectNumber: 7 }, repositories: { "acme/app": { projectNumber: 3 } } } }, (ws) => {
+    const state = { github: { project: { scope: "repository", fields: fieldsWith({ "Due Date": null }) } } };
+    const fromEntry = runCli("doctor.mjs", [], { ws, state });
+    assert.equal(fromEntry.status, 1, fromEntry.out);
+    assert.match(fromEntry.stdout, /Missing required Project fields: Due Date/);
+    assert.ok(fromEntry.stdout.includes('3) Or set projects-map.json repositories["acme/app"].projectNumber=0 and let sync'), fromEntry.stdout);
+
+    const fromEnv = runCli("doctor.mjs", [], { ws, env: { PROJECT_NUMBER: "3" }, state });
+    assert.equal(fromEnv.status, 1, fromEnv.out);
+    assert.ok(
+      fromEnv.stdout.includes('3) Or unset PROJECT_NUMBER, set projects-map.json repositories["acme/app"].projectNumber=0 and let sync'),
+      fromEnv.stdout
+    );
+  }));
 
 test("doctor: Status with no options and an empty Sprint iteration field → exit 1", () =>
   withWorkspace({ config: GITHUB_CONFIG }, (ws) => {
@@ -277,15 +294,21 @@ test("doctor: ambiguous projects + interactive 'n' → lists candidates, exit 0"
     assert.match(run.stdout, /Multiple GitHub Projects found/);
     assert.match(run.stdout, /candidate: #1 Alpha/);
     assert.match(run.stdout, /candidate: #2 Beta/);
-    assert.ok(!ws.exists("sync-ran.txt"));
+    assert.doesNotMatch(run.stdout, /\[cards-sync\]/);
   }));
 
-test("doctor: projectNumber unset + interactive 'y' → runs sync.mjs and exits with its status", () =>
-  withWorkspace({ config: { default: {} }, files: { "scripts/cards-sync/sync.mjs": SYNC_STUB } }, (ws) => {
-    const run = runCli("doctor.mjs", [], { ws, tty: true, input: "y\n", env: { STUB_SYNC_EXIT: "4" }, state: { github: {} } });
-    assert.equal(run.status, 4, run.out);
+test("doctor: projectNumber unset + interactive 'y' → runs the kit's sync.mjs and exits with its status", () =>
+  withWorkspace({ config: { default: {} } }, (ws) => {
+    const run = runCli("doctor.mjs", [], { ws, tty: true, chain: true, input: "y\n", env: SYNC_ENV, state: { github: {} } });
+    assert.equal(run.status, 0, run.out);
     assert.match(run.stdout, /Running sync\.mjs \(real mode\) to auto-create project\/fields\/labels/);
-    assert.ok(ws.exists("sync-ran.txt"));
+    assert.match(run.stdout, SYNC_RAN);
+
+    // Reverse sync's first GraphQL call (the issue lookup) has no route, so sync exits 1.
+    const failing = runCli("doctor.mjs", [], { ws, tty: true, chain: true, input: "y\n", env: { ...SYNC_ENV, SYNC_DIRECTION: "reverse" }, state: { github: {} } });
+    assert.equal(failing.status, 1, failing.out);
+    assert.match(failing.stderr, /\[cards-sync\] FATAL ERROR/);
+    assert.match(failing.stderr, /unmocked POST https:\/\/api\.github\.com\/graphql/, "reverse sync's issue lookup hit the fetch mock");
   }));
 
 // ---------------------------------------------------------------------------
@@ -315,10 +338,9 @@ test("doctor: Project not found + interactive 'yes' → resets the repositories 
   withWorkspace(
     {
       config: { default: { projectNumber: 7 }, repositories: { "acme/app": { projectNumber: 5 } } },
-      files: { "scripts/cards-sync/sync.mjs": SYNC_STUB },
     },
     (ws) => {
-      const run = runCli("doctor.mjs", [], { ws, tty: true, input: "yes\n", state: { github: {} } });
+      const run = runCli("doctor.mjs", [], { ws, tty: true, chain: true, input: "yes\n", env: SYNC_ENV, state: { github: {} } });
       assert.equal(run.status, 0, run.out);
       assert.match(run.stdout, /GitHub Project not found for owner="acme" number=5\./);
       assert.ok(run.stdout.includes('Can I set projects-map.json repositories["acme/app"].projectNumber to 0'), run.stdout);
@@ -326,21 +348,21 @@ test("doctor: Project not found + interactive 'yes' → resets the repositories 
       const saved = ws.readJson(CONFIG_PATH);
       assert.equal(saved.repositories["acme/app"].projectNumber, 0);
       assert.equal(saved.default.projectNumber, 7, "the default isn't what pointed at the missing Project");
-      assert.ok(ws.exists("sync-ran.txt"));
+      assert.match(run.stdout, SYNC_RAN);
     }
   ));
 
 test("doctor: Project not found via PROJECT_NUMBER env → explains the override, no prompt, no edit, no sync", () =>
-  withWorkspace({ config: { default: { projectNumber: 3 } }, files: { "scripts/cards-sync/sync.mjs": SYNC_STUB } }, (ws) => {
+  withWorkspace({ config: { default: { projectNumber: 3 } } }, (ws) => {
     const before = ws.read(CONFIG_PATH);
-    const run = runCli("doctor.mjs", [], { ws, tty: true, input: "y\n", env: { PROJECT_NUMBER: "8" }, state: { github: {} } });
+    const run = runCli("doctor.mjs", [], { ws, tty: true, chain: true, input: "y\n", env: { PROJECT_NUMBER: "8" }, state: { github: {} } });
     assert.equal(run.status, 0, run.out);
     assert.match(run.stdout, /GitHub Project not found for owner="acme" number=8\./);
     assert.match(run.stdout, /PROJECT_NUMBER environment variable \(PROJECT_NUMBER=8\), which overrides projects-map\.json/);
     assert.match(run.stdout, /Remove PROJECT_NUMBER .* shell, \.env file or CI variables/);
     assert.doesNotMatch(run.stdout, /\(y\/N\)/);
     assert.equal(ws.read(CONFIG_PATH), before);
-    assert.ok(!ws.exists("sync-ran.txt"));
+    assert.doesNotMatch(run.stdout, /\[cards-sync\]/);
   }));
 
 test(
