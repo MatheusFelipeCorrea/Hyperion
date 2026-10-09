@@ -65,6 +65,21 @@ export function stripKitScripts(packageJsonText) {
   return `${JSON.stringify(pkg, null, 2)}\n`;
 }
 
+// The kit's name + repository URL are what distribution-purity-check uses to
+// recognize the Hyperion repo itself, so a scaffolded copy must not keep them.
+export function productKitPackageJson(packageJsonText, productDirName) {
+  const pkg = JSON.parse(stripKitScripts(packageJsonText));
+  const slug = String(productDirName || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, "-")
+    .replace(/^[._-]+|[._-]+$/g, "");
+  pkg.name = `${slug || "product"}-hyperion`;
+  delete pkg.repository;
+  delete pkg.bugs;
+  delete pkg.homepage;
+  return `${JSON.stringify(pkg, null, 2)}\n`;
+}
+
 function parseArgs(argv) {
   const positional = [];
   let from = "";
@@ -112,7 +127,7 @@ function printHelp() {
 
 /** Recursively copy `from` into `to`, skipping runtime/output dirs that
  * carry zero scaffolding value. Returns the number of files copied. */
-async function copyKitTree(from, to, { relBase = "" } = {}) {
+async function copyKitTree(from, to, { relBase = "", productName = "" } = {}) {
   const entries = await fs.readdir(from, { withFileTypes: true });
   let count = 0;
 
@@ -126,12 +141,12 @@ async function copyKitTree(from, to, { relBase = "" } = {}) {
       if (SKIP_RELATIVE_DIRS.has(rel.replace(/\\/g, "/"))) continue;
       if (isKitOnly(rel)) continue;
       await fs.mkdir(toPath, { recursive: true });
-      count += await copyKitTree(fromPath, toPath, { relBase: rel });
+      count += await copyKitTree(fromPath, toPath, { relBase: rel, productName });
     } else if (entry.isFile()) {
       if (SKIP_RELATIVE_FILES.has(rel.replace(/\\/g, "/"))) continue;
       if (isKitOnly(rel)) continue;
       await fs.mkdir(to, { recursive: true });
-      if (rel === "package.json") await fs.writeFile(toPath, stripKitScripts(await fs.readFile(fromPath, "utf8")));
+      if (rel === "package.json") await fs.writeFile(toPath, productKitPackageJson(await fs.readFile(fromPath, "utf8"), productName));
       else await fs.copyFile(fromPath, toPath);
       count += 1;
     }
@@ -215,7 +230,7 @@ async function main() {
     }
 
     await fs.mkdir(nestedKitDir, { recursive: true });
-    const copied = await copyKitTree(kitRoot, nestedKitDir);
+    const copied = await copyKitTree(kitRoot, nestedKitDir, { productName: path.basename(targetRoot) });
     ok(`Copied ${copied} file(s) into ${nestedKitDir}`);
 
     if (!args.skipInstall) {

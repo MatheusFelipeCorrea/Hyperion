@@ -5,7 +5,8 @@ import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node
 import { join, dirname, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
-import { isKitOnly, stripKitScripts } from "../hyperion/create-hyperion.mjs";
+import { isKitOnly, productKitPackageJson, stripKitScripts } from "../hyperion/create-hyperion.mjs";
+import { detectKit } from "../hyperion/distribution-purity-check.mjs";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const createScript = join(repoRoot, "scripts", "hyperion", "create-hyperion.mjs");
@@ -29,6 +30,23 @@ test("stripKitScripts drops only kit:* npm scripts", () => {
   assert.equal(stripKitScripts('{"name":"x"}'), '{"name":"x"}');
 });
 
+test("productKitPackageJson renames the copy and drops the kit's repository links", () => {
+  const kitPkg = JSON.stringify({
+    name: "hyperion",
+    repository: { type: "git", url: "https://github.com/MatheusFelipeCorrea/Hyperion.git" },
+    bugs: { url: "https://github.com/MatheusFelipeCorrea/Hyperion/issues" },
+    homepage: "https://github.com/MatheusFelipeCorrea/Hyperion",
+    scripts: { "kit:test": "a", "hyperion:test": "b" },
+  });
+  const out = JSON.parse(productKitPackageJson(kitPkg, "My Product!"));
+  assert.equal(out.name, "my-product-hyperion");
+  assert.equal(out.repository, undefined);
+  assert.equal(out.bugs, undefined);
+  assert.equal(out.homepage, undefined);
+  assert.deepEqual(out.scripts, { "hyperion:test": "b" });
+  assert.equal(JSON.parse(productKitPackageJson(kitPkg, "...")).name, "product-hyperion");
+});
+
 test("a product scaffolded from this checkout gets none of the kit-only files", () => {
   const dir = mkdtempSync(join(tmpdir(), "kit-create-"));
   try {
@@ -49,6 +67,7 @@ test("a product scaffolded from this checkout gets none of the kit-only files", 
     const scripts = JSON.parse(readFileSync(join(kit, "package.json"), "utf8")).scripts;
     assert.deepEqual(Object.keys(scripts).filter((s) => s.startsWith("kit:")), []);
     assert.ok(scripts["hyperion:test"], "the product's kit scripts are kept");
+    assert.equal(detectKit(kit).isKit, false, "the nested kit must not look like the Hyperion repo to the purity check");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
