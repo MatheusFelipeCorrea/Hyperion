@@ -14,6 +14,7 @@
  *   CARDS_PR_GUARD_SKIP=true       — escape hatch (pass without check)
  *   CARDS_CI_STRICT_GIT=true       — fail when git unavailable
  */
+import "./load-env.mjs";
 import { spawnSync } from "node:child_process";
 import path from "node:path";
 import { resolveHyperionPaths } from "../hyperion/paths.mjs";
