@@ -1,6 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
+  existsSync,
   mkdtempSync,
   mkdirSync,
   writeFileSync,
@@ -133,7 +134,7 @@ describe("upgrade-lib", () => {
       const byRel = Object.fromEntries(plan.map((p) => [p.rel, p]));
       assert.equal(byRel["scripts/hyperion/doctor.mjs"].action, "update");
       assert.equal(byRel[".github/skills/setup/x/SKILL.md"].action, "add");
-      assert.equal(byRel[".github/workflows/hyperion-validate.yml"].action, "add");
+      assert.ok(!byRel[".github/workflows/hyperion-validate.yml"], "kit's own CI must never reach a product");
       assert.ok(!byRel[".github/workflows/product.yml"]);
       assert.equal(byRel["package.json"].action, "update");
       assert.equal(byRel[".gitignore"].action, "update");
@@ -157,10 +158,7 @@ describe("upgrade-lib", () => {
       assert.equal(readFileSync(join(client, ".github", "project.yml"), "utf8"), "name: client\n");
       assert.equal(readFileSync(join(client, ".github", "memory", "PROJECT.md"), "utf8"), "# mem\n");
       assert.match(readFileSync(join(client, "scripts", "hyperion", "doctor.mjs"), "utf8"), /v = 2/);
-      assert.match(
-        readFileSync(join(client, ".github", "workflows", "hyperion-validate.yml"), "utf8"),
-        /hv2/
-      );
+      assert.ok(!existsSync(join(client, ".github", "workflows", "hyperion-validate.yml")));
       assert.match(
         readFileSync(join(client, ".github", "workflows", "product.yml"), "utf8"),
         /keep-me/

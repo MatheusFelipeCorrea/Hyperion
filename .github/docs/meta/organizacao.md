@@ -82,9 +82,9 @@ npm run hyperion:upgrade -- --from /caminho/Hyperion-novo --yes
 
 Origem padrão: repo/ref em `hyperion-origin.json` (override: `--repo`, `--ref`, ou env `HYPERION_ORIGIN_REPO`).
 
-**Atualiza:** `scripts/hyperion`, `scripts/cards-sync`, skills, agents, audits, docs, workflows `hyperion-*`, rules, merge de scripts `hyperion:`/`cards:` no `package.json`.
+**Atualiza:** `scripts/hyperion` (inclusive os templates de workflow), `scripts/cards-sync`, skills, agents, audits, docs, rules, merge de scripts `hyperion:`/`cards:` no `package.json`.
 
-**Preserva:** `.github/project.yml`, `memory/`, `cards/`, `plans/`, pastas de board, `.env`, workflows do produto.
+**Preserva:** `.github/project.yml`, `memory/`, `cards/`, `plans/`, pastas de board, `.env`, **todos** os workflows (`.github/workflows/`). Os `hyperion-*.yml` do produto vêm do `/pipeline`; depois do upgrade, atualize-os a partir dos templates novos com `npm run hyperion:pipeline-apply -- --refresh-sync --yes` (sync e board guard) e `-- --refresh-gates --yes` (CI do produto).
 
 Grava `.github/hyperion-kit.json` com `commit` + timestamp (pin para o próximo check).
 

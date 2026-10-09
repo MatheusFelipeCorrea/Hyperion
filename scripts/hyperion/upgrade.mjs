@@ -176,6 +176,9 @@ async function main() {
     });
     ok(`Applied ${applied.length} paths`);
     log("", "Next: npm run hyperion:doctor");
+    log("", "Workflows are not copied by upgrade — refresh them from the new templates:");
+    log("", "  npm run hyperion:pipeline-apply -- --refresh-sync --yes   # sync + board guard");
+    log("", "  npm run hyperion:pipeline-apply -- --refresh-gates --yes  # product CI from ci.gates");
     ok("hyperion:upgrade complete");
   } finally {
     cleanupTemp(tempParent);

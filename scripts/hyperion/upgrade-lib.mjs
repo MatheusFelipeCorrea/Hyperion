@@ -68,15 +68,6 @@ export function isPreserved(rel) {
   return PRESERVE_PREFIXES.some((pre) => n === pre.slice(0, -1) || n.startsWith(pre));
 }
 
-export function isHyperionWorkflow(rel) {
-  const n = normalizeRel(rel);
-  return (
-    n.startsWith(".github/workflows/") &&
-    path.posix.basename(n).startsWith("hyperion-") &&
-    (n.endsWith(".yml") || n.endsWith(".yaml"))
-  );
-}
-
 async function pathExists(p) {
   try {
     await fs.access(p);
@@ -125,10 +116,8 @@ export async function collectManagedRels(kitRoot) {
     if (await pathExists(abs)) rels.add(normalizeRel(file));
   }
 
-  const wfDir = path.join(kitRoot, ".github", "workflows");
-  for (const rel of await walkFiles(wfDir, ".github/workflows")) {
-    if (isHyperionWorkflow(rel)) rels.add(rel);
-  }
+  // No .github/workflows here: those are the kit's own CI. Product workflows are
+  // rendered from scripts/hyperion/templates/workflows by /pipeline (pipeline-apply).
 
   // Any extra .cursor/rules/*.mdc from kit (not only hyperion.mdc)
   const cursorRules = path.join(kitRoot, ".cursor", "rules");
