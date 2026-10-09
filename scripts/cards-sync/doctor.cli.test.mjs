@@ -44,7 +44,7 @@ function withWorkspace(opts, fn) {
 // GitHub — Project found
 // ---------------------------------------------------------------------------
 
-test("doctor: healthy GitHub setup passes every check (exit 0) and flags stale community MCP packages", () =>
+test("doctor: healthy GitHub setup passes every check (exit 0) and flags legacy community MCP packages", () =>
   withWorkspace(
     {
       config: GITHUB_CONFIG,
@@ -69,7 +69,6 @@ test("doctor: healthy GitHub setup passes every check (exit 0) and flags stale c
     (ws) => {
       const run = runCli("doctor.mjs", [], {
         ws,
-        npmModified: { "mcp-linear": "2020-01-01T00:00:00Z", "mcp-atlassian": new Date().toISOString() },
         state: { github: { project: { scope: "repository", fields: HEALTHY_PROJECT_FIELDS } } },
       });
       assert.equal(run.status, 0, run.out);
@@ -91,13 +90,15 @@ test("doctor: healthy GitHub setup passes every check (exit 0) and flags stale c
       ]) {
         assert.ok(run.stdout.includes(`[doctor] ${line}`), `missing "${line}" in:\n${run.stdout}`);
       }
-      assert.match(run.stdout, /MCP package "mcp-linear" \(configured in \.cursor\/mcp\.json\) hasn't published in ~\d+ months/);
-      assert.doesNotMatch(run.stdout, /MCP package "mcp-(atlassian|gitlab)"/);
-      assert.deepEqual(
-        run.tools.filter((t) => t.tool === "npm").map((t) => t.args[1]).sort(),
-        ["mcp-atlassian", "mcp-gitlab", "mcp-linear"],
-        "only community packages are looked up"
-      );
+      for (const [server, pkg] of [["linear", "mcp-linear"], ["atlassian", "mcp-atlassian"], ["gitlab", "mcp-gitlab"]]) {
+        assert.match(
+          run.stdout,
+          new RegExp(`MCP server "${server}" in \\.cursor/mcp\\.json runs the community package "${pkg}"`),
+          `${pkg} must be flagged as a legacy community package`
+        );
+      }
+      assert.doesNotMatch(run.stdout, /MCP server "(azure|local|broken)"/, "the official, local and malformed servers are not flagged");
+      assert.deepEqual(run.tools.filter((t) => t.tool === "npm"), [], "the check is offline: no npm lookups");
       const [lookup] = graphqlCalls(run);
       assert.equal(lookup.headers.Authorization, "Bearer test-token");
       assert.deepEqual(lookup.body.variables, { owner: "acme", name: "app", number: 3 });
