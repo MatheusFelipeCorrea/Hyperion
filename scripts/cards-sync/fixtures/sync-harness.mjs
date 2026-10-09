@@ -104,7 +104,11 @@ export function fakeBin(ws, outputs = {}) {
     if (process.platform === "win32") {
       writeFileSync(join(dir, `${name}.cmd`), `@type "%~dp0${name}.out"\r\n`);
     } else {
-      writeFileSync(join(dir, name), `#!/bin/sh\ncat "$(dirname "$0")/${name}.out"\n`);
+      // Shell builtins only (read/printf): tests set PATH to this directory alone, so `cat`/`dirname` would not resolve.
+      writeFileSync(
+        join(dir, name),
+        `#!/bin/sh\nwhile IFS= read -r line || [ -n "$line" ]; do printf '%s\\n' "$line"; done < "$0.out"\n`
+      );
       chmodSync(join(dir, name), 0o755);
     }
   }
