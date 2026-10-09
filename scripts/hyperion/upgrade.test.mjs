@@ -201,30 +201,37 @@ describe("upgrade-lib edge cases", () => {
     assert.equal(mergePackageJson({ type: "commonjs", engines: { node: ">=18" } }, { engines: { node: ">=20" }, type: "module" }).type, "commonjs");
   });
 
-  it("plans extra .cursor/rules files, a missing client package.json and preserved managed files", async () => {
+  it("plans extra .cursor/rules files and a missing client package.json, never client-owned files", async () => {
     const kit = tmp("kit-");
     const client = tmp("client-");
-    MANAGED_FILES.push(".github/project.yml");
     try {
       mkdirSync(join(kit, ".cursor", "rules"), { recursive: true });
-      mkdirSync(join(kit, ".github"), { recursive: true });
+      mkdirSync(join(kit, ".github", "memory"), { recursive: true });
       writeFileSync(join(kit, ".cursor", "rules", "extra.mdc"), "x\n");
       writeFileSync(join(kit, ".cursor", "rules", "notes.md"), "x\n");
       writeFileSync(join(kit, ".cursor", "rules", "ignored.txt"), "x\n");
       writeFileSync(join(kit, ".github", "project.yml"), "name: kit\n");
+      writeFileSync(join(kit, ".github", "memory", "PROJECT.md"), "# kit\n");
       writeFileSync(join(kit, "package.json"), JSON.stringify({ scripts: { "hyperion:doctor": "d" } }));
       const plan = await buildUpgradePlan(kit, client);
       const byRel = Object.fromEntries(plan.map((p) => [p.rel, p]));
       assert.equal(byRel[".cursor/rules/extra.mdc"].action, "add");
       assert.equal(byRel[".cursor/rules/notes.md"].action, "add");
       assert.ok(!byRel[".cursor/rules/ignored.txt"]);
-      assert.deepEqual(byRel[".github/project.yml"], { rel: ".github/project.yml", action: "preserve", reason: "client-owned" });
+      assert.ok(!byRel[".github/project.yml"]);
+      assert.ok(!byRel[".github/memory/PROJECT.md"]);
       assert.deepEqual(byRel["package.json"], { rel: "package.json", action: "add", reason: "merge-scripts" });
-      assert.equal(summarizePlan(plan).preserve, 1);
+      assert.equal(summarizePlan(plan).preserve, 0);
     } finally {
-      MANAGED_FILES.pop();
       rmSync(kit, { recursive: true, force: true });
       rmSync(client, { recursive: true, force: true });
+    }
+  });
+
+  it("no managed file is client-owned (buildUpgradePlan relies on it to never overwrite one)", () => {
+    // MANAGED_DIRS entries are filtered with isPreserved(); single files, workflows and rules are not.
+    for (const rel of [...MANAGED_FILES, ".github/workflows/hyperion-x.yml", ".cursor/rules/x.mdc"]) {
+      assert.equal(isPreserved(rel), false, rel);
     }
   });
 
