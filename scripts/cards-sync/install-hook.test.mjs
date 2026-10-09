@@ -1,6 +1,6 @@
 import test, { after } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync, existsSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, existsSync, readFileSync, rmSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -95,6 +95,49 @@ test("running the script directly installs the hook at .git/hooks/pre-commit", (
   assert.equal(r.status, 0, r.stderr || r.stdout);
   assert.match(r.stdout, /pre-commit hook installed/);
   assert.ok(existsSync(join(root, ".git", "hooks", "pre-commit")));
+});
+
+const runHook = (cwd, args = [], env = {}) =>
+  spawnSync(process.execPath, [installHookScript, ...args], { cwd, encoding: "utf8", env: { ...process.env, HYPERION_ROOT: "", ...env } });
+
+test("outside a git repository it refuses to install", () => {
+  const root = makeTemp("hyperion-hook-nogit-");
+  const r = runHook(root, [], { GIT_DIR: join(root, "no-such-git-dir") });
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /Not a git repository — init git first\./);
+});
+
+test("is idempotent, and only appends to a custom hook with --yes", () => {
+  const root = makeTemp("hyperion-hook-custom-");
+  spawnSync("git", ["init", "-q"], { cwd: root });
+  const hookPath = join(root, ".git", "hooks", "pre-commit");
+  mkdirSync(dirname(hookPath), { recursive: true });
+  writeFileSync(hookPath, "#!/bin/sh\necho custom\n");
+
+  const refused = runHook(root);
+  assert.equal(refused.status, 1);
+  assert.match(refused.stdout, /already exists with custom content/);
+  assert.equal(readFileSync(hookPath, "utf8"), "#!/bin/sh\necho custom\n");
+
+  const appended = runHook(root, ["--yes"]);
+  assert.equal(appended.status, 0, appended.stderr);
+  const body = readFileSync(hookPath, "utf8");
+  assert.match(body, /^#!\/bin\/sh\necho custom\n\n#!\/bin\/sh\n# hyperion-cards-validate/);
+  assert.match(body, /# hyperion-check-rules/);
+
+  const again = runHook(root);
+  assert.equal(again.status, 0, again.stderr);
+  assert.match(again.stdout, /already installed \(cards \+ rules\)/);
+  assert.equal(readFileSync(hookPath, "utf8"), body);
+});
+
+test("write failures are reported as FATAL", () => {
+  const root = makeTemp("hyperion-hook-fatal-");
+  spawnSync("git", ["init", "-q"], { cwd: root });
+  mkdirSync(join(root, ".git", "hooks", "pre-commit"), { recursive: true });
+  const r = runHook(root);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /\[install-hook\] FATAL:/);
 });
 
 test("works inside a git worktree, where .git is a file, not a directory", () => {

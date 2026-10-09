@@ -19,7 +19,6 @@
 import "./load-env.mjs";
 import { spawnSync } from "node:child_process";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { resolveHyperionPaths } from "../hyperion/paths.mjs";
 import { ciFail } from "../hyperion/ci-annotate.mjs";
 import {
@@ -33,7 +32,6 @@ import {
   resolveGuardBaseRef,
 } from "./board-guard.mjs";
 
-const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const paths = resolveHyperionPaths(process.cwd());
 
 const dryRun =
