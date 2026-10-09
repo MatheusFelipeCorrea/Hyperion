@@ -1,8 +1,9 @@
-﻿import test from "node:test";
+﻿import test, { after } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import {
   parseFrontmatter,
   parseCardFile,
@@ -35,9 +36,13 @@ import {
   canonicalizeLinearState,
   getLabelId,
   shouldPromptBeforeLiveSync,
+  DEFAULT_STATUS_OPTIONS,
   saveAutoCreatedProject,
 } from "./sync.mjs";
 import { pickCanonicalIssueForCardId } from "./lib.mjs";
+import { cleanupTempDirs, commitAll, initRepo, makeTempDir, runNode, scriptPath, writeFile } from "./test-support/ci-fixture.mjs";
+
+after(cleanupTempDirs);
 
 test("parseFrontmatter reads scalar and array values", () => {
   const content = `---
@@ -639,6 +644,24 @@ test("resolveHyperionStatusFromRemote maps via status_map inverse", () => {
   assert.equal(resolveHyperionStatusFromRemote("Todo", statusMap, {}), "Backlog");
 });
 
+test("reverse sync keeps the default status column names when no option map is configured", () => {
+  for (const status of DEFAULT_STATUS_OPTIONS) {
+    assert.equal(buildRemoteFrontmatterUpdates({ status }, {}, {}).status, status, "GitHub Project reverse path");
+    assert.equal(resolveHyperionStatusFromRemote(status, {}, {}), status, "Jira/GitLab/Azure/Linear reverse path");
+  }
+  assert.equal(canonicalizeRemoteOption("status", "em progresso", {}), "In Progress");
+  assert.equal(resolveHyperionStatusFromRemote("Em Revisão", undefined, {}), "In Revision");
+});
+
+test("every built-in status alias reverse-syncs to an allowed default column", () => {
+  const aliases = ["backlog", "To do", "Todo", "A fazer", "in progress", "em progresso", "in tests", "em testes", "in revision", "em revisao", "done", "feito", "concluído", "refinamento funcional", "refinamento técnico"];
+  for (const alias of aliases) {
+    assert.ok(DEFAULT_STATUS_OPTIONS.includes(resolveHyperionStatusFromRemote(alias, {}, {})), alias);
+  }
+  assert.equal(canonicalizeRemoteOption("status", "Todo", {}), "Backlog");
+  assert.deepEqual(buildOptionCandidates("status", "Backlog", {}), ["Backlog", "to do", "todo", "a fazer"], "exact Backlog is still tried first");
+});
+
 test("shouldPromptBeforeLiveSync only fires for an interactive, unattended, non-dry-run invocation", () => {
   // dry-run: never prompt, no matter how the rest looks
   assert.equal(
@@ -672,6 +695,34 @@ test("shouldPromptBeforeLiveSync only fires for an interactive, unattended, non-
 test("canonicalizeLinearState aliases resolveHyperionStatusFromRemote", () => {
   const statusMap = { Done: "Completed" };
   assert.equal(canonicalizeLinearState("Completed", statusMap, {}), "Done");
+});
+
+test("readGitCardHistory keeps non-ASCII card paths unquoted (committed, dirty, deleted)", () => {
+  const ws = initRepo(makeTempDir("hyperion-sync-git-history-"));
+  const dir = ".github/cards/stories";
+  writeFile(ws, `${dir}/Ação-1.md`, "a\n");
+  writeFile(ws, `${dir}/Café-2.md`, "b\n");
+  commitAll(ws, "cards");
+  rmSync(join(ws, dir, "Café-2.md"));
+  commitAll(ws, "remove");
+  writeFile(ws, `${dir}/Ação-1.md`, "edited\n");
+  writeFile(ws, `${dir}/Nação-3.md`, "new\n");
+  const probe = writeFile(
+    ws,
+    "probe.mjs",
+    `import { readGitCardHistory } from ${JSON.stringify(pathToFileURL(scriptPath("sync.mjs")).href)};
+const h = readGitCardHistory(".github/cards");
+console.log(JSON.stringify({ committed: [...h.committed.keys()].sort(), dirty: [...h.dirty].sort(), deleted: [...h.deleted] }));
+`
+  );
+
+  const r = runNode(probe, [], { cwd: ws });
+  assert.equal(r.status, 0, r.output);
+  assert.deepEqual(JSON.parse(r.stdout), {
+    committed: [`${dir}/Ação-1.md`, `${dir}/Café-2.md`],
+    dirty: [`${dir}/Ação-1.md`, `${dir}/Nação-3.md`],
+    deleted: [`${dir}/Café-2.md`],
+  });
 });
 
 test("saveAutoCreatedProject writes the projects-map.json entry whose projectNumber is in effect", async () => {

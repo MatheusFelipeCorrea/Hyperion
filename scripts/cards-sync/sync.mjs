@@ -2303,7 +2303,7 @@ async function runReverseSync() {
 
 function gitLines(args) {
   try {
-    return execSync(`git ${args}`, { cwd: workspaceRoot, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], maxBuffer: 64 * 1024 * 1024 })
+    return execSync(`git -c core.quotePath=false ${args}`, { cwd: workspaceRoot, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], maxBuffer: 64 * 1024 * 1024 })
       .split(/\r?\n/)
       .filter(Boolean);
   } catch {
