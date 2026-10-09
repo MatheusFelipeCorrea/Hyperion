@@ -59,6 +59,7 @@ test("forward creates new work items, updates existing ones, sets state and link
   const api = azureApi((req) => {
     if (req.method === "POST" && req.endpoint === "/_apis/wit/wiql?api-version=7.0") {
       assert.equal(req.headers["Content-Type"], "application/json");
+      assert.match(req.body.query, /ORDER BY \[System\.ChangedDate\] DESC$/);
       if (!req.body.query.includes("'CARD_ID: PROJ-F1'")) return { workItems: [] };
       return { workItems: [{}, { id: 200 }, { id: 101 }] };
     }
@@ -69,7 +70,7 @@ test("forward creates new work items, updates existing ones, sets state and link
     if (req.method === "GET" && req.endpoint === "/_apis/wit/workitems/101?api-version=7.0&fields=System.Description") {
       return { id: 101, fields: { "System.Description": remoteDescription("features/PROJ-F1.md", feature) } };
     }
-    if (req.method === "POST" && /^\/_apis\/wit\/workitems\/(\$|%24)?Task\?api-version=7\.0$/.test(req.endpoint)) {
+    if (req.method === "POST" && /^\/_apis\/wit\/workitems\/\$Task\?api-version=7\.0$/.test(req.endpoint)) {
       assert.equal(req.headers["Content-Type"], "application/json-patch+json");
       created.push(req.body);
       return { id: 102 };
@@ -146,7 +147,7 @@ test("forward keeps going when a state is rejected, linking fails, or a create r
     const actions = actionsFrom(lines);
 
     assert.equal(createdTypes.length, 4);
-    assert.ok(createdTypes.every((e) => /^\/_apis\/wit\/workitems\/(\$|%24)?User%20Story\?api-version=7\.0$/.test(e)));
+    assert.ok(createdTypes.every((e) => /^\/_apis\/wit\/workitems\/\$User%20Story\?api-version=7\.0$/.test(e)));
     const skipped = actions.find((a) => a.action === "STATUS_SKIPPED");
     assert.equal(skipped.cardId, "PROJ-F2");
     assert.equal(skipped.applied, false);
@@ -222,8 +223,8 @@ test("reverse patches local cards, recreates missing ones, skips samples, unmark
     { id: 506, fields: { "System.Title": "[Story] Card PROJ-S7", "System.Description": remoteDescription("stories/PROJ-S7.md", broken), "System.State": "Done" } },
   ];
   const api = azureApi((req) => {
-    if (req.method === "POST" && req.endpoint === "/_apis/wit/wiql?api-version=7.0&$top=100") {
-      assert.match(req.body.query, /CONTAINS 'CARD_ID:'/);
+    if (req.method === "POST" && req.endpoint === "/_apis/wit/wiql?api-version=7.0") {
+      assert.match(req.body.query, /CONTAINS 'CARD_ID:' ORDER BY \[System\.ChangedDate\] DESC$/);
       return { workItems: [...items.map((i) => ({ id: i.id })), {}] };
     }
     if (req.method === "POST" && req.endpoint === "/_apis/wit/workitemsbatch?api-version=7.0") {
@@ -265,6 +266,27 @@ test("reverse surfaces the API error, including non-JSON bodies", async () => {
   const api = mockFetch(() => new Response("Bad gateway", { status: 502, statusText: "Bad Gateway" }));
   try {
     await assert.rejects(captureLogs(() => runReverseSyncAzure({}, management)), /Azure request failed \(502 Bad Gateway\): \{"raw":"Bad gateway"\}/);
+  } finally {
+    api.restore();
+  }
+});
+
+test("reverse reads every matching work item, 200 ids per batch call", async () => {
+  resetCards({});
+  const ids = Array.from({ length: 450 }, (_, i) => 1000 + i);
+  const batches = [];
+  const api = azureApi((req) => {
+    if (req.endpoint === "/_apis/wit/wiql?api-version=7.0") return { workItems: ids.map((id) => ({ id })) };
+    if (req.endpoint === "/_apis/wit/workitemsbatch?api-version=7.0") {
+      batches.push(req.body.ids);
+      return { value: req.body.ids.map((id) => ({ id, fields: { "System.Description": "plain text" } })) };
+    }
+  });
+  try {
+    const lines = await captureLogs(() => runReverseSyncAzure({}, management));
+    assert.deepEqual(batches.map((b) => b.length), [200, 200, 50]);
+    assert.deepEqual(batches.flat(), ids);
+    assert.ok(lines.some((l) => l.includes("Azure work items found: 450")));
   } finally {
     api.restore();
   }

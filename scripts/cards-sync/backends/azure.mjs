@@ -32,11 +32,20 @@ function basicAuthHeaderFromPat(pat) {
 
 export function buildAzureWiqlForCardId(cardId) {
   // WIQL supports searching by substring in fields like System.Description.
-  return `SELECT [System.Id] FROM WorkItems WHERE [System.Description] CONTAINS 'CARD_ID: ${cardId}' ORDER BY [System.Changed Date] DESC`;
+  return `SELECT [System.Id] FROM WorkItems WHERE [System.Description] CONTAINS 'CARD_ID: ${cardId}' ORDER BY [System.ChangedDate] DESC`;
 }
 
 export function buildAzureWiqlForAllCardIds() {
-  return `SELECT [System.Id] FROM WorkItems WHERE [System.Description] CONTAINS 'CARD_ID:' ORDER BY [System.Changed Date] DESC`;
+  return `SELECT [System.Id] FROM WorkItems WHERE [System.Description] CONTAINS 'CARD_ID:' ORDER BY [System.ChangedDate] DESC`;
+}
+
+/** workitemsbatch accepts at most 200 ids per call. */
+export const AZURE_BATCH_SIZE = 200;
+
+export function chunkIds(ids, size = AZURE_BATCH_SIZE) {
+  const chunks = [];
+  for (let i = 0; i < ids.length; i += size) chunks.push(ids.slice(i, i + size));
+  return chunks;
 }
 
 /**
@@ -126,7 +135,7 @@ export async function runForwardSyncAzure(repoConfig, management) {
     ];
 
     const data = await azureRequest(
-      `/_apis/wit/workitems/${encodeURIComponent(workItemType)}?api-version=7.0`,
+      `/_apis/wit/workitems/$${encodeURIComponent(workItemType)}?api-version=7.0`,
       "POST",
       ops,
       "application/json-patch+json"
@@ -287,7 +296,7 @@ export async function runReverseSyncAzure(repoConfig, management) {
     return payload;
   }
 
-  const wiql = await azureRequest(`/_apis/wit/wiql?api-version=7.0&$top=100`, "POST", {
+  const wiql = await azureRequest(`/_apis/wit/wiql?api-version=7.0`, "POST", {
     query: buildAzureWiqlForAllCardIds(),
   });
   const ids = (wiql?.workItems || []).map((w) => w.id).filter(Boolean);
@@ -296,11 +305,14 @@ export async function runReverseSyncAzure(repoConfig, management) {
     return;
   }
 
-  const batch = await azureRequest(`/_apis/wit/workitemsbatch?api-version=7.0`, "POST", {
-    ids,
-    fields: ["System.Id", "System.Title", "System.Description", "System.State", "System.Tags", "System.ChangedDate"],
-  });
-  const items = batch?.value || [];
+  const items = [];
+  for (const chunk of chunkIds(ids)) {
+    const batch = await azureRequest(`/_apis/wit/workitemsbatch?api-version=7.0`, "POST", {
+      ids: chunk,
+      fields: ["System.Id", "System.Title", "System.Description", "System.State", "System.Tags", "System.ChangedDate"],
+    });
+    items.push(...(batch?.value || []));
+  }
   log(`Azure work items found: ${items.length}`);
 
   let written = 0;
