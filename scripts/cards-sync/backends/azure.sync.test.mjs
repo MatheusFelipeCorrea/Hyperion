@@ -4,7 +4,7 @@ import { rmSync } from "node:fs";
 import { cardMarkdown, captureLogs, jsonResponse, mockFetch, setupWorkspace } from "./sync-fixture.mjs";
 
 const ws = setupWorkspace();
-const { runForwardSyncAzure, runReverseSyncAzure } = await import("./azure.mjs");
+const { runForwardSyncAzure, runReverseSyncAzure, buildAzureWiqlForCardId } = await import("./azure.mjs");
 const { buildRemoteDescriptionFromCard, parseCardFile } = await import("../lib.mjs");
 
 const management = {
@@ -43,6 +43,13 @@ function azureApi(route) {
 
 test.after(() => ws.cleanup());
 
+test("buildAzureWiqlForCardId is scoped to the project", () => {
+  assert.equal(
+    buildAzureWiqlForCardId("PROJ-S1"),
+    "SELECT [System.Id] FROM WorkItems WHERE [System.TeamProject] = @project AND [System.Description] CONTAINS 'CARD_ID: PROJ-S1' ORDER BY [System.ChangedDate] DESC"
+  );
+});
+
 test("forward and reverse refuse to run without org url, project and PAT", async () => {
   await assert.rejects(runForwardSyncAzure({}, {}), /AZDO_ORG_URL, AZDO_PROJECT, and AZDO_PAT/);
   await assert.rejects(runForwardSyncAzure({}, { azureOrgUrl: "u", azureProject: "p" }), /AZDO_PAT/);
@@ -56,19 +63,24 @@ test("forward creates new work items, updates existing ones, sets state and link
 
   const created = [];
   const patches = [];
+  const near = cardMarkdown({ id: "PROJ-F10", type: "Feature" });
   const api = azureApi((req) => {
     if (req.method === "POST" && req.endpoint === "/_apis/wit/wiql?api-version=7.0") {
       assert.equal(req.headers["Content-Type"], "application/json");
-      assert.match(req.body.query, /ORDER BY \[System\.ChangedDate\] DESC$/);
-      if (!req.body.query.includes("'CARD_ID: PROJ-F1'")) return { workItems: [] };
+      assert.equal(
+        req.body.query,
+        "SELECT [System.Id] FROM WorkItems WHERE [System.TeamProject] = @project AND [System.Description] CONTAINS 'CARD_ID:' ORDER BY [System.ChangedDate] DESC"
+      );
       return { workItems: [{}, { id: 200 }, { id: 101 }] };
     }
-    if (req.method === "GET" && req.endpoint === "/_apis/wit/workitems/200?api-version=7.0&fields=System.Description") {
-      const near = cardMarkdown({ id: "PROJ-F10", type: "Feature" });
-      return { id: 200, fields: { "System.Description": remoteDescription("features/PROJ-F10.md", near) } };
-    }
-    if (req.method === "GET" && req.endpoint === "/_apis/wit/workitems/101?api-version=7.0&fields=System.Description") {
-      return { id: 101, fields: { "System.Description": remoteDescription("features/PROJ-F1.md", feature) } };
+    if (req.method === "POST" && req.endpoint === "/_apis/wit/workitemsbatch?api-version=7.0") {
+      assert.deepEqual(req.body, { ids: [200, 101], fields: ["System.Id", "System.Description"], errorPolicy: "omit" });
+      return {
+        value: [
+          { id: 200, fields: { "System.Description": remoteDescription("features/PROJ-F10.md", near) } },
+          { id: 101, fields: { "System.Description": remoteDescription("features/PROJ-F1.md", feature) } },
+        ],
+      };
     }
     if (req.method === "POST" && /^\/_apis\/wit\/workitems\/\$Task\?api-version=7\.0$/.test(req.endpoint)) {
       assert.equal(req.headers["Content-Type"], "application/json-patch+json");
@@ -112,6 +124,46 @@ test("forward creates new work items, updates existing ones, sets state and link
 
     assert.ok(lines.some((l) => l.includes("Parent-child links: 1")));
     assert.ok(lines.some((l) => l.includes("=== AZURE DEVOPS SYNC COMPLETE ===")));
+    assert.equal(api.calls.filter((c) => c.url.includes("/wiql")).length, 1, "one WIQL query for the whole run");
+  } finally {
+    api.restore();
+  }
+});
+
+test("forward indexes every card's work item once, reading 200 ids per batch and keeping the most recently changed duplicate", async () => {
+  const cards = Object.fromEntries(
+    Array.from({ length: 5 }, (_, i) => [`stories/PROJ-S${i + 1}.md`, cardMarkdown({ id: `PROJ-S${i + 1}`, status: "null" })])
+  );
+  resetCards(cards);
+  const describe = (n) => remoteDescription(`stories/PROJ-S${n}.md`, cards[`stories/PROJ-S${n}.md`]);
+  // 210 matches: the first 200 are noise, then PROJ-S1 twice (most recently changed first), PROJ-S2 and a deleted item.
+  const ids = [...Array.from({ length: 200 }, (_, i) => 5000 + i), 301, 300, 302, 303];
+  const batches = [];
+  const api = azureApi((req) => {
+    if (req.endpoint === "/_apis/wit/wiql?api-version=7.0") return { workItems: ids.map((id) => ({ id })) };
+    if (req.endpoint === "/_apis/wit/workitemsbatch?api-version=7.0") {
+      assert.equal(req.body.errorPolicy, "omit");
+      batches.push(req.body.ids);
+      const byId = {
+        300: { id: 300, fields: { "System.Description": describe(1) } },
+        301: { id: 301, fields: { "System.Description": describe(1) } },
+        302: { id: 302, fields: { "System.Description": describe(2) } },
+        303: null,
+      };
+      return { value: req.body.ids.map((id) => (id in byId ? byId[id] : { id, fields: {} })) };
+    }
+    if (req.method === "PATCH" && /\/workitems\/(301|302)\?/.test(req.endpoint)) return {};
+    if (req.method === "POST" && req.endpoint.startsWith("/_apis/wit/workitems/$Task")) return { id: 900 };
+  });
+  try {
+    const actions = actionsFrom(await captureLogs(() => runForwardSyncAzure({}, management)));
+    assert.deepEqual(
+      actions.map((a) => `${a.action}:${a.cardId}:${a.workItemId}`),
+      ["UPDATED:PROJ-S1:301", "UPDATED:PROJ-S2:302", "CREATED:PROJ-S3:900", "CREATED:PROJ-S4:900", "CREATED:PROJ-S5:900"]
+    );
+    assert.deepEqual(batches.map((b) => b.length), [200, 4]);
+    assert.equal(api.calls.filter((c) => c.url.includes("/wiql")).length, 1, "no WIQL query per card");
+    assert.ok(!api.calls.some((c) => c.method === "GET"), "no per-item GET");
   } finally {
     api.restore();
   }
@@ -224,13 +276,14 @@ test("reverse patches local cards, recreates missing ones, skips samples, unmark
   ];
   const api = azureApi((req) => {
     if (req.method === "POST" && req.endpoint === "/_apis/wit/wiql?api-version=7.0") {
-      assert.match(req.body.query, /CONTAINS 'CARD_ID:' ORDER BY \[System\.ChangedDate\] DESC$/);
-      return { workItems: [...items.map((i) => ({ id: i.id })), {}] };
+      assert.match(req.body.query, /WHERE \[System\.TeamProject\] = @project AND .*CONTAINS 'CARD_ID:' ORDER BY \[System\.ChangedDate\] DESC$/);
+      return { workItems: [...items.map((i) => ({ id: i.id })), {}, { id: 507 }] };
     }
     if (req.method === "POST" && req.endpoint === "/_apis/wit/workitemsbatch?api-version=7.0") {
-      assert.deepEqual(req.body.ids, items.map((i) => i.id), "work items without an id are dropped");
+      assert.deepEqual(req.body.ids, [...items.map((i) => i.id), 507], "work items without an id are dropped");
       assert.ok(req.body.fields.includes("System.ChangedDate"));
-      return { value: items };
+      assert.equal(req.body.errorPolicy, "omit");
+      return { value: [...items, null] };
     }
   });
   try {

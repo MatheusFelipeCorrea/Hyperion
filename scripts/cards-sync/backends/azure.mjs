@@ -30,13 +30,16 @@ function basicAuthHeaderFromPat(pat) {
   return Buffer.from(`:${pat}`).toString("base64");
 }
 
+// WIQL supports substring search in fields like System.Description. WIQL is
+// organization-wide, so every query is scoped to the project in the request URL
+// (@project). A WIQL query returns at most 20,000 work items; past that Azure
+// answers VS402337 and the sync fails instead of silently reading a partial list.
 export function buildAzureWiqlForCardId(cardId) {
-  // WIQL supports searching by substring in fields like System.Description.
-  return `SELECT [System.Id] FROM WorkItems WHERE [System.Description] CONTAINS 'CARD_ID: ${cardId}' ORDER BY [System.ChangedDate] DESC`;
+  return `SELECT [System.Id] FROM WorkItems WHERE [System.TeamProject] = @project AND [System.Description] CONTAINS 'CARD_ID: ${cardId}' ORDER BY [System.ChangedDate] DESC`;
 }
 
 export function buildAzureWiqlForAllCardIds() {
-  return `SELECT [System.Id] FROM WorkItems WHERE [System.Description] CONTAINS 'CARD_ID:' ORDER BY [System.ChangedDate] DESC`;
+  return `SELECT [System.Id] FROM WorkItems WHERE [System.TeamProject] = @project AND [System.Description] CONTAINS 'CARD_ID:' ORDER BY [System.ChangedDate] DESC`;
 }
 
 /** workitemsbatch accepts at most 200 ids per call. */
@@ -46,6 +49,31 @@ export function chunkIds(ids, size = AZURE_BATCH_SIZE) {
   const chunks = [];
   for (let i = 0; i < ids.length; i += size) chunks.push(ids.slice(i, i + size));
   return chunks;
+}
+
+/**
+ * Reads work items 200 ids at a time. errorPolicy "omit" returns null for an id that
+ * was deleted or is not readable between the WIQL query and this call, instead of
+ * failing the whole batch; those are dropped.
+ */
+async function azureReadWorkItems(azureRequest, ids, fields) {
+  const items = [];
+  for (const chunk of chunkIds(ids)) {
+    const batch = await azureRequest(`/_apis/wit/workitemsbatch?api-version=7.0`, "POST", {
+      ids: chunk,
+      fields,
+      errorPolicy: "omit",
+    });
+    items.push(...(batch?.value || []).filter(Boolean));
+  }
+  return items;
+}
+
+async function azureQueryCardWorkItemIds(azureRequest) {
+  const wiql = await azureRequest(`/_apis/wit/wiql?api-version=7.0`, "POST", {
+    query: buildAzureWiqlForAllCardIds(),
+  });
+  return (wiql?.workItems || []).map((w) => w?.id).filter(Boolean);
 }
 
 /**
@@ -113,17 +141,24 @@ export async function runForwardSyncAzure(repoConfig, management) {
     return payload;
   }
 
-  async function azureFindWorkItemIdByCardId(cardId) {
-    const wiql = buildAzureWiqlForCardId(cardId);
-    const data = await azureRequest(`/_apis/wit/wiql?api-version=7.0`, "POST", { query: wiql });
-    const candidates = data?.workItems || [];
-    for (const item of candidates) {
-      if (!item?.id) continue;
-      const wi = await azureRequest(`/_apis/wit/workitems/${item.id}?api-version=7.0&fields=System.Description`);
-      const foundId = parseCardIdFromIssueBody(wi?.fields?.["System.Description"] || "");
-      if (foundId === cardId) return item.id;
+  /**
+   * One WIQL query for every work item carrying a CARD_ID, then batched reads, instead
+   * of a query per card. CONTAINS is a substring match, so each description's CARD_ID
+   * is parsed exactly (PROJ-F10 never stands in for PROJ-F1). When several work items
+   * carry the same CARD_ID, the most recently changed one wins (WIQL order).
+   */
+  async function azureIndexWorkItemsByCardId() {
+    const ids = await azureQueryCardWorkItemIds(azureRequest);
+    const descriptionById = new Map();
+    for (const item of await azureReadWorkItems(azureRequest, ids, ["System.Id", "System.Description"])) {
+      if (item.id) descriptionById.set(item.id, item.fields?.["System.Description"] || "");
     }
-    return null;
+    const index = new Map();
+    for (const id of ids) {
+      const cardId = parseCardIdFromIssueBody(descriptionById.get(id) || "");
+      if (cardId && !index.has(cardId)) index.set(cardId, id);
+    }
+    return index;
   }
 
   async function azureCreateWorkItem(card) {
@@ -204,10 +239,11 @@ export async function runForwardSyncAzure(repoConfig, management) {
   const edges = buildEdges(syncableCards);
   log(`Parent-child links: ${edges.length}`);
 
+  const existingByCardId = await azureIndexWorkItemsByCardId();
   const actions = [];
   const workItemByCardId = new Map();
   for (const card of syncableCards) {
-    const existingId = await azureFindWorkItemIdByCardId(card.cardId);
+    const existingId = existingByCardId.get(card.cardId) || null;
     if (dryRun) {
       actions.push({
         action: existingId ? "UPDATE" : "CREATE",
@@ -296,23 +332,20 @@ export async function runReverseSyncAzure(repoConfig, management) {
     return payload;
   }
 
-  const wiql = await azureRequest(`/_apis/wit/wiql?api-version=7.0`, "POST", {
-    query: buildAzureWiqlForAllCardIds(),
-  });
-  const ids = (wiql?.workItems || []).map((w) => w.id).filter(Boolean);
+  const ids = await azureQueryCardWorkItemIds(azureRequest);
   if (!ids.length) {
     log("No Azure work items with CARD_ID found.");
     return;
   }
 
-  const items = [];
-  for (const chunk of chunkIds(ids)) {
-    const batch = await azureRequest(`/_apis/wit/workitemsbatch?api-version=7.0`, "POST", {
-      ids: chunk,
-      fields: ["System.Id", "System.Title", "System.Description", "System.State", "System.Tags", "System.ChangedDate"],
-    });
-    items.push(...(batch?.value || []));
-  }
+  const items = await azureReadWorkItems(azureRequest, ids, [
+    "System.Id",
+    "System.Title",
+    "System.Description",
+    "System.State",
+    "System.Tags",
+    "System.ChangedDate",
+  ]);
   log(`Azure work items found: ${items.length}`);
 
   let written = 0;
