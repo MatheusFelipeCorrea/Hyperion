@@ -57,17 +57,10 @@ async function main() {
     log("", "");
     log("", "Running cards-sync doctor...");
     const cards = await runNodeScriptAsync("doctor.mjs", argYes ? ["--yes"] : []);
-    const cardsOutputOk =
-      cards.stdout.includes("Doctor finished.") &&
-      !cards.stdout.includes("Missing required Project fields");
     cardsWarningCount = (cards.stdout.match(/\[doctor\] ⚠️/g) || []).length;
     if (cards.code !== 0) {
-      if (process.platform === "win32" && cardsOutputOk) {
-        warn("cards-sync doctor: Windows Node cleanup quirk — output OK, continuing.");
-      } else {
-        fail("cards-sync doctor reported issues.");
-        process.exit(cards.code);
-      }
+      fail(`cards-sync doctor reported issues (exit ${cards.code}).`);
+      process.exit(cards.code);
     }
   }
 
