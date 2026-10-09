@@ -8,6 +8,7 @@ import { readFileSync, writeFileSync, readdirSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildSkillIndex, loadCommands } from "./commands-lib.mjs";
+import { ciError } from "./ci-annotate.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const root = join(__dirname, "../..");
@@ -171,6 +172,10 @@ if (check) {
   const existingEn = readFileSync(outEn, "utf8");
   if (existingPt !== pt || existingEn !== en) {
     console.error("skills-catalog out of date — run: npm run hyperion:skills-catalog");
+    ciError(
+      "The skills catalog (.github/docs/reference/catalogo-skills.md and skills-catalog.md) is generated from .github/commands.yml, catalog-meta.json and the SKILL.md files. Run npm run hyperion:skills-catalog and commit both files.",
+      { title: "Skills catalog out of date" }
+    );
     process.exit(1);
   }
   console.log("skills-catalog OK (in sync)");

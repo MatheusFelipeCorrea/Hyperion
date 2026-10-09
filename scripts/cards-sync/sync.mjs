@@ -72,6 +72,7 @@ import {
 } from "./reconcile.mjs";
 import { languagesFor, resolveLanguages, t as i18nT } from "../hyperion/i18n.mjs";
 import { resolveHyperionPaths } from "../hyperion/paths.mjs";
+import { ciFail } from "../hyperion/ci-annotate.mjs";
 import {
   runForwardSyncJira,
   runReverseSyncJira,
@@ -1935,6 +1936,7 @@ async function runForwardSync() {
 
   if (failedIssueIds.size && syncDirection !== "auto") {
     log(`${failedIssueIds.size} issue(s) failed to create/update: ${[...failedIssueIds].join(", ")}`);
+    ciFail(workspaceRoot, "cards.fail.items", { count: failedIssueIds.size, ids: [...failedIssueIds].join(", ") });
     process.exitCode = 1;
   }
 
@@ -2725,9 +2727,11 @@ if (isDirectRun) {
       // show the actionable message only, keep the stack for --verbose.
       console.error(`[cards-sync] ${message}`);
       if (process.argv.includes("--verbose")) console.error(error);
+      ciFail(workspaceRoot, "cards.fail.config", { message });
     } else {
       console.error("[cards-sync] FATAL ERROR");
       console.error(error);
+      ciFail(workspaceRoot, "cards.fail.unexpected", { script: "cards-sync", error: message });
     }
     process.exit(1);
   });
