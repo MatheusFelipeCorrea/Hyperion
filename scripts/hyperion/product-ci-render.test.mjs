@@ -295,3 +295,80 @@ describe("web, mobile and docs jobs", () => {
     assert.match(stepNamed(docs, /^markdownlint/).with.globs, /!Hyperion\/\*\*/);
   });
 });
+
+describe("e2e, IaC, OpenAPI and edge cases", () => {
+  let repo;
+  before(() => {
+    repo = fs.mkdtempSync(path.join(os.tmpdir(), "hyperion-render-e2e-"));
+    write(repo, "admin/package.json", { scripts: { lint: "eslint ." }, devDependencies: { eslint: "^9" } });
+    write(repo, "admin/pnpm-lock.yaml", "");
+    write(repo, "web/package.json", {
+      scripts: { build: "vite build", test: "vitest", "test:e2e": "playwright test" },
+      devDependencies: { vite: "^5", vitest: "^2", "@playwright/test": "^1" },
+    });
+    write(repo, "web/pnpm-lock.yaml", "");
+    write(repo, "web/playwright.config.ts", "export default {}");
+    write(repo, "cy/cypress.config.js", "module.exports = {}");
+    write(repo, "gosvc/go.mod", "module example.com/gosvc\n\ngo 1.22\n");
+    write(repo, "gosvc/.golangci.yml", "linters: {}\n");
+    write(repo, "gosvc/playwright.config.ts", "export default {}");
+    write(repo, "infra/main.tf", "terraform {}\n");
+    write(repo, "openapi.yaml", "openapi: 3.0.0\n");
+  });
+  after(() => fs.rmSync(repo, { recursive: true, force: true }));
+
+  it("renders Playwright/Cypress e2e on node apps, Terraform, OpenAPI lint and golangci-lint", () => {
+    const { content } = renderProductCiForRepo(repo, {
+      gates: {
+        defaults: { coverage: "block" },
+        e2e: "warn",
+        iac: "block",
+        openapi: "warn",
+        apps: { tools: { path: "tools", stack: "custom", migrate: true, commands: { build: "make all" } } },
+      },
+    });
+    const doc = load(content);
+    assert.deepEqual(Object.keys(doc.jobs).filter((id) => id.startsWith("e2e-")).sort(), ["e2e-admin", "e2e-web"]);
+    const web = job(doc, "e2e-web");
+    assert.equal(web["continue-on-error"], true);
+    assert.equal(stepNamed(web, /^Install Playwright browsers/).run, "pnpm exec playwright install --with-deps\n");
+    assert.equal(stepNamed(web, /^Playwright e2e/).run, "pnpm run test:e2e\n");
+    assert.equal(stepNamed(job(doc, "e2e-admin"), /^Cypress e2e/).run, "pnpm exec cypress run\n");
+
+    const iac = job(doc, "iac");
+    assert.ok(stepNamed(iac, /^terraform fmt/));
+    assert.equal(stepNamed(iac, /^terraform validate \(infra\)/)["working-directory"], "infra");
+
+    const openapi = job(doc, "openapi");
+    assert.equal(openapi["continue-on-error"], true);
+    assert.match(stepNamed(openapi, /^Lint OpenAPI/).run, /redocly\/cli@latest lint "openapi\.yaml"/);
+
+    assert.ok(stepNamed(job(doc, "app-gosvc"), /^Install golangci-lint/));
+    assert.match(content, /# NOTE \(tools\): coverage requested but no coverage command detected/);
+    assert.match(content, /# NOTE \(tools\): migrate requested but no migration command detected/);
+  });
+
+  // Known bug: e2e job ids are `e2e-<app>` per config, so two configs on one app collide.
+  it("keeps e2e job ids unique when one app has both Playwright and Cypress", { todo: "duplicate e2e-<app> job ids" }, () => {
+    const both = fs.mkdtempSync(path.join(os.tmpdir(), "hyperion-render-e2e-dup-"));
+    try {
+      write(both, "package.json", { scripts: { test: "vitest" }, devDependencies: { vitest: "^2" } });
+      write(both, "playwright.config.ts", "export default {}");
+      write(both, "cypress.config.ts", "export default {}");
+      const ids = renderProductCiForRepo(both, { gates: { e2e: "warn" } }).content.match(/^ {2}e2e-[\w-]+:$/gm);
+      assert.equal(new Set(ids).size, 2, `e2e job ids: ${ids.join(" ")}`);
+    } finally {
+      fs.rmSync(both, { recursive: true, force: true });
+    }
+  });
+
+  it("emits a placeholder job when no gate is enabled", () => {
+    const empty = fs.mkdtempSync(path.join(os.tmpdir(), "hyperion-render-empty-"));
+    try {
+      const doc = load(renderProductCiForRepo(empty, { gates: {} }).content);
+      assert.deepEqual(Object.keys(doc.jobs), ["no-gates"]);
+    } finally {
+      fs.rmSync(empty, { recursive: true, force: true });
+    }
+  });
+});
