@@ -1,0 +1,33 @@
+name: Kit — Distribution Purity
+
+# Kit-only: not named hyperion-*, so hyperion:upgrade never copies it into a
+# product (products legitimately commit their own cards and board binding).
+#
+# Required status check gating dev → qa → main promotion: it stands between
+# a real vínculo (GitHub Project link, personal CODEOWNERS/FUNDING, real
+# backlog cards) and a branch someone else will `git clone` — see
+# scripts/hyperion/distribution-purity-check.mjs. It fails closed: if it
+# breaks, nothing merges until the source branch is fixed, no exceptions.
+
+on:
+  push:
+    branches: [main, dev, qa]
+  pull_request:
+    branches: [main, dev, qa]
+
+permissions:
+  contents: read
+
+jobs:
+  distribution-purity:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+
+      - name: Distribution purity check (no binding to this repo)
+        run: node scripts/hyperion/distribution-purity-check.mjs
