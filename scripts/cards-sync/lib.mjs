@@ -544,8 +544,6 @@ export async function readSyncBackendHint({ projectYmlPath, projectsMapPath, rep
       const raw = await fs.readFile(projectYmlPath, "utf8");
       const m = raw.match(/^\s*backend\s*:\s*(\S+)/m);
       if (m?.[1]) return m[1].trim().replace(/^["']|["']$/g, "").toLowerCase();
-      const mgmt = raw.match(/^\s*management\s*:\s*\n[\s\S]*?^\s{2}backend\s*:\s*(\S+)/m);
-      if (mgmt?.[1]) return mgmt[1].trim().replace(/^["']|["']$/g, "").toLowerCase();
     } catch {
       /* ignore */
     }
