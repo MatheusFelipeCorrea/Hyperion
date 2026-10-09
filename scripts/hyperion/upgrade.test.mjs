@@ -198,20 +198,31 @@ describe("upgrade-lib", () => {
 
 describe("leaked kit workflows", () => {
   const kitWorkflow = (name) => readFileSync(join(kitRepoRoot, ".github", "workflows", name), "utf8");
-  const writeWorkflows = (root, files) => {
+  const writeWorkflows = (root, files, { pin = true } = {}) => {
     mkdirSync(join(root, ".github", "workflows"), { recursive: true });
     for (const [name, text] of Object.entries(files)) {
       writeFileSync(join(root, ".github", "workflows", name), text);
     }
+    if (pin) writeFileSync(join(root, ".github", "hyperion-kit.json"), '{ "kit_name": "hyperion" }\n');
   };
+  const allKitOnly = () =>
+    Object.fromEntries(KIT_ONLY_WORKFLOWS.map((wf) => [wf.file, kitWorkflow(wf.file)]));
+
+  it("reports nothing without the upgrade pin (the kit's own checkout)", async () => {
+    const kitLike = mkdtempSync(join(tmpdir(), "kit-"));
+    try {
+      writeWorkflows(kitLike, allKitOnly(), { pin: false });
+      assert.deepEqual(await detectLeakedKitWorkflows(kitLike), []);
+      assert.deepEqual(await detectLeakedKitWorkflows(kitRepoRoot), []);
+    } finally {
+      rmSync(kitLike, { recursive: true, force: true });
+    }
+  });
 
   it("flags every kit-only workflow as this kit ships it", async () => {
     const client = mkdtempSync(join(tmpdir(), "client-"));
     try {
-      writeWorkflows(
-        client,
-        Object.fromEntries(KIT_ONLY_WORKFLOWS.map((wf) => [wf.file, kitWorkflow(wf.file)]))
-      );
+      writeWorkflows(client, allKitOnly());
       const found = await detectLeakedKitWorkflows(client);
       assert.deepEqual(
         found.map((f) => f.rel).sort(),
@@ -307,6 +318,44 @@ describe("leaked kit workflows", () => {
     } finally {
       rmSync(kit, { recursive: true, force: true });
       rmSync(client, { recursive: true, force: true });
+    }
+  });
+
+  it("hyperion:doctor warns about leaked kit workflows without changing its exit code", () => {
+    const clean = mkdtempSync(join(tmpdir(), "client-"));
+    const leaked = mkdtempSync(join(tmpdir(), "client-"));
+    try {
+      for (const dir of [clean, leaked]) makeClient(dir);
+      writeWorkflows(clean, {});
+      writeWorkflows(leaked, {
+        [HYPERION_WORKFLOWS.validate]: kitWorkflow(HYPERION_WORKFLOWS.validate),
+        "hyperion-e2e-cards.yml": kitWorkflow("hyperion-e2e-cards.yml"),
+      });
+      const doctor = (cwd) =>
+        spawnSync(process.execPath, [join(__dirname, "doctor.mjs"), "--skip-cards"], {
+          cwd,
+          encoding: "utf8",
+        });
+
+      const before = doctor(clean);
+      const after = doctor(leaked);
+      assert.equal(after.status, before.status, "a warning, never a failure");
+      assert.doesNotMatch(before.stdout, /kit's own CI/);
+
+      const lines = after.stdout.split(/\r?\n/);
+      const head = lines.find((l) => l.includes("kit's own CI, copied by an earlier hyperion:upgrade"));
+      assert.ok(head, after.stdout);
+      assert.match(head, /⚠️/);
+      assert.ok(
+        lines.some((l) =>
+          l.endsWith("git rm .github/workflows/hyperion-validate.yml .github/workflows/hyperion-e2e-cards.yml")
+        ),
+        after.stdout
+      );
+      assert.ok(lines.some((l) => l.endsWith("npm run hyperion:pipeline-apply -- --yes")), after.stdout);
+    } finally {
+      rmSync(clean, { recursive: true, force: true });
+      rmSync(leaked, { recursive: true, force: true });
     }
   });
 });

@@ -405,9 +405,12 @@ export const KIT_ONLY_WORKFLOWS = [
 
 /**
  * Kit-only workflows a previous hyperion:upgrade copied into targetRoot.
+ * Only repos with the .github/hyperion-kit.json pin (written by every applied
+ * upgrade) qualify, so the kit's own checkout never reports its own CI.
  * @returns {Promise<{ rel: string, why: string }[]>}
  */
 export async function detectLeakedKitWorkflows(targetRoot) {
+  if (!(await pathExists(path.join(targetRoot, ".github", "hyperion-kit.json")))) return [];
   const found = [];
   for (const wf of KIT_ONLY_WORKFLOWS) {
     const rel = `${WORKFLOWS_DIR}/${wf.file}`;
