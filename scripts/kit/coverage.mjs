@@ -18,6 +18,7 @@ import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { execFileSync, spawnSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
+import { errorAnnotation } from "./annotations.mjs";
 
 export const SOURCE_DIRS = ["scripts/hyperion", "scripts/cards-sync", "scripts/kit"];
 export const TEST_GLOBS = [
@@ -32,26 +33,35 @@ export function isSourceFile(rel) {
   return rel.endsWith(".mjs") && !rel.endsWith(".test.mjs") && !rel.startsWith("scripts/cards-sync/e2e/");
 }
 
-export function normalizeSourcePath(file, root) {
+/** Windows paths are case-insensitive (`C:\` and `c:\` are the same file), POSIX ones are not. */
+export function normalizeSourcePath(file, root, platform = process.platform) {
   const unix = file.replace(/\\/g, "/");
   const base = `${root.replace(/\\/g, "/").replace(/\/$/, "")}/`;
-  return unix.startsWith(base) ? unix.slice(base.length) : unix.replace(/^.*?\/(scripts\/)/, "$1");
+  const fold = (s) => (platform === "win32" ? s.toLowerCase() : s);
+  return fold(unix).startsWith(fold(base)) ? unix.slice(base.length) : unix.replace(/^.*?\/(scripts\/)/, "$1");
 }
 
-/** lcov text → [{ file, lf, lh }] (only LF/LH are needed for line coverage). */
-export function parseLcov(text, root = "") {
-  const files = [];
+/** lcov text → [{ file, lf, lh }] (only LF/LH are needed for line coverage). Same file twice counts once. */
+export function parseLcov(text, root = "", platform = process.platform) {
+  const byFile = new Map();
   let cur = null;
   for (const line of text.split(/\r?\n/)) {
-    if (line.startsWith("SF:")) cur = { file: normalizeSourcePath(line.slice(3), root), lf: 0, lh: 0 };
+    if (line.startsWith("SF:")) cur = { file: normalizeSourcePath(line.slice(3), root, platform), lf: 0, lh: 0 };
     else if (cur && line.startsWith("LF:")) cur.lf = Number(line.slice(3));
     else if (cur && line.startsWith("LH:")) cur.lh = Number(line.slice(3));
     else if (cur && line === "end_of_record") {
-      files.push(cur);
+      const prev = byFile.get(cur.file);
+      byFile.set(cur.file, prev ? { ...prev, lf: Math.max(prev.lf, cur.lf), lh: Math.max(prev.lh, cur.lh) } : cur);
       cur = null;
     }
   }
-  return files;
+  return [...byFile.values()];
+}
+
+/** Lines in a source file; the newline that ends the last line does not start another one. */
+export function countLines(text) {
+  if (!text) return 0;
+  return text.replace(/\r?\n$/, "").split("\n").length;
 }
 
 /** Adds every source file the suite never loaded, with all lines uncovered. */
@@ -87,6 +97,15 @@ export function formatReport(summary, min, { top = 15 } = {}) {
     if (summary.gaps.length > top) lines.push(`  … and ${summary.gaps.length - top} more`);
   }
   return lines.join("\n");
+}
+
+export function coverageFailureAnnotation(summary, min) {
+  return errorAnnotation(
+    `Kit coverage below ${min}%`,
+    `${summary.pct.toFixed(2)}% of the kit's lines are covered — cover ${summary.needed} more lines. ` +
+      `Start with the files listed above (biggest gaps first; "no test imports it" means the file needs its first test). ` +
+      `Reproduce locally: npm run kit:coverage`
+  );
 }
 
 function markdownSummary(summary, min) {
@@ -127,7 +146,7 @@ function runSuite(root) {
   );
   if (result.status !== 0) {
     rmSync(dir, { recursive: true, force: true });
-    console.error("::error title=Kit coverage::Tests failed — coverage is only measured on a green suite. Fix the failing tests above first (npm test).");
+    console.error(errorAnnotation("Kit coverage", "Tests failed — coverage is only measured on a green suite. Fix the failing tests above first (npm test)."));
     process.exit(result.status || 1);
   }
   const text = readFileSync(lcovPath, "utf8");
@@ -140,25 +159,21 @@ function main() {
   const min = Number(argValue("--min") || 95);
   const lcovArg = argValue("--lcov");
   if (lcovArg && !existsSync(lcovArg)) {
-    console.error(`::error title=Kit coverage::lcov file not found: ${lcovArg}`);
+    console.error(errorAnnotation("Kit coverage", `lcov file not found: ${lcovArg}`));
     process.exit(1);
   }
   const lcov = lcovArg ? readFileSync(lcovArg, "utf8") : runSuite(root);
   const sources = execFileSync("git", ["ls-files", ...SOURCE_DIRS.map((d) => `${d}/*.mjs`)], { cwd: root, encoding: "utf8" })
     .split(/\r?\n/)
     .filter(Boolean);
-  const files = addUnmeasured(parseLcov(lcov, root), sources, (rel) => readFileSync(join(root, rel), "utf8").split("\n").length);
+  const files = addUnmeasured(parseLcov(lcov, root), sources, (rel) => countLines(readFileSync(join(root, rel), "utf8")));
   const summary = summarize(files, min);
 
   console.log(`\n${formatReport(summary, min)}`);
   if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, markdownSummary(summary, min));
 
   if (!summary.ok) {
-    console.error(
-      `\n::error title=Kit coverage below ${min}%::${summary.pct.toFixed(2)}% of the kit's lines are covered — cover ${summary.needed} more lines. ` +
-        `Start with the files listed above (biggest gaps first; "no test imports it" means the file needs its first test). ` +
-        `Reproduce locally: npm run kit:coverage`
-    );
+    console.error(`\n${coverageFailureAnnotation(summary, min)}`);
     process.exit(1);
   }
   console.log(`\nkit:coverage OK — ${summary.pct.toFixed(2)}% ≥ ${min}%`);

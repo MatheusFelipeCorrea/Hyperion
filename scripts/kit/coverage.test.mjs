@@ -5,7 +5,17 @@ import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
-import { addUnmeasured, formatReport, isSourceFile, normalizeSourcePath, parseLcov, summarize } from "./coverage.mjs";
+import {
+  addUnmeasured,
+  countLines,
+  coverageFailureAnnotation,
+  formatReport,
+  isSourceFile,
+  normalizeSourcePath,
+  parseLcov,
+  summarize,
+} from "./coverage.mjs";
+import { errorAnnotation, escapeData, escapeProperty } from "./annotations.mjs";
 
 const scriptPath = join(dirname(fileURLToPath(import.meta.url)), "coverage.mjs");
 
@@ -29,6 +39,35 @@ test("parseLcov normalizes Windows and POSIX paths relative to the root", () => 
   assert.deepEqual(files.map((f) => f.file), ["scripts/hyperion/a.mjs", "scripts/cards-sync/b.mjs", "scripts/hyperion/a.test.mjs"]);
   assert.equal(files[0].lh, 90);
   assert.equal(normalizeSourcePath("/repo/scripts/kit/x.mjs", "/repo"), "scripts/kit/x.mjs");
+});
+
+test("on Windows a drive letter in another case is the same file, counted once", () => {
+  const lcov = "SF:C:\\Work\\scripts\\Hyperion\\scripts\\kit\\x.mjs\nLF:10\nLH:5\nend_of_record\nSF:c:\\work\\scripts\\Hyperion\\scripts\\kit\\x.mjs\nLF:10\nLH:7\nend_of_record\n";
+  const files = parseLcov(lcov, "c:\\Work\\scripts\\Hyperion", "win32");
+  assert.deepEqual(files, [{ file: "scripts/kit/x.mjs", lf: 10, lh: 7 }]);
+  assert.equal(normalizeSourcePath("C:\\Work\\scripts\\Hyperion\\scripts\\kit\\x.mjs", "c:\\Work\\scripts\\Hyperion", "win32"), "scripts/kit/x.mjs");
+
+  const merged = addUnmeasured(files, ["scripts/kit/x.mjs"], () => 99);
+  assert.deepEqual(summarize(merged, 95).lf, 10, "measured file must not also be added as unmeasured");
+
+  assert.equal(normalizeSourcePath("/Repo/scripts/kit/x.mjs", "/repo", "linux"), "scripts/kit/x.mjs", "POSIX falls back to the scripts/ segment");
+  assert.equal(normalizeSourcePath("/Repo/a/scripts/kit/x.mjs", "/repo/a", "linux"), "scripts/kit/x.mjs");
+});
+
+test("countLines ignores the newline that ends the file", () => {
+  assert.equal(countLines(""), 0);
+  assert.equal(countLines("a"), 1);
+  assert.equal(countLines("a\n"), 1);
+  assert.equal(countLines("a\r\nb\r\n"), 2);
+  assert.equal(countLines("a\n\n"), 2, "a real blank last line still counts");
+});
+
+test("annotations escape workflow-command properties and data", () => {
+  assert.equal(escapeProperty("Kit coverage below 95%: a,b\r\n"), "Kit coverage below 95%25%3A a%2Cb%0D%0A");
+  assert.equal(escapeData("50%: a,b\nc"), "50%25: a,b%0Ac");
+  const line = coverageFailureAnnotation({ pct: 52.5, needed: 10 }, 95);
+  assert.match(line, /^::error title=Kit coverage below 95%25::52\.50%25 of the kit's lines/);
+  assert.equal(errorAnnotation("t", "m"), "::error title=t::m");
 });
 
 test("isSourceFile skips tests and the live e2e scripts", () => {
