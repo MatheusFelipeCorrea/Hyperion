@@ -301,8 +301,8 @@ export function readWorkflowGraphs(root, { lang = "en" } = {}) {
 /** Diagram of what ci.gates renders (null when there are no gates). */
 export async function gatesGraph(root, { gates, kitRootRel = "", defaultBranch = "main", lang = "en" }) {
   if (!gates) return null;
-  const { renderProductCiForRepo, readGatesHash, gatesHash } = await import("./product-ci-render.mjs");
-  const { plan, content } = renderProductCiForRepo(root, { gates, kitRootRel, defaultBranch });
+  const { renderProductCiForRepo, readGatesHash } = await import("./product-ci-render.mjs");
+  const { content } = renderProductCiForRepo(root, { gates, kitRootRel, defaultBranch });
   const current = (() => {
     try {
       return fs.readFileSync(path.join(root, ".github", "workflows", "hyperion-product-ci.yml"), "utf8");
@@ -312,7 +312,7 @@ export async function gatesGraph(root, { gates, kitRootRel = "", defaultBranch =
   })();
   return {
     graph: graphFromWorkflowText(content, { file: "ci.gates", title: "ci.gates → hyperion-product-ci.yml", lang, root }),
-    upToDate: Boolean(current) && readGatesHash(current) === gatesHash(plan),
+    upToDate: Boolean(current) && readGatesHash(current) === readGatesHash(content),
   };
 }
 
@@ -396,7 +396,7 @@ export function diagramsDir(root, projectText) {
 
 async function main() {
   const { resolveHyperionPaths } = await import("./paths.mjs");
-  const { detectDefaultBranch, readCiGatesFromProjectYml } = await import("./pipeline-lib.mjs");
+  const { detectWorkflowBaseBranch, readCiGatesFromProjectYml } = await import("./pipeline-lib.mjs");
   const root = process.cwd();
   const paths = resolveHyperionPaths(root);
   const argv = process.argv.slice(2);
@@ -439,7 +439,7 @@ async function main() {
     steps: !argv.includes("--no-steps"),
     gates,
     kitRootRel: paths.kitRootRel || "",
-    defaultBranch: detectDefaultBranch(root),
+    defaultBranch: detectWorkflowBaseBranch(root).branch,
     lang: normalizeTag(flag("--lang")) || resolveLanguages(root).primary,
   });
 

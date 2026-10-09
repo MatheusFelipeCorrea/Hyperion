@@ -11,6 +11,7 @@
 import { readFileSync, existsSync, readdirSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { ciError } from "./ci-annotate.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const rootArg = process.argv.indexOf("--root");
@@ -134,6 +135,10 @@ async function main() {
   const goldenCount = readdirSync(goldenDir).filter((f) => f.endsWith(".txt")).length;
   if (failed) {
     console.error(`\nllm-eval FAILED — ${failed}/${cases.length} cases`);
+    ciError(
+      `${failed}/${cases.length} case(s) failed (FAIL lines in the log). Each case in .github/skills/eval/llm-cases.json is checked against its golden file in .github/skills/eval/golden/ (mustContain / mustMatch); fix the golden or the case. Reproduce: npm run hyperion:llm-eval`,
+      { title: "LLM eval" }
+    );
     process.exit(1);
   }
   console.log(

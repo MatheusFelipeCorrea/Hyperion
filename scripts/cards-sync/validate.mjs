@@ -1,8 +1,9 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
-import { listCardsMarkdownFiles, checkCardPathLayout } from "./lib.mjs";
+import { listCardsMarkdownFiles, checkCardPathLayout, parseProjectYmlBackend } from "./lib.mjs";
 import { resolveHyperionPaths } from "../hyperion/paths.mjs";
+import { ciFailList } from "../hyperion/ci-annotate.mjs";
 
 const paths = resolveHyperionPaths(process.cwd());
 const workspaceRoot = paths.workspaceRoot;
@@ -158,10 +159,9 @@ try {
   } else {
     const projectRaw = await fs.readFile(projectYmlPath, "utf8");
     const localeMatch = projectRaw.match(/^\s*locale\s*:\s*([^\s#]+)\s*$/m);
-    const backendMatch = projectRaw.match(/management:\s*[\s\S]*?backend\s*:\s*([^\s#]+)\s*(?:\n|$)/m);
 
     const locale = localeMatch?.[1];
-    const backend = backendMatch?.[1];
+    const backend = parseProjectYmlBackend(projectRaw);
 
     if (backend && backend !== "github" && backend !== "jira") {
       console.log(`[validate] ⚠️  management.backend is set to "${backend}".`);
@@ -267,6 +267,7 @@ for (const card of cards) {
 if (errors.length) {
   console.log("[validate] ❌ Cards validation failed:");
   for (const e of errors) console.log(`- ${e}`);
+  ciFailList(workspaceRoot, "cards.fail.validate", errors);
   process.exit(1);
 }
 

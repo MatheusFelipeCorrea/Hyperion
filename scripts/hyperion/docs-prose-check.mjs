@@ -6,6 +6,7 @@
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
+import { ciErrorList } from "./ci-annotate.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const rootArg = process.argv.indexOf("--root");
@@ -62,7 +63,7 @@ const files = walk(root);
 const hits = [];
 
 for (const file of files) {
-  const rel = file.replace(root + "\\", "").replace(root + "/", "");
+  const rel = relative(root, file).replace(/\\/g, "/");
   const content = readFileSync(file, "utf8");
   for (const rule of RULES) {
     if (rule.pattern.test(content)) {
@@ -77,6 +78,11 @@ if (hits.length) {
   for (const h of hits.slice(0, 30)) {
     console.error(`  ${h.file}: ${h.message}`);
   }
+  ciErrorList(
+    "Stale doc reference",
+    hits,
+    `${hits.length} doc(s) still mention paths or claims that changed. Update them as each note says. Reproduce: npm run docs:prose-check`
+  );
   process.exit(1);
 }
 

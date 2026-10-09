@@ -8,8 +8,9 @@
  *   { "file": "relative/path.md", "mustContain": ["..."], "mustMatch": ["regex"] }
  */
 import { readFileSync, readdirSync, statSync, existsSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { ciErrorList } from "./ci-annotate.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const rootArg = process.argv.indexOf("--root");
@@ -49,38 +50,41 @@ const cases = JSON.parse(readFileSync(casesPath, "utf8"));
 const skills = walkSkills(join(root, ".github/skills"));
 
 let failed = 0;
+const problems = [];
+const bad = (c, path, message) => {
+  console.error(`FAIL ${caseLabel(c)}: ${message}`);
+  problems.push({ file: path ? relative(root, path) : undefined, message: `${caseLabel(c)}: ${message}` });
+  failed++;
+};
 for (const c of cases) {
   const path = resolveCasePath(c, skills);
   if (!path) {
-    console.error(`FAIL ${caseLabel(c)}: target not found`);
-    failed++;
+    bad(c, null, "target not found");
     continue;
   }
   const text = readFileSync(path, "utf8");
   for (const needle of c.mustContain || []) {
-    if (!text.includes(needle)) {
-      console.error(`FAIL ${caseLabel(c)}: missing "${needle}"`);
-      failed++;
-    }
+    if (!text.includes(needle)) bad(c, path, `missing "${needle}"`);
   }
   for (const pattern of c.mustMatch || []) {
     let re;
     try {
       re = new RegExp(pattern, "m");
     } catch (err) {
-      console.error(`FAIL ${caseLabel(c)}: invalid mustMatch /${pattern}/ (${err.message})`);
-      failed++;
+      bad(c, null, `invalid mustMatch /${pattern}/ (${err.message})`);
       continue;
     }
-    if (!re.test(text)) {
-      console.error(`FAIL ${caseLabel(c)}: mustMatch /${pattern}/`);
-      failed++;
-    }
+    if (!re.test(text)) bad(c, path, `mustMatch /${pattern}/`);
   }
 }
 
 if (failed) {
   console.error(`\nskills:eval FAILED (${failed} checks)`);
+  ciErrorList(
+    "Skill eval",
+    problems,
+    `${failed} check(s) in .github/skills/eval/cases.json failed: a skill lost text the eval expects. Restore it, or update the case if the change was intended. Reproduce: npm run hyperion:skills-eval`
+  );
   process.exit(1);
 }
 
