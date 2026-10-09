@@ -69,7 +69,7 @@ test("doctor: healthy GitHub setup passes every check (exit 0) and flags stale c
     (ws) => {
       const run = runCli("doctor.mjs", [], {
         ws,
-        env: { FAKE_NPM_MODIFIED: JSON.stringify({ "mcp-linear": "2020-01-01T00:00:00Z", "mcp-atlassian": new Date().toISOString() }) },
+        npmModified: { "mcp-linear": "2020-01-01T00:00:00Z", "mcp-atlassian": new Date().toISOString() },
         state: { github: { project: { scope: "repository", fields: HEALTHY_PROJECT_FIELDS } } },
       });
       assert.equal(run.status, 0, run.out);
