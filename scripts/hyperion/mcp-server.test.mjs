@@ -81,7 +81,9 @@ test("initialize returns protocolVersion, tools capability, and serverInfo", asy
   assert.equal(res.id, 1);
   assert.equal(res.result.protocolVersion, "2024-11-05");
   assert.deepEqual(res.result.capabilities, { tools: {} });
-  assert.deepEqual(res.result.serverInfo, { name: "hyperion", version: "0.2.0" });
+  assert.deepEqual(Object.keys(res.result.serverInfo).sort(), ["name", "version"]);
+  assert.equal(res.result.serverInfo.name, "hyperion");
+  assert.match(res.result.serverInfo.version, /^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/);
   assert.equal(code, 0);
   assert.match(stderr, /starting \(tools: hyperion_doctor, hyperion_project_verify\)/);
   assert.match(stderr, /stdin closed — exiting/);

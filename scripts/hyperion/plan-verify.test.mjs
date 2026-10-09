@@ -45,7 +45,7 @@ status: 'Planned'
 | VER-001 | TEST | Run project tests | All pass | — |
 `
       );
-      const r = spawnSync(process.execPath, [script, "--plan", plan], { encoding: "utf8" });
+      const r = spawnSync(process.execPath, [script, "--plan", plan, "--root", dir], { encoding: "utf8" });
       assert.equal(r.status, 0, r.stderr || r.stdout);
       assert.match(r.stdout, /plan-verify OK/);
     } finally {
@@ -69,7 +69,7 @@ status: 'Planned'
 Nothing planned yet.
 `
       );
-      const r = spawnSync(process.execPath, [script, "--plan", plan], { encoding: "utf8" });
+      const r = spawnSync(process.execPath, [script, "--plan", plan, "--root", dir], { encoding: "utf8" });
       assert.notEqual(r.status, 0);
       assert.match(r.stderr, /no "### Phase N" section/);
     } finally {
@@ -95,7 +95,7 @@ status: 'Whatever'
 table here
 `
       );
-      const r = spawnSync(process.execPath, [script, "--plan", plan], { encoding: "utf8" });
+      const r = spawnSync(process.execPath, [script, "--plan", plan, "--root", dir], { encoding: "utf8" });
       assert.notEqual(r.status, 0);
       assert.match(r.stderr, /frontmatter.status/);
     } finally {

@@ -7,6 +7,7 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { rootArg } from "./cli-args.mjs";
 import { recordEvent } from "./telemetry-lib.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -61,9 +62,10 @@ function main() {
     process.exit(0);
   }
 
+  const repoRoot = rootArg(root);
   let reviewPath = argValue("--review");
   if (process.argv.includes("--latest") || !reviewPath) {
-    if (!reviewPath) reviewPath = findLatestSpecReview(resolve(argValue("--root") || root));
+    if (!reviewPath) reviewPath = findLatestSpecReview(repoRoot);
   }
   if (!reviewPath) {
     console.error("No review specified and none found under .github/plans/reviews/ (spec-review naming)");
@@ -133,7 +135,7 @@ function main() {
     console.error(`\nspec-review-verify FAILED (${failed})`);
     process.exit(1);
   }
-  recordEvent(root, "agent-gate", "spec-review-verify");
+  recordEvent(repoRoot, "agent-gate", "spec-review-verify");
   console.log("spec-review-verify OK");
 }
 

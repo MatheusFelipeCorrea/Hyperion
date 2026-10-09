@@ -33,7 +33,7 @@ Overall healthy, a few security findings.
 1. Patch dependency X.
 `
       );
-      const r = spawnSync(process.execPath, [script, "--summary", file], { encoding: "utf8" });
+      const r = spawnSync(process.execPath, [script, "--summary", file, "--root", dir], { encoding: "utf8" });
       assert.equal(r.status, 0, r.stderr || r.stdout);
       assert.match(r.stdout, /audit-verify OK/);
     } finally {
@@ -61,7 +61,7 @@ x
 - fix it
 `
       );
-      const r = spawnSync(process.execPath, [script, "--summary", file], { encoding: "utf8" });
+      const r = spawnSync(process.execPath, [script, "--summary", file, "--root", dir], { encoding: "utf8" });
       assert.notEqual(r.status, 0);
       assert.match(r.stderr, /Cross-cutting Themes/);
     } finally {
@@ -88,7 +88,7 @@ y
 z
 `
       );
-      const r = spawnSync(process.execPath, [script, "--summary", file], { encoding: "utf8" });
+      const r = spawnSync(process.execPath, [script, "--summary", file, "--root", dir], { encoding: "utf8" });
       assert.notEqual(r.status, 0);
       assert.match(r.stderr, /no table row or link/);
     } finally {

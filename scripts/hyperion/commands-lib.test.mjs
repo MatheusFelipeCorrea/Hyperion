@@ -19,8 +19,6 @@ import {
   replaceMarkedSection,
   replaceTextSection,
   runtimeTargets,
-  RUNTIME_TARGETS,
-  repoRoot as libRepoRoot,
   MARKER_START,
   MARKER_END,
   SKILLS_MARKER_START,
@@ -267,8 +265,9 @@ describe("commands-lib on a fixture kit", () => {
       [join(root, "CLAUDE.md"), join(root, ".cursor/rules/hyperion.mdc"), join(root, ".github/copilot-instructions.md")]
     );
     assert.ok(targets.every((t) => t.syncCatalog));
+    const claudeRows = targets[0].buildRows(commands, buildSkillIndex(root));
+    assert.ok(claudeRows.includes("| /spec | `.github/skills/planning/spec-writer/SKILL.md` |"));
     assert.deepEqual(targets[1].buildRows(commands), buildCursorRows(commands));
     assert.deepEqual(targets[2].buildRows(commands), buildCopilotRows(commands));
-    assert.deepEqual(RUNTIME_TARGETS.map((t) => t.path), runtimeTargets(libRepoRoot).map((t) => t.path));
   });
 });

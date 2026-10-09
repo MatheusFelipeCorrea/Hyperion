@@ -35,7 +35,7 @@ None.
 npm test — pass
 `
       );
-      const r = spawnSync(process.execPath, [script, "--review", file], { encoding: "utf8" });
+      const r = spawnSync(process.execPath, [script, "--review", file, "--root", dir], { encoding: "utf8" });
       assert.equal(r.status, 0, r.stderr || r.stdout);
       assert.match(r.stdout, /review-verify OK/);
     } finally {
@@ -66,7 +66,7 @@ Nenhum.
 npm test — pass
 `
       );
-      const r = spawnSync(process.execPath, [script, "--review", file], { encoding: "utf8" });
+      const r = spawnSync(process.execPath, [script, "--review", file, "--root", dir], { encoding: "utf8" });
       assert.equal(r.status, 0, r.stderr || r.stdout);
     } finally {
       rmSync(dir, { recursive: true, force: true });
@@ -88,7 +88,7 @@ x
 y
 `
       );
-      const r = spawnSync(process.execPath, [script, "--review", file], { encoding: "utf8" });
+      const r = spawnSync(process.execPath, [script, "--review", file, "--root", dir], { encoding: "utf8" });
       assert.notEqual(r.status, 0);
     } finally {
       rmSync(dir, { recursive: true, force: true });

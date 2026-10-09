@@ -19,7 +19,7 @@ describe("phase-verify", () => {
         plan,
         `# Plan\n\n## Phase 1\n- [x] done\n\n## Verification\n- phase: 1\n- tests_command: npm test\n- tests_result: PASS\n- tested_at: 2026-08-21T12:00:00Z\n`
       );
-      const r = spawnSync(process.execPath, [script, "--plan", plan], { encoding: "utf8" });
+      const r = spawnSync(process.execPath, [script, "--plan", plan, "--root", dir], { encoding: "utf8" });
       assert.equal(r.status, 0, r.stderr || r.stdout);
       assert.match(r.stdout, /phase-verify OK/);
     } finally {

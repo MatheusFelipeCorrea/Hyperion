@@ -18,16 +18,12 @@
  *      npm run hyperion:adopt-check -- --root .
  */
 import { existsSync, readFileSync, readdirSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { ciErrorList } from "./ci-annotate.mjs";
+import { rootArg } from "./cli-args.mjs";
 
 const MAINTAINER_MARKERS = ["MatheusFelipeCorrea", "Hyperion Contributors"];
-
-function argValue(flag) {
-  const i = process.argv.indexOf(flag);
-  return i === -1 ? null : process.argv[i + 1] || null;
-}
 
 function readText(root, rel) {
   const p = join(root, rel);
@@ -92,7 +88,7 @@ export function checkNoLeakedTemplates(root, fail) {
 }
 
 async function main() {
-  const root = resolve(argValue("--root") || process.cwd());
+  const root = rootArg(process.cwd());
   let failed = 0;
   const problems = [];
   const fail = (where, why) => {

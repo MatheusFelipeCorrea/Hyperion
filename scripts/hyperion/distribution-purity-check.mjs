@@ -35,14 +35,10 @@ import { dirname, join, resolve } from "node:path";
 import { execFileSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 import { load } from "js-yaml";
+import { rootArg } from "./cli-args.mjs";
 
 const KIT_PACKAGE_NAME = "hyperion";
 const KIT_REPOSITORY = /github\.com[/:]MatheusFelipeCorrea\/Hyperion(?:\.git)?\/?$/i;
-
-function argValue(flag) {
-  const i = process.argv.indexOf(flag);
-  return i === -1 ? null : process.argv[i + 1] || null;
-}
 
 function readText(root, rel) {
   const p = join(root, rel);
@@ -368,7 +364,7 @@ function printPlan(plan) {
 }
 
 async function main() {
-  const root = resolve(argValue("--root") || process.cwd());
+  const root = rootArg(process.cwd());
   const wantFix = process.argv.includes("--fix");
   const yes = process.argv.includes("--yes");
 
