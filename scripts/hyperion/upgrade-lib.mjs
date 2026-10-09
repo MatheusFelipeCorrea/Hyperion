@@ -24,7 +24,6 @@ export const MANAGED_FILES = [
   ".github/project.schema.json",
   ".github/project.example.yml",
   ".github/STRUCTURE.md",
-  ".github/dependabot.yml",
   ".github/hyperion-origin.json",
   ".github/copilot-instructions.md",
   ".github/mcp/servers.example.json",

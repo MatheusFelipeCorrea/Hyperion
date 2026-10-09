@@ -91,7 +91,7 @@ test("checkSyncCardsNoPushTrigger passes on dispatch-only, fails with a push tri
   assert.equal(failures.length, 1);
 });
 
-test("checkNotManagedFiles passes normally, fails if CODEOWNERS/FUNDING.yml get listed", async () => {
+test("checkNotManagedFiles passes normally, fails if CODEOWNERS/FUNDING.yml/dependabot.yml get listed", async () => {
   const dir = makeRepo();
   mkdirSync(join(dir, "scripts", "hyperion"), { recursive: true });
   const libPath = join(dir, "scripts", "hyperion", "upgrade-lib.mjs");
@@ -106,6 +106,12 @@ test("checkNotManagedFiles passes normally, fails if CODEOWNERS/FUNDING.yml get 
   await checkNotManagedFiles(dir, fail);
   assert.equal(failures.length, 1);
   assert.match(failures[0].why, /FUNDING\.yml/);
+
+  writeFileSync(libPath, 'export const MANAGED_FILES = [".github/commands.yml", ".github/dependabot.yml"];\n');
+  ({ failures, fail } = makeFailCollector());
+  await checkNotManagedFiles(dir, fail);
+  assert.equal(failures.length, 1);
+  assert.match(failures[0].why, /dependabot\.yml/);
 });
 
 test("checkNoRealCards passes for template/_examples, fails for a real card", () => {

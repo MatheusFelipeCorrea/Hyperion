@@ -66,7 +66,7 @@ export function checkSyncCardsNoPushTrigger(root, fail) {
   }
 }
 
-/** CODEOWNERS/FUNDING.yml are this repo's own config and must never propagate. */
+/** CODEOWNERS/FUNDING.yml/dependabot.yml are this repo's own config and must never propagate. */
 export async function checkNotManagedFiles(root, fail) {
   const rel = "scripts/hyperion/upgrade-lib.mjs";
   const text = readText(root, rel);
@@ -74,7 +74,7 @@ export async function checkNotManagedFiles(root, fail) {
     fail(rel, "missing — cannot verify MANAGED_FILES/MANAGED_DIRS");
     return;
   }
-  for (const name of ["CODEOWNERS", "FUNDING.yml"]) {
+  for (const name of ["CODEOWNERS", "FUNDING.yml", "dependabot.yml"]) {
     if (new RegExp(`["'\`][^"'\`]*${name}["'\`]`).test(text)) {
       fail(rel, `.github/${name} appears to be listed as managed — it must stay repo-own config, never propagated via hyperion:upgrade`);
     }
@@ -150,7 +150,7 @@ async function main() {
   const checks = [
     ["projects-map.json has no real projectNumber", checkNoProjectNumber],
     ["hyperion-sync-cards.yml has no push trigger", checkSyncCardsNoPushTrigger],
-    ["CODEOWNERS/FUNDING.yml not in MANAGED_FILES", checkNotManagedFiles],
+    ["CODEOWNERS/FUNDING.yml/dependabot.yml not in MANAGED_FILES", checkNotManagedFiles],
     ["no real cards outside _examples/", checkNoRealCards],
     [".github/plans/ has no leaked planning docs", checkNoLeakedPlans],
     ["no leaked absolute personal paths", checkNoLeakedPaths],

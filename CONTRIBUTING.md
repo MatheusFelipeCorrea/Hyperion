@@ -24,12 +24,14 @@ Ajuda de adotante: [SUPPORT.md](SUPPORT.md). Histórico de mudanças: [CHANGELOG
 | **`qa`** | Release candidate — valida antes de promover pra `main` | `dev`, quando um lote está pronto |
 | **`internal`** | Uso real do próprio Hyperion nele mesmo (board vinculado, cards reais) | Nunca manda PR de volta — só puxa de `main` |
 
-**A `main` nunca deve ter vínculo com este repositório específico.** Um check dedicado (`npm run hyperion:distribution-purity-check`, rodando em todo PR pra `main`/`dev`/`qa` via `hyperion-validate.yml`) garante isso automaticamente — projectNumber tem que ser nulo, `hyperion-sync-cards.yml` não pode ter gatilho de push, `CODEOWNERS`/`FUNDING.yml` não podem propagar via upgrade, e nenhum card real pode existir fora de `_examples/`. **Se esse check (ou qualquer outro do `hyperion-validate.yml`) falhar, o PR não pode ser mergeado — sem exceção, mesmo que pareça um detalhe pequeno.** Corrija na branch de origem e deixe rodar de novo.
+Nada entra direto na `main` — nem atualização de dependência: o Dependabot abre PR para `dev` (`target-branch: dev`) e segue o mesmo caminho `dev` → `qa` → `main`. O `hyperion-validate` (Ubuntu e Windows) é check obrigatório em `dev`, `qa` e `main`.
+
+**A `main` nunca deve ter vínculo com este repositório específico.** Um check dedicado (`npm run hyperion:distribution-purity-check`, rodando em todo PR pra `main`/`dev`/`qa` via `hyperion-validate.yml`) garante isso automaticamente — projectNumber tem que ser nulo, `hyperion-sync-cards.yml` não pode ter gatilho de push, `CODEOWNERS`/`FUNDING.yml`/`dependabot.yml` não podem propagar via upgrade, e nenhum card real pode existir fora de `_examples/`. **Se esse check (ou qualquer outro do `hyperion-validate.yml`) falhar, o PR não pode ser mergeado — sem exceção, mesmo que pareça um detalhe pequeno.** Corrija na branch de origem e deixe rodar de novo.
 
 ## Como contribuir
 
 1. Fork [MatheusFelipeCorrea/Hyperion](https://github.com/MatheusFelipeCorrea/Hyperion)
-2. Crie uma branch a partir de `dev` para sua feature (`git checkout -b feature/minha-skill dev`)
+2. Crie uma branch a partir de `dev` com o prefixo do tipo da mudança — `feat/`, `fix/`, `docs/`, `chore/`, `refactor/`, `test/` (ex.: `git checkout -b feat/minha-skill dev`)
 3. Faça suas alterações
 4. Valide localmente antes do PR:
    ```bash

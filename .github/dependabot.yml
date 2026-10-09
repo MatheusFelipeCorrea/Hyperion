@@ -1,13 +1,17 @@
+# This repo's own config — never propagated by hyperion:upgrade (see distribution-purity-check).
+# Updates go to dev like any other change (dev → qa → main, see CONTRIBUTING.md).
 version: 2
 updates:
   - package-ecosystem: "github-actions"
     directory: "/"
+    target-branch: "dev"
     schedule:
       interval: "weekly"
 
   # The kit's own scripts/ depend on ajv + js-yaml (see package-lock.json).
   - package-ecosystem: "npm"
     directory: "/"
+    target-branch: "dev"
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
