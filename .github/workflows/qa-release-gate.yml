@@ -37,6 +37,7 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm test
+      - run: npm run -s kit:test
 
   validation:
     runs-on: ubuntu-latest
@@ -65,14 +66,9 @@ jobs:
           npm run -s hyperion:llm-eval
       - name: Example cards
         run: npm run -s cards:validate
-      - name: Coverage (lines ≥ 65%)
-        run: |
-          mkdir -p coverage
-          node --experimental-test-coverage --test-coverage-exclude='**/*.test.mjs' \
-            --test-reporter=dot --test-reporter-destination=stdout \
-            --test-reporter=lcov --test-reporter-destination=coverage/lcov.info \
-            --test scripts/hyperion/*.test.mjs scripts/cards-sync/*.test.mjs scripts/cards-sync/backends/*.test.mjs
-          node scripts/hyperion/coverage-gate.mjs --file coverage/lcov.info --metric lines --min 65 --mode block
+      # Kit-only (scripts/kit is never shipped to products). Counts files no test imports as 0%.
+      - name: Coverage (lines ≥ 95%, files without tests count as 0%)
+        run: npm run -s kit:coverage -- --min 95
 
   install-and-upgrade:
     runs-on: ubuntu-latest
