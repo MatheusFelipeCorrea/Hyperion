@@ -1,4 +1,4 @@
-import { describe, it } from "node:test";
+import { after, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
   mkdtempSync,
@@ -9,7 +9,7 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { spawnSync } from "node:child_process";
+import { cleanupTmp, gitCommitAll } from "./test-support/cli-harness.mjs";
 import {
   buildUpgradePlan,
   applyUpgradePlan,
@@ -21,6 +21,8 @@ import {
   MANAGED_FILES,
 } from "./upgrade-lib.mjs";
 import { sameCommit, resolveOrigin, DEFAULT_ORIGIN } from "./upgrade-fetch.mjs";
+
+after(cleanupTmp);
 
 function makeKit(root) {
   mkdirSync(join(root, "scripts", "hyperion"), { recursive: true });
@@ -242,15 +244,7 @@ describe("upgrade-lib edge cases", () => {
       mkdirSync(join(kit, "scripts", "hyperion"), { recursive: true });
       writeFileSync(join(kit, "scripts", "hyperion", "doctor.mjs"), "v\n");
       writeFileSync(join(kit, "package.json"), JSON.stringify({ description: "kit", scripts: { "hyperion:doctor": "d" } }));
-      const g = (args) =>
-        spawnSync("git", ["-c", "user.name=t", "-c", "user.email=t@example.com", "-c", "commit.gpgsign=false", ...args], {
-          cwd: kit,
-          encoding: "utf8",
-        });
-      g(["init", "-q"]);
-      g(["add", "-A"]);
-      g(["commit", "-q", "-m", "kit"]);
-      const head = g(["rev-parse", "HEAD"]).stdout.trim();
+      const head = gitCommitAll(kit, "kit");
 
       const plan = await buildUpgradePlan(kit, client);
       assert.deepEqual(await applyUpgradePlan(kit, client, plan), []);
