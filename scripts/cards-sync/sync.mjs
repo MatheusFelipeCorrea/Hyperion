@@ -9,12 +9,10 @@ import {
   expandCardIdsWithParents,
   filterEdgesForCards,
   filterKitSampleCards,
-  isKitSampleCardId,
   isKitSampleRemoteArtifact,
   listCardsMarkdownFiles,
   discoverGitHubProjectNumber,
   resolveRepoConfig,
-  shouldIncludeKitSamples,
   writeSyncSummary,
   parseCardIdFromIssueBody,
   parseSourceFileFromIssueBody,
@@ -583,12 +581,6 @@ async function addIssueComment(issueId, body) {
     { id: issueId, body },
     issueToken
   );
-}
-
-async function searchIssueByCardId(owner, name, cardId, issueMapCache = null) {
-  if (isKitSampleCardId(cardId) && !shouldIncludeKitSamples()) return null;
-  const map = issueMapCache || (await loadIssueMapByCardId(owner, name));
-  return map.get(cardId) || null;
 }
 
 async function createIssue(repositoryId, title, body) {
@@ -2201,7 +2193,6 @@ async function runReverseSyncGitHub(repoConfig) {
 
   let written = 0;
   let skipped = 0;
-  let skippedSamples = 0;
   let unchanged = 0;
 
   for (const issue of issues) {
@@ -2212,12 +2203,6 @@ async function runReverseSyncGitHub(repoConfig) {
     const cardId = syncMeta?.meta?.CARD_ID || parseCardIdFromIssueBody(issue.body);
 
     if (!sourceFile) continue;
-
-    if (isKitSampleRemoteArtifact({ cardId, sourceFile })) {
-      skippedSamples += 1;
-      log(`Skipping kit sample issue #${issue.number} (${cardId || sourceFile})`);
-      continue;
-    }
 
     const projectFields = projectFieldsByIssueNumber.get(issue.number) || {};
     const remoteUpdates = buildRemoteFrontmatterUpdates(projectFields, issue, repoConfig);
@@ -2239,19 +2224,11 @@ async function runReverseSyncGitHub(repoConfig) {
       logLabel: ` (issue #${issue.number})`,
     });
 
-    if (result.kind === "skipped_sample") {
-      skippedSamples += 1;
-      log(`Skipping kit sample issue #${issue.number} (${cardId || sourceFile})`);
-      continue;
-    }
     if (result.kind === "unchanged") unchanged += 1;
     else if (result.kind === "skipped") skipped += 1;
     else written += countReverseWrite(result);
   }
 
-  if (skippedSamples > 0) {
-    log(`Skipped ${skippedSamples} kit sample issue(s) on reverse sync.`);
-  }
   if (unchanged > 0) {
     log(`Unchanged: ${unchanged} card(s) (frontmatter already matches board).`);
   }
