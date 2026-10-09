@@ -117,9 +117,9 @@ test("every field rule is reported and fails validation", () => {
   assert.doesNotMatch(out, /categories must be/);
 });
 
-test("config sanity: locale + non-GitHub backend notice, layout warnings and --strict-layout", () => {
+test("config sanity: locale + unknown-backend notice, layout warnings and --strict-layout", () => {
   const dir = makeCardsRepo();
-  writeFileSync(join(dir, ".github", "project.yml"), "locale: pt-BR\nmanagement:\n  backend: linear\n");
+  writeFileSync(join(dir, ".github", "project.yml"), "locale: pt-BR\nmanagement:\n  backend: trello\n");
   mkdirSync(join(dir, ".github", "cards", "config"), { recursive: true });
   writeFileSync(join(dir, ".github", "cards", "config", "projects-map.json"), "{}");
   writeCard(dir, "stories/WRONG/S-1.md", "card_id: S-1\ntype: Story\nparent: F-1\ndue_date: 2026-01-02");
@@ -128,7 +128,7 @@ test("config sanity: locale + non-GitHub backend notice, layout warnings and --s
 
   const r = runValidate(dir);
   assert.equal(r.status, 0, r.stdout + r.stderr);
-  assert.match(r.stdout, /management\.backend is set to "linear"/);
+  assert.match(r.stdout, /management.backend is set to "trello", which this kit doesn.t recognize/);
   assert.match(r.stdout, /Locale detected in project\.yml: pt-BR/);
   assert.doesNotMatch(r.stdout, /Missing config files/);
   assert.match(r.stdout, /S-1\.md: layout — expected path \.github\/cards\/stories\/F-1\/S-1\.md \(parent folder = parent card_id\)/);
@@ -174,4 +174,16 @@ test("config sanity checks never break validation (unreadable project.yml)", () 
   assert.equal(r.status, 0, r.stdout + r.stderr);
   assert.doesNotMatch(r.stdout, /Missing config files|Locale detected/);
   assert.match(r.stdout, /Valid cards: 1/);
+});
+
+test("config sanity: a backend with real sync (linear) raises no unknown-backend notice", () => {
+  const dir = makeCardsRepo();
+  writeFileSync(join(dir, ".github", "project.yml"), "management:\n  backend: linear\n");
+  mkdirSync(join(dir, ".github", "cards", "config"), { recursive: true });
+  writeFileSync(join(dir, ".github", "cards", "config", "projects-map.json"), "{}");
+  writeCard(dir, "stories/_orphan/S-1.md", "card_id: S-1\ntype: Story");
+
+  const r = runValidate(dir);
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.doesNotMatch(r.stdout, /management\.backend is set to/);
 });
