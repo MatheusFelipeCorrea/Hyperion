@@ -153,10 +153,6 @@ export async function buildUpgradePlan(kitRoot, targetRoot) {
   const items = [];
 
   for (const rel of managed) {
-    if (isPreserved(rel)) {
-      items.push({ rel, action: "preserve", reason: "client-owned" });
-      continue;
-    }
     const from = path.join(kitRoot, ...rel.split("/"));
     const to = path.join(targetRoot, ...rel.split("/"));
     const destExists = await pathExists(to);

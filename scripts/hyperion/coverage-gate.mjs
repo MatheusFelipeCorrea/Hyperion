@@ -17,6 +17,10 @@ import path from "node:path";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
 import { multiRender, normalizeTag, t } from "./i18n.mjs";
+import { makeIgnore } from "./coverage-ignore.mjs";
+import { diffCoverageFromGit, renderDiffSummary } from "./diff-coverage.mjs";
+
+export { globToRegExp, makeIgnore } from "./coverage-ignore.mjs";
 
 export const METRICS = ["lines", "statements", "branches", "functions"];
 
@@ -47,32 +51,6 @@ function pct(c) {
   if (!c) return null;
   if (typeof c.pct === "number") return c.pct;
   return c.total > 0 ? (c.covered / c.total) * 100 : null;
-}
-
-export function globToRegExp(pattern) {
-  const p = String(pattern).trim().replace(/\\/g, "/");
-  if (!/[*?]/.test(p)) return { test: (s) => s.includes(p) };
-  let re = "";
-  for (let i = 0; i < p.length; i++) {
-    const ch = p[i];
-    if (ch === "*" && p[i + 1] === "*") {
-      re += ".*";
-      i += 1;
-      if (p[i + 1] === "/") i += 1;
-    } else if (ch === "*") re += "[^/]*";
-    else if (ch === "?") re += "[^/]";
-    else re += ch.replace(/[.+^${}()|[\]\\]/g, "\\$&");
-  }
-  return new RegExp(`(^|/)${re}$`);
-}
-
-export function makeIgnore(patterns) {
-  const list = (patterns || []).flatMap((p) => String(p).split(",")).map((s) => s.trim()).filter(Boolean);
-  const res = list.map(globToRegExp);
-  return (file) => {
-    const f = String(file || "").replace(/\\/g, "/");
-    return res.some((r) => r.test(f));
-  };
 }
 
 export function parseIstanbulSummary(text, ignored = () => false) {
@@ -465,7 +443,6 @@ if (isMain) {
   const sections = [(l) => renderSummary(result, { ...args, lang: l })];
 
   if (args.diffBase && args.diffMin !== null && !/^0+$/.test(args.diffBase)) {
-    const { diffCoverageFromGit, renderDiffSummary } = await import("./diff-coverage.mjs");
     try {
       const diff = diffCoverageFromGit({ dir, base: args.diffBase, file: args.diffFile, min: args.diffMin, ignore: args.ignore });
       if (diff.missing) {
