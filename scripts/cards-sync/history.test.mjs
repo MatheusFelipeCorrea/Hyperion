@@ -117,6 +117,16 @@ test("CLI: --limit shows the most recent raw events (text and --json)", () => {
   assert.deepEqual(json.map((e) => e.ts), ["2026-01-03T00:00:00.000Z"]);
 });
 
+test("CLI: --limit 0 (or a negative / fractional count) is rejected, not silently treated as 10", () => {
+  const ws = workspaceWithHistory();
+  for (const value of ["0", "-2", "1.5"]) {
+    const r = runNode(historyScript, ["--limit", value], { cwd: ws });
+    assert.equal(r.status, 1, r.output);
+    assert.equal(r.stdout, "");
+    assert.match(r.stderr, new RegExp(`--limit expects a positive number of events, got "${value.replace(".", "\\.")}"`));
+  }
+});
+
 test("CLI: an unreadable history file is fatal", () => {
   const ws = makeTempDir("hyperion-history-cli-bad-");
   mkdirSync(join(ws, HISTORY), { recursive: true });

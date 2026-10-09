@@ -422,6 +422,12 @@ test("detectProjectLocaleFromYml reads locale, null when absent/missing", async 
   assert.equal(await lib.detectProjectLocaleFromYml(join(root, "missing.yml")), null);
 });
 
+test("detectProjectLocaleFromYml accepts an inline YAML comment after the value", async () => {
+  const root = makeTempDir("hyperion-lib-locale-comment-");
+  assert.equal(await lib.detectProjectLocaleFromYml(writeFile(root, "c.yml", "name: x\nlocale: pt-BR # team language\n")), "pt-BR");
+  assert.equal(await lib.detectProjectLocaleFromYml(writeFile(root, "d.yml", "locale: es#tight\r\n")), "es");
+});
+
 test("loadLabelsCatalog: inline labels, no file, missing file, locale fallback, absolute path", async () => {
   const root = makeTempDir("hyperion-lib-labels-");
   const cardsRoot = join(root, "cards");
@@ -552,6 +558,23 @@ test("parseCardFile maps frontmatter to a card; null without card_id", () => {
   assert.equal(lib.parseCardFile("---\ncard_id: N-1\n---\n\nno heading\n", "n.md").title, "Untitled");
   assert.equal(lib.parseCardFile("---\ntitle: x\n---\n\n", "x.md"), null);
   assert.equal(lib.parseCardFile("plain", "x.md"), null);
+});
+
+test("number-like titles and ids stay strings, so the issue title can be built", () => {
+  const { meta } = lib.parseFrontmatter("---\ntitle: \"2048\"\nsprint: '12'\nstory_points: 3\n---\n");
+  assert.equal(meta.title, "2048", "quoted values are never converted to numbers");
+  assert.equal(meta.sprint, "12");
+  assert.equal(meta.story_points, 3);
+
+  const quoted = lib.parseCardFile("---\ncard_id: \"1234\"\ntitle: \"2048\"\n---\n\n# Body\n", "q.md");
+  assert.equal(quoted.cardId, "1234");
+  assert.equal(quoted.title, "2048");
+  assert.equal(lib.buildIssueTitle(quoted), "[Story] 2048");
+
+  const bare = lib.parseCardFile("---\ncard_id: 1234\ntitle: 2048\nparent: 77\n---\n\n# Body\n", "b.md");
+  assert.deepEqual([bare.cardId, bare.title, bare.parent], ["1234", "2048", "77"]);
+  assert.equal(lib.buildIssueTitle(bare), "[Story] 2048");
+  assert.deepEqual(lib.buildEdges([bare, { cardId: "77", parent: null, body: "" }]), [{ parentCardId: "77", childCardId: "1234" }]);
 });
 
 test("sub-issue parsing, reference extraction and edge building", () => {
@@ -702,7 +725,7 @@ test("remoteBoardSyncAt / status inversion / converted-markdown updates", () => 
   assert.equal(lib.resolveHyperionStatusFromRemote(null, statusMap), null);
   assert.equal(lib.resolveHyperionStatusFromRemote("Doing", statusMap), "In Progress");
   assert.equal(lib.resolveHyperionStatusFromRemote(" doing", statusMap), "In Progress");
-  assert.equal(lib.resolveHyperionStatusFromRemote("em testes", statusMap, {}), "In tests");
+  assert.equal(lib.resolveHyperionStatusFromRemote("em testes", statusMap, {}), "In Tests");
   assert.equal(lib.canonicalizeLinearState("Doing", statusMap, {}), "In Progress");
 
   assert.deepEqual(lib.frontmatterUpdatesFromConvertedMarkdown(null), {});

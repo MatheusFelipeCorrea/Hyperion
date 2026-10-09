@@ -76,7 +76,12 @@ async function main() {
   const args = process.argv.slice(2);
   const asJson = args.includes("--json");
   const limitIdx = args.indexOf("--limit");
-  const limit = limitIdx >= 0 ? Number(args[limitIdx + 1]) || 10 : null;
+  const limitValue = limitIdx >= 0 ? Number(args[limitIdx + 1]) : NaN;
+  if (Number.isFinite(limitValue) && !(Number.isInteger(limitValue) && limitValue > 0)) {
+    console.error(`[cards-history] --limit expects a positive number of events, got "${args[limitIdx + 1]}".`);
+    process.exit(1);
+  }
+  const limit = limitIdx >= 0 ? limitValue || 10 : null;
 
   const paths = resolveHyperionPaths(process.cwd());
   const historyPath = path.join(paths.plansCardsDir, "sync-history.jsonl");

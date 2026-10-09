@@ -479,7 +479,7 @@ export function parseCardIdFromRemoteDescription(description) {
  */
 export function checkBoardRepoAlignment(workspaceRoot, cardsPrefix) {
   const cardsPath = String(cardsPrefix || ".github/cards").replace(/\\/g, "/").replace(/\/+$/, "");
-  const diff = spawnSync("git", ["diff", "--name-only", "--", `${cardsPath}/`], {
+  const diff = spawnSync("git", ["-c", "core.quotePath=false", "diff", "--name-only", "--", `${cardsPath}/`], {
     cwd: workspaceRoot,
     encoding: "utf8",
   });
@@ -710,7 +710,7 @@ export function labelNamesFromCatalog(specs) {
 export async function detectProjectLocaleFromYml(projectYmlPath) {
   try {
     const raw = await fs.readFile(projectYmlPath, "utf8");
-    const match = raw.match(/^\s*locale\s*:\s*([^\s#]+)\s*$/m);
+    const match = raw.match(/^\s*locale\s*:\s*([^\s#]+)\s*(?:#.*)?$/m);
     if (match?.[1]) return match[1];
   } catch {}
   return null;
@@ -947,10 +947,11 @@ export function parseFrontmatter(content) {
       continue;
     }
 
-    // Scalar value
+    // Scalar value — a quoted value is always a string ("2048" stays "2048")
+    const quoted = /^(["']).*\1$/.test(value);
     value = value.replace(/^["']|["']$/g, "");
     const num = Number(value);
-    if (!isNaN(num) && value !== "") {
+    if (!quoted && !isNaN(num) && value !== "") {
       meta[key] = num;
     } else {
       meta[key] = value;
@@ -978,15 +979,15 @@ export function parseCardFile(content, relativeFile) {
   const { meta, body } = parsed;
 
   return {
-    cardId: meta.card_id,
-    title: meta.title || extractTitleFromBody(body),
+    cardId: String(meta.card_id),
+    title: (meta.title ? String(meta.title) : "") || extractTitleFromBody(body),
     status: meta.status || null,
     type: meta.type || "Story",
     priority: meta.priority || null,
     sprint: meta.sprint || null,
     storyPoints: meta.story_points ?? null,
     reporter: meta.reporter || null,
-    parent: meta.parent || null,
+    parent: meta.parent ? String(meta.parent) : null,
     dueDate: meta.due_date || null,
     boardSyncAt: meta.board_sync_at || null,
     categories: Array.isArray(meta.categories) ? meta.categories : [],
@@ -1125,9 +1126,9 @@ const OPTION_ALIASES = {
   status: {
     Backlog: ["backlog"],
     "To do": ["to do", "todo", "a fazer"],
-    "In progress": ["in progress", "em progresso"],
-    "In tests": ["in tests", "em testes"],
-    "In revision": ["in revision", "em revisao", "em revisão"],
+    "In Progress": ["in progress", "em progresso"],
+    "In Tests": ["in tests", "em testes"],
+    "In Revision": ["in revision", "em revisao", "em revisão"],
     Done: ["done", "feito", "concluido", "concluído"],
     "Functional Refinement": ["functional refinement", "refinamento funcional"],
     "Technical Refinement": ["technical refinement", "refinamento tecnico", "refinamento técnico"],

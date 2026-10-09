@@ -26,14 +26,14 @@ export function buildPreCommitHookBody({ cardsPrefix, kitRootRel }) {
 
   return `#!/bin/sh
 ${CARDS_MARKER}
-changed=$(git diff --cached --name-only --diff-filter=ACM | grep '${cardsGrepPattern}' || true)
+changed=$(git -c core.quotePath=false diff --cached --name-only --diff-filter=ACM | grep '${cardsGrepPattern}' || true)
 if [ -n "$changed" ]; then
   echo "[Hyperion] Validating staged card files..."
   node ${validateScript} || exit 1
 fi
 
 ${RULES_MARKER}
-cmd_changed=$(git diff --cached --name-only --diff-filter=ACM | grep '${commandsGrep}' || true)
+cmd_changed=$(git -c core.quotePath=false diff --cached --name-only --diff-filter=ACM | grep '${commandsGrep}' || true)
 if [ -n "$cmd_changed" ]; then
   echo "[Hyperion] Regenerating runtime rules from commands.yml..."
   node ${generateRules} || exit 1

@@ -67,6 +67,21 @@ test("buildPreCommitHookBody uses legacy root layout", () => {
   assert.doesNotMatch(body, /Hyperion\/scripts/);
 });
 
+test("the hook's staged-card filter matches card files with non-ASCII names", () => {
+  const root = makeTemp("hyperion-hook-utf8-");
+  initGitRepo(root);
+  mkdirSync(join(root, ".github", "cards", "stories"), { recursive: true });
+  writeFileSync(join(root, ".github", "cards", "stories", "Ação-1.md"), "---\ncard_id: Ação-1\n---\n", "utf8");
+  spawnSync("git", ["add", "."], { cwd: root });
+
+  const body = buildPreCommitHookBody({ cardsPrefix: ".github/cards", kitRootRel: "" });
+  const [, gitArgs, grepPattern] = body.match(/^changed=\$\(git (.+?) \| grep '(.+?)' \|\| true\)$/m);
+  const staged = spawnSync("git", gitArgs.split(" "), { cwd: root, encoding: "utf8" });
+  assert.equal(staged.status, 0, staged.stderr);
+  const matched = staged.stdout.split("\n").filter((line) => new RegExp(grepPattern).test(line));
+  assert.deepEqual(matched, [".github/cards/stories/Ação-1.md"]);
+});
+
 test("importing the module does not install a hook (entrypoint guard)", () => {
   const root = makeTemp("hyperion-hook-guard-");
   initGitRepo(root);

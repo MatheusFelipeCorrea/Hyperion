@@ -141,6 +141,17 @@ test("config sanity: locale + non-GitHub backend notice, layout warnings and --s
   assert.match(strict.stdout, /- \.github\/cards\/stories\/WRONG\/S-1\.md: layout — expected path/);
 });
 
+test("config sanity: locale followed by an inline YAML comment is still detected", () => {
+  const dir = makeCardsRepo();
+  writeFileSync(join(dir, ".github", "project.yml"), "locale: pt-BR # team language\n");
+  mkdirSync(join(dir, ".github", "cards", "config"), { recursive: true });
+  writeFileSync(join(dir, ".github", "cards", "config", "projects-map.json"), "{}");
+  writeCard(dir, "tasks/_orphan/T-1.md", "card_id: T-1\ntype: Task");
+  const r = runValidate(dir);
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.match(r.stdout, /Locale detected in project\.yml: pt-BR\n/);
+});
+
 test("config sanity checks never break validation (unreadable project.yml)", () => {
   const dir = makeCardsRepo();
   mkdirSync(join(dir, ".github", "project.yml"));

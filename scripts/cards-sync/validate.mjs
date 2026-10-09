@@ -157,7 +157,7 @@ try {
     console.log("[validate] Suggestion: run `project-discovery` in Configure mode, then re-run validate.");
   } else {
     const projectRaw = await fs.readFile(projectYmlPath, "utf8");
-    const localeMatch = projectRaw.match(/^\s*locale\s*:\s*([^\s#]+)\s*$/m);
+    const localeMatch = projectRaw.match(/^\s*locale\s*:\s*([^\s#]+)\s*(?:#.*)?$/m);
     const backendMatch = projectRaw.match(/management:\s*[\s\S]*?backend\s*:\s*([^\s#]+)\s*(?:\n|$)/m);
 
     const locale = localeMatch?.[1];
