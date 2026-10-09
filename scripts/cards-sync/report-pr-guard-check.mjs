@@ -62,9 +62,7 @@ async function main() {
 
   if (!headSha) {
     console.error("[report-check] FATAL: --head-sha or CARDS_PR_HEAD_SHA required");
-    ciFail(paths.workspaceRoot, "cards.fail.unexpected", { script: "report-pr-guard-check" }, {
-      message: "Missing the PR head commit: pass --head-sha or set CARDS_PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }} on the step.",
-    });
+    ciFail(paths.workspaceRoot, "cards.fail.headSha", { script: "report-pr-guard-check" });
     process.exit(1);
   }
   if (!token) {

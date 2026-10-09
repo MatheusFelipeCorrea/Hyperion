@@ -6,6 +6,7 @@
  * up on the run page and in the PR diff, not only as "exit code 1" in the log.
  * No dependencies: product CI runs kit scripts without npm install.
  */
+import { isAbsolute, relative } from "node:path";
 import { resolveLanguages, t } from "./i18n.mjs";
 
 /** GitHub shows at most 10 error annotations per step; keep room for the summary one. */
@@ -31,9 +32,19 @@ export function formatAnnotation(message, { title, file, line, level = "error" }
   return `::${level}${props.length ? ` ${props.join(",")}` : ""}::${escapeData(message)}`;
 }
 
+/**
+ * Annotation paths must be relative to the checkout (GITHUB_WORKSPACE) for GitHub
+ * to pin them in the diff; absolute paths are rebased, relative ones kept as given.
+ */
+export function repoRelative(file, env = process.env) {
+  if (!file) return file;
+  const rel = isAbsolute(file) ? relative(env.GITHUB_WORKSPACE || process.cwd(), file) : file;
+  return rel.replace(/\\/g, "/").replace(/^\.\//, "");
+}
+
 /** Emits an error annotation when running in GitHub Actions; no-op elsewhere. */
 export function ciError(message, opts = {}, { env = process.env, write = (s) => console.error(s) } = {}) {
-  if (inActions(env)) write(formatAnnotation(message, opts));
+  if (inActions(env)) write(formatAnnotation(message, { ...opts, file: repoRelative(opts.file, env) }));
 }
 
 /**
@@ -50,7 +61,9 @@ export function ciFail(root, key, vars = {}, { message, ...opts } = {}, io = {})
 export function ciFailList(root, key, problems, vars = {}, io = {}) {
   if (!inActions(io.env)) return;
   const lang = resolveLanguages(root).primary;
-  ciErrorList(t(`${key}Title`, vars, lang, { root }), problems, t(key, vars, lang, { root }), io);
+  ciErrorList(t(`${key}Title`, vars, lang, { root }), problems, t(key, vars, lang, { root }), io, {
+    more: (count) => t("cards.fail.more", { count }, lang, { root }),
+  });
 }
 
 /** "path/to/file.md: problem" → { file, message } (file only when the prefix looks like a path). */
@@ -63,11 +76,11 @@ export function splitFileMessage(text) {
  * One annotation per problem (pinned to its file when it names one), capped, plus
  * one summary annotation that says how to fix and reproduce.
  */
-export function ciErrorList(title, problems, summary, io = {}) {
+export function ciErrorList(title, problems, summary, io = {}, { more = (count) => `${count} more in the log` } = {}) {
   for (const p of problems.slice(0, MAX_FILE_ANNOTATIONS)) {
     const item = typeof p === "string" ? splitFileMessage(p) : p;
     ciError(item.message, { title, file: item.file, line: item.line }, io);
   }
-  const more = problems.length > MAX_FILE_ANNOTATIONS ? ` (${problems.length - MAX_FILE_ANNOTATIONS} more in the log)` : "";
-  ciError(`${summary}${more}`, { title }, io);
+  const hidden = problems.length - MAX_FILE_ANNOTATIONS;
+  ciError(hidden > 0 ? `${summary} (${more(hidden)})` : summary, { title }, io);
 }

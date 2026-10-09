@@ -2726,7 +2726,7 @@ if (isDirectRun) {
       // show the actionable message only, keep the stack for --verbose.
       console.error(`[cards-sync] ${message}`);
       if (process.argv.includes("--verbose")) console.error(error);
-      ciFail(workspaceRoot, "cards.fail.config", {}, { message });
+      ciFail(workspaceRoot, "cards.fail.config", { message });
     } else {
       console.error("[cards-sync] FATAL ERROR");
       console.error(error);

@@ -270,7 +270,7 @@ async function main() {
 
   if (failed) {
     console.error(`\nproject-verify FAILED (${failed})`);
-    const rel = relative(process.env.GITHUB_WORKSPACE || process.cwd(), ymlPath).replace(/\\/g, "/");
+    const rel = relative(root, ymlPath);
     ciErrorList(
       "project.yml invalid",
       problems.map((message) => ({ file: rel, message })),

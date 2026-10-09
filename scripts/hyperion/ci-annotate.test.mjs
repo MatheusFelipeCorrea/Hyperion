@@ -3,7 +3,16 @@ import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { ciError, ciErrorList, ciFail, formatAnnotation, MAX_FILE_ANNOTATIONS, splitFileMessage } from "./ci-annotate.mjs";
+import {
+  ciError,
+  ciErrorList,
+  ciFail,
+  ciFailList,
+  formatAnnotation,
+  MAX_FILE_ANNOTATIONS,
+  repoRelative,
+  splitFileMessage,
+} from "./ci-annotate.mjs";
 
 const actions = { GITHUB_ACTIONS: "true" };
 
@@ -22,6 +31,16 @@ test("formatAnnotation escapes data and properties the way the runner expects", 
   assert.equal(formatAnnotation("w", { level: "warning" }), "::warning::w");
 });
 
+test("annotation files are relative to the checkout", () => {
+  const workspace = join(tmpdir(), "repo");
+  const env = { ...actions, GITHUB_WORKSPACE: workspace };
+  assert.equal(repoRelative(join(workspace, ".github", "project.yml"), env), ".github/project.yml");
+  assert.equal(repoRelative("./docs/a.md", env), "docs/a.md");
+  assert.equal(repoRelative(undefined, env), undefined);
+  const out = capture((write) => ciError("m", { file: join(workspace, "x", "y.md") }, { env, write }));
+  assert.equal(out[0], "::error file=x/y.md::m");
+});
+
 test("ciError only writes inside GitHub Actions", () => {
   assert.deepEqual(capture((write) => ciError("x", {}, { env: {}, write })), []);
   assert.deepEqual(capture((write) => ciError("x", { title: "T" }, { env: actions, write })), ["::error title=T::x"]);
@@ -37,8 +56,18 @@ test("ciFail uses the repo language and the <key>Title catalog entry", () => {
     assert.match(out[0], /^::error title=Alguns cards não foram sincronizados::2 card\(s\) falharam ao criar\/atualizar no board: S-1, S-2\./);
 
     const custom = capture((write) => ciFail(dir, "cards.fail.unexpected", { script: "ci-sync" }, { message: "boom" }, { env: actions, write }));
-    assert.equal(custom[0], "::error title=Erro inesperado em ci-sync::boom");
+    assert.equal(custom[0], "::error title=ci-sync falhou::boom");
     assert.deepEqual(capture((write) => ciFail(dir, "cards.fail.items", {}, {}, { env: {}, write })), []);
+
+    const crash = capture((write) => ciFail(dir, "cards.fail.unexpected", { script: "ci-sync", error: "fetch failed" }, {}, { env: actions, write }));
+    assert.match(crash[0], /::ci-sync parou com: fetch failed\. .*token/);
+
+    const headSha = capture((write) => ciFail(dir, "cards.fail.headSha", { script: "report-pr-guard-check" }, {}, { env: actions, write }));
+    assert.match(headSha[0], /--head-sha <sha>/);
+
+    const many = Array.from({ length: MAX_FILE_ANNOTATIONS + 2 }, (_, i) => `f${i}.md: ruim`);
+    const list = capture((write) => ciFailList(dir, "cards.fail.validate", many, {}, { env: actions, write }));
+    assert.match(list.at(-1), /\(mais 2 no log\)$/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

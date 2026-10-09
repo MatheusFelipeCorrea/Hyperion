@@ -4,7 +4,7 @@
  * Run: npm run docs:prose-check
  */
 import { readFileSync, readdirSync, statSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { ciErrorList } from "./ci-annotate.mjs";
 
@@ -57,7 +57,7 @@ const files = walk(root);
 const hits = [];
 
 for (const file of files) {
-  const rel = file.replace(root + "\\", "").replace(root + "/", "");
+  const rel = relative(root, file).replace(/\\/g, "/");
   const content = readFileSync(file, "utf8");
   for (const rule of RULES) {
     if (rule.pattern.test(content)) {

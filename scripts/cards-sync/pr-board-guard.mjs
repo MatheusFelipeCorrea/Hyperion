@@ -76,7 +76,7 @@ async function main() {
   const projectCheck = await assertCiProjectConfigured(paths.projectsMapPath, repositorySlug, { backend });
   if (!projectCheck.ok) {
     console.error(`[pr-guard] FATAL: ${projectCheck.message}`);
-    ciFail(paths.workspaceRoot, "cards.fail.project", {}, { message: projectCheck.message });
+    ciFail(paths.workspaceRoot, "cards.fail.project", { message: projectCheck.message });
     process.exit(1);
   }
 
@@ -86,8 +86,8 @@ async function main() {
   log("Step 1/3: validate cards");
   const validateCode = runScript("validate.mjs");
   if (validateCode !== 0) {
+    // validate.mjs already emitted the "Invalid cards" annotations.
     console.error("[pr-guard] FATAL: card validation failed");
-    ciFail(paths.workspaceRoot, "cards.fail.validate");
     process.exit(validateCode);
   }
 
