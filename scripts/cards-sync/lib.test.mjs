@@ -275,48 +275,68 @@ test("parseCardIdFromRemoteDescription uses SYNC_METADATA block", () => {
   assert.equal(parseCardIdFromRemoteDescription(desc), "PROJ-FEAT-014");
 });
 
-test("assertCiProjectConfigured requires projectNumber when env set", async () => {
-  const prev = process.env.CARDS_CI_REQUIRE_PROJECT;
-  process.env.CARDS_CI_REQUIRE_PROJECT = "true";
-  try {
-    const missing = await assertCiProjectConfigured("/nonexistent/projects-map.json", "org/repo");
-    assert.equal(missing.ok, false);
-  } finally {
-    if (prev === undefined) delete process.env.CARDS_CI_REQUIRE_PROJECT;
-    else process.env.CARDS_CI_REQUIRE_PROJECT = prev;
-  }
-});
-
-test("assertCiProjectConfigured accepts PROJECT_NUMBER from env (no committed projectNumber)", async () => {
-  const prev = { req: process.env.CARDS_CI_REQUIRE_PROJECT, num: process.env.PROJECT_NUMBER };
-  process.env.CARDS_CI_REQUIRE_PROJECT = "true";
-  process.env.PROJECT_NUMBER = "25";
-  try {
-    const result = await assertCiProjectConfigured("/nonexistent/projects-map.json", "org/repo");
-    assert.equal(result.ok, true);
-    assert.equal(result.projectNumber, 25);
-  } finally {
-    for (const [key, value] of [["CARDS_CI_REQUIRE_PROJECT", prev.req], ["PROJECT_NUMBER", prev.num]]) {
+/** Runs fn with env overrides (undefined = unset), restoring the previous values afterwards. */
+async function withEnv(overrides, fn) {
+  const prev = Object.fromEntries(Object.keys(overrides).map((key) => [key, process.env[key]]));
+  const apply = (values) => {
+    for (const [key, value] of Object.entries(values)) {
       if (value === undefined) delete process.env[key];
       else process.env[key] = value;
     }
+  };
+  apply(overrides);
+  try {
+    return await fn();
+  } finally {
+    apply(prev);
   }
+}
+
+test("assertCiProjectConfigured requires projectNumber when env set", async () => {
+  await withEnv(
+    { CARDS_CI_REQUIRE_PROJECT: "true", PROJECT_NUMBER: undefined, PROJECT_OWNER: undefined },
+    async () => {
+      const missing = await assertCiProjectConfigured("/nonexistent/projects-map.json", "org/repo");
+      assert.equal(missing.ok, false);
+    },
+  );
+});
+
+test("assertCiProjectConfigured accepts PROJECT_NUMBER from env (no committed projectNumber)", async () => {
+  await withEnv(
+    { CARDS_CI_REQUIRE_PROJECT: "true", PROJECT_NUMBER: "25", PROJECT_OWNER: undefined },
+    async () => {
+      const result = await assertCiProjectConfigured("/nonexistent/projects-map.json", "org/repo");
+      assert.equal(result.ok, true);
+      assert.equal(result.projectNumber, 25);
+      assert.equal(result.projectOwner, null);
+    },
+  );
+});
+
+test("assertCiProjectConfigured takes PROJECT_OWNER from env", async () => {
+  await withEnv(
+    { CARDS_CI_REQUIRE_PROJECT: "true", PROJECT_NUMBER: "25", PROJECT_OWNER: "some-org" },
+    async () => {
+      const result = await assertCiProjectConfigured("/nonexistent/projects-map.json", "org/repo");
+      assert.equal(result.ok, true);
+      assert.equal(result.projectOwner, "some-org");
+    },
+  );
 });
 
 test("assertCiProjectConfigured skips projectNumber for non-GitHub backend", async () => {
-  const prev = process.env.CARDS_CI_REQUIRE_PROJECT;
-  process.env.CARDS_CI_REQUIRE_PROJECT = "true";
-  try {
-    const result = await assertCiProjectConfigured("/nonexistent/projects-map.json", "org/repo", {
-      backend: "linear",
-    });
-    assert.equal(result.ok, true);
-    assert.equal(result.skipped, true);
-    assert.equal(result.reason, "not_github_backend");
-  } finally {
-    if (prev === undefined) delete process.env.CARDS_CI_REQUIRE_PROJECT;
-    else process.env.CARDS_CI_REQUIRE_PROJECT = prev;
-  }
+  await withEnv(
+    { CARDS_CI_REQUIRE_PROJECT: "true", PROJECT_NUMBER: undefined, PROJECT_OWNER: undefined },
+    async () => {
+      const result = await assertCiProjectConfigured("/nonexistent/projects-map.json", "org/repo", {
+        backend: "linear",
+      });
+      assert.equal(result.ok, true);
+      assert.equal(result.skipped, true);
+      assert.equal(result.reason, "not_github_backend");
+    },
+  );
 });
 
 test("readSyncBackendHint reads CARDS_SYNC_BACKEND env", async () => {
