@@ -49,9 +49,8 @@ function isSkippedDir(p) {
 function walk(dir, files = []) {
   for (const name of readdirSync(dir)) {
     const p = join(dir, name);
-    if (isSkippedDir(p)) continue;
     if (statSync(p).isDirectory()) {
-      walk(p, files);
+      if (!isSkippedDir(p)) walk(p, files);
     } else if ([...SCAN_EXT].some((ext) => name.endsWith(ext)) && !SKIP_FILES.has(name)) {
       files.push(p);
     }

@@ -79,6 +79,16 @@ function pathExists(root, rel) {
   return existsSync(abs);
 }
 
+/** Scalar YAML value: a quoted value keeps any `#`; a plain one loses its inline ` # comment`. */
+function scalarValue(raw) {
+  const s = raw.trim();
+  if (s[0] === '"' || s[0] === "'") {
+    const close = s.indexOf(s[0], 1);
+    if (close > 0) return s.slice(1, close);
+  }
+  return s.replace(/(^|\s)#.*$/, "").trim().replace(/^["']|["']$/g, "");
+}
+
 function extractTopKey(text, key) {
   const re = new RegExp(`^${key}:\\s*(.+)$`, "m");
   const m = text.match(re);
@@ -109,9 +119,9 @@ function extractAppPaths(text) {
     }
     if (!currentApp) continue;
     const rootM = line.match(/^\s{4}root:\s*(.+)$/);
-    if (rootM) paths.push({ kind: `apps.${currentApp}.root`, rel: rootM[1].trim().replace(/^["']|["']$/g, "") });
+    if (rootM) paths.push({ kind: `apps.${currentApp}.root`, rel: scalarValue(rootM[1]) });
     const manM = line.match(/^\s{4}manifest:\s*(.+)$/);
-    if (manM) paths.push({ kind: `apps.${currentApp}.manifest`, rel: manM[1].trim().replace(/^["']|["']$/g, "") });
+    if (manM) paths.push({ kind: `apps.${currentApp}.manifest`, rel: scalarValue(manM[1]) });
   }
   // Second pass for source_dirs blocks
   let app = null;
@@ -145,7 +155,7 @@ function extractAppPaths(text) {
       if (item) {
         paths.push({
           kind: `apps.${app}.source_dirs`,
-          rel: item[1].trim().replace(/^["']|["']$/g, ""),
+          rel: scalarValue(item[1]),
         });
       }
     }
@@ -165,7 +175,7 @@ function extractDocsPaths(text) {
     if (!inDocs) continue;
     const m = line.match(/^\s{2}(\w+):\s*(.+)$/);
     if (!m) continue;
-    const val = m[2].trim().replace(/^["']|["']$/g, "");
+    const val = scalarValue(m[2]);
     if (!val || val === "null" || val === "~") continue;
     out.push({ kind: `docs.${m[1]}`, rel: val });
   }

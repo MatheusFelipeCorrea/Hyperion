@@ -218,26 +218,57 @@ describe("project-verify CLI branches", () => {
   });
 
   it("fails when a docs path is missing", () => {
-    const r = run(repo({ ".github/project.yml": "version: 1\nname: x\nuncertainties: []\ndocs:\n  adr: docs/adr\n" }));
+    const r = run(repo({ ".github/project.yml": "version: 1\nname: x\nuncertainties: []\ndocs:\n  blueprints: docs/blueprints\n" }));
     assert.equal(r.status, 1, r.stdout + r.stderr);
-    assert.match(r.stderr, /FAIL docs\.adr: path missing → docs\/adr/);
+    assert.match(r.stderr, /FAIL docs\.blueprints: path missing → docs\/blueprints/);
   });
 
   it("checks every key under docs:, not just the first", () => {
     const root = repo({
       "docs/requirements.md": "# req",
-      ".github/project.yml": "version: 1\nname: x\nuncertainties: []\ndocs:\n  requirements: docs/requirements.md\n  adr: docs/adr\n  architecture: docs/arch.md\n",
+      ".github/project.yml": "version: 1\nname: x\nuncertainties: []\ndocs:\n  requirements: docs/requirements.md\n  blueprints: docs/blueprints\n  diagrams: docs/diagrams\n",
     });
     const r = run(root);
     assert.equal(r.status, 1, r.stdout + r.stderr);
     assert.match(r.stdout, /OK docs\.requirements: docs\/requirements\.md$/m);
-    assert.match(r.stderr, /FAIL docs\.adr: path missing → docs\/adr/);
-    assert.match(r.stderr, /FAIL docs\.architecture: path missing → docs\/arch\.md/);
+    assert.match(r.stderr, /FAIL docs\.blueprints: path missing → docs\/blueprints/);
+    assert.match(r.stderr, /FAIL docs\.diagrams: path missing → docs\/diagrams/);
     assert.match(r.stderr, /project-verify FAILED \(2\)/);
 
     const empty = run(repo({ ".github/project.yml": "version: 1\nname: x\nuncertainties: []\ndocs:\ncommands:\n  test: npm test\n" }));
     assert.equal(empty.status, 0, empty.stdout + empty.stderr);
     assert.doesNotMatch(empty.stdout + empty.stderr, /docs\.test/);
+  });
+
+  it("drops inline # comments from path values, except inside quotes", () => {
+    const commented = run(
+      repo({
+        "docs/blueprints": null,
+        "docs/#1.md": "# one",
+        "apps/web": null,
+        ".github/project.yml": [
+          "version: 1",
+          "name: x",
+          "uncertainties: []",
+          "apps:",
+          "  web:",
+          "    root: apps/web # the web app",
+          "    source_dirs:",
+          "      - apps/web # sources",
+          "docs:",
+          "  blueprints: docs/blueprints  # architecture",
+          '  requirements: "docs/#1.md" # quoted keeps the hash',
+          "  diagrams: # not decided yet",
+          "",
+        ].join("\n"),
+      })
+    );
+    assert.equal(commented.status, 0, commented.stdout + commented.stderr);
+    assert.match(commented.stdout, /OK apps\.web\.root: apps\/web\/$/m);
+    assert.match(commented.stdout, /OK apps\.web\.source_dirs: apps\/web\/$/m);
+    assert.match(commented.stdout, /OK docs\.blueprints: docs\/blueprints\/$/m);
+    assert.match(commented.stdout, /OK docs\.requirements: docs\/#1\.md$/m);
+    assert.doesNotMatch(commented.stdout + commented.stderr, /docs\.diagrams/);
   });
 
   it("reports each source_dirs item once, even when item lines repeat across apps", () => {
