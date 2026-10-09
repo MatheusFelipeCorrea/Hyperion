@@ -1271,6 +1271,23 @@ const REQUIRED_FIELDS = [
   { key: "dueDate", defaultName: "Due Date", kind: "date" },
 ];
 
+/**
+ * Writes an auto-created Project into the projects-map.json entry whose projectNumber is in
+ * effect for `slug` (its repositories entry when that sets projectNumber, else default — the
+ * entry doctor resets), so a repositories entry left at 0 can't shadow the new number.
+ * @returns the entry written, e.g. `default` or `repositories["owner/repo"]`
+ */
+export async function saveAutoCreatedProject(file, slug, { projectNumber, projectOwner }) {
+  const configObj = JSON.parse(await fs.readFile(file, "utf8"));
+  const repoEntry = configObj.repositories?.[slug];
+  const inRepoEntry = Object.hasOwn(repoEntry || {}, "projectNumber");
+  const target = inRepoEntry ? repoEntry : configObj.default || (configObj.default = {});
+  target.projectNumber = projectNumber;
+  if (!target.projectOwner) target.projectOwner = projectOwner;
+  await fs.writeFile(file, JSON.stringify(configObj, null, 2) + "\n", "utf8");
+  return inRepoEntry ? `repositories["${slug}"]` : "default";
+}
+
 async function autoCreateProject(owner, repoConfig) {
   log("Project not found. Auto-creating...");
 
@@ -1325,13 +1342,8 @@ async function autoCreateProject(owner, repoConfig) {
 
   // Auto-save projectNumber back to config
   try {
-    const rawConfig = await fs.readFile(configPath, "utf8");
-    const configObj = JSON.parse(rawConfig);
-    const target = configObj.default || (configObj.default = {});
-    target.projectNumber = created.number;
-    if (!target.projectOwner) target.projectOwner = owner;
-    await fs.writeFile(configPath, JSON.stringify(configObj, null, 2) + "\n", "utf8");
-    log(`  projects-map.json updated: projectNumber=${created.number}, projectOwner=${owner}`);
+    const entry = await saveAutoCreatedProject(configPath, repositorySlug, { projectNumber: created.number, projectOwner: owner });
+    log(`  projects-map.json updated: ${entry}.projectNumber=${created.number}, projectOwner=${owner}`);
   } catch (e) {
     log(`  Could not auto-save projectNumber to config: ${e.message}`);
     log(`  Manually set "projectNumber": ${created.number} in projects-map.json`);
@@ -2677,10 +2689,16 @@ export function shouldPromptBeforeLiveSync({
 
 async function confirmLiveSync() {
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  // On stdin EOF the interface closes and a pending question() may never settle — answer "no".
+  const closed = new Promise((resolve) => rl.once("close", () => resolve(null)));
   try {
-    const answer = await rl.question(
-      `[cards-sync] This will write to your LIVE board (no --dry-run). Type "yes" to continue: `
-    );
+    const prompt = `[cards-sync] This will write to your LIVE board (no --dry-run). Type "yes" to continue: `;
+    const answer = await Promise.race([rl.question(prompt).catch(() => null), closed]);
+    if (answer === null) {
+      console.log("");
+      log('No answer (stdin closed) — treating it as "no".');
+      return false;
+    }
     return answer.trim().toLowerCase() === "yes";
   } finally {
     rl.close();

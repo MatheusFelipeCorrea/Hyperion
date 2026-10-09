@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
-import { listCardsMarkdownFiles, checkCardPathLayout } from "./lib.mjs";
+import { listCardsMarkdownFiles, checkCardPathLayout, parseProjectYmlBackend } from "./lib.mjs";
 import { resolveHyperionPaths } from "../hyperion/paths.mjs";
 import { ciFailList } from "../hyperion/ci-annotate.mjs";
 
@@ -159,10 +159,9 @@ try {
   } else {
     const projectRaw = await fs.readFile(projectYmlPath, "utf8");
     const localeMatch = projectRaw.match(/^\s*locale\s*:\s*([^\s#]+)\s*$/m);
-    const backendMatch = projectRaw.match(/management:\s*[\s\S]*?backend\s*:\s*([^\s#]+)\s*(?:\n|$)/m);
 
     const locale = localeMatch?.[1];
-    const backend = backendMatch?.[1];
+    const backend = parseProjectYmlBackend(projectRaw);
 
     if (backend && backend !== "github" && backend !== "jira") {
       console.log(`[validate] ⚠️  management.backend is set to "${backend}".`);
