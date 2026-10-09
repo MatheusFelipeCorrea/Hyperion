@@ -18,6 +18,7 @@
  *   npm run cards:project-fields-apply           # preview only
  *   npm run cards:project-fields-apply -- --yes   # apply
  */
+import "./load-env.mjs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";

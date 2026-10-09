@@ -16,6 +16,7 @@
  *   CARDS_CI_STRICT_GIT=true        — fail when git diff unavailable (don't fail-open)
  *   CARDS_GUARD_BASE_REF=<sha>      — override merge-base / parent ref for directional guard
  */
+import "./load-env.mjs";
 import { spawnSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
