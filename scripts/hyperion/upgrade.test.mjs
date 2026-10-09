@@ -318,8 +318,8 @@ describe("upgrade-lib edge cases", () => {
       const head = gitCommitAll(kit, "kit");
 
       const plan = await buildUpgradePlan(kit, client);
-      assert.deepEqual(await applyUpgradePlan(kit, client, plan), []);
-      const applied = await applyUpgradePlan(kit, client, plan, { yes: true });
+      assert.deepEqual(await applyUpgradePlan(kit, client, plan), { applied: [], backedUp: [] });
+      const { applied } = await applyUpgradePlan(kit, client, plan, { yes: true });
       assert.ok(applied.includes("package.json"));
       const pkg = JSON.parse(readFileSync(join(client, "package.json"), "utf8"));
       assert.equal(pkg.private, true);
