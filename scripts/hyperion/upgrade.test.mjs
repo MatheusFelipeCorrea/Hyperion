@@ -1,4 +1,4 @@
-import { describe, it } from "node:test";
+import { after, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
   mkdtempSync,
@@ -9,7 +9,7 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { spawnSync } from "node:child_process";
+import { cleanupTmp, gitCommitAll } from "./test-support/cli-harness.mjs";
 import {
   buildUpgradePlan,
   applyUpgradePlan,
@@ -21,6 +21,8 @@ import {
   MANAGED_FILES,
 } from "./upgrade-lib.mjs";
 import { sameCommit, resolveOrigin, DEFAULT_ORIGIN } from "./upgrade-fetch.mjs";
+
+after(cleanupTmp);
 
 function makeKit(root) {
   mkdirSync(join(root, "scripts", "hyperion"), { recursive: true });
@@ -201,30 +203,37 @@ describe("upgrade-lib edge cases", () => {
     assert.equal(mergePackageJson({ type: "commonjs", engines: { node: ">=18" } }, { engines: { node: ">=20" }, type: "module" }).type, "commonjs");
   });
 
-  it("plans extra .cursor/rules files, a missing client package.json and preserved managed files", async () => {
+  it("plans extra .cursor/rules files and a missing client package.json, never client-owned files", async () => {
     const kit = tmp("kit-");
     const client = tmp("client-");
-    MANAGED_FILES.push(".github/project.yml");
     try {
       mkdirSync(join(kit, ".cursor", "rules"), { recursive: true });
-      mkdirSync(join(kit, ".github"), { recursive: true });
+      mkdirSync(join(kit, ".github", "memory"), { recursive: true });
       writeFileSync(join(kit, ".cursor", "rules", "extra.mdc"), "x\n");
       writeFileSync(join(kit, ".cursor", "rules", "notes.md"), "x\n");
       writeFileSync(join(kit, ".cursor", "rules", "ignored.txt"), "x\n");
       writeFileSync(join(kit, ".github", "project.yml"), "name: kit\n");
+      writeFileSync(join(kit, ".github", "memory", "PROJECT.md"), "# kit\n");
       writeFileSync(join(kit, "package.json"), JSON.stringify({ scripts: { "hyperion:doctor": "d" } }));
       const plan = await buildUpgradePlan(kit, client);
       const byRel = Object.fromEntries(plan.map((p) => [p.rel, p]));
       assert.equal(byRel[".cursor/rules/extra.mdc"].action, "add");
       assert.equal(byRel[".cursor/rules/notes.md"].action, "add");
       assert.ok(!byRel[".cursor/rules/ignored.txt"]);
-      assert.deepEqual(byRel[".github/project.yml"], { rel: ".github/project.yml", action: "preserve", reason: "client-owned" });
+      assert.ok(!byRel[".github/project.yml"]);
+      assert.ok(!byRel[".github/memory/PROJECT.md"]);
       assert.deepEqual(byRel["package.json"], { rel: "package.json", action: "add", reason: "merge-scripts" });
-      assert.equal(summarizePlan(plan).preserve, 1);
+      assert.equal(summarizePlan(plan).preserve, 0);
     } finally {
-      MANAGED_FILES.pop();
       rmSync(kit, { recursive: true, force: true });
       rmSync(client, { recursive: true, force: true });
+    }
+  });
+
+  it("no managed file is client-owned (buildUpgradePlan relies on it to never overwrite one)", () => {
+    // MANAGED_DIRS entries are filtered with isPreserved(); single files, workflows and rules are not.
+    for (const rel of [...MANAGED_FILES, ".github/workflows/hyperion-x.yml", ".cursor/rules/x.mdc"]) {
+      assert.equal(isPreserved(rel), false, rel);
     }
   });
 
@@ -235,15 +244,7 @@ describe("upgrade-lib edge cases", () => {
       mkdirSync(join(kit, "scripts", "hyperion"), { recursive: true });
       writeFileSync(join(kit, "scripts", "hyperion", "doctor.mjs"), "v\n");
       writeFileSync(join(kit, "package.json"), JSON.stringify({ description: "kit", scripts: { "hyperion:doctor": "d" } }));
-      const g = (args) =>
-        spawnSync("git", ["-c", "user.name=t", "-c", "user.email=t@example.com", "-c", "commit.gpgsign=false", ...args], {
-          cwd: kit,
-          encoding: "utf8",
-        });
-      g(["init", "-q"]);
-      g(["add", "-A"]);
-      g(["commit", "-q", "-m", "kit"]);
-      const head = g(["rev-parse", "HEAD"]).stdout.trim();
+      const head = gitCommitAll(kit, "kit");
 
       const plan = await buildUpgradePlan(kit, client);
       assert.deepEqual(await applyUpgradePlan(kit, client, plan), []);

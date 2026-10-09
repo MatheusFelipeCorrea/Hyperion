@@ -140,5 +140,7 @@
   "review.summary": "Resumo",
   "review.findings": "Achados",
   "review.suggested": "Mudanças sugeridas",
-  "review.testOutput": "Saída dos testes"
+  "review.testOutput": "Saída dos testes",
+
+  "setup.languagesEmpty": "--languages tem uma entrada vazia ('{value}') — passe tags BCP 47 separadas por vírgula, ex.: --languages pt-BR,en"
 }

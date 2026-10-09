@@ -59,7 +59,7 @@ describe("lib: running cards-sync scripts", () => {
   it("runNodeScript relays stdout and returns the exit code", () => {
     const cwd = makeTmp("lib-run-");
     assert.equal(runNodeScript("validate.mjs", [], { cwd }), 0);
-    assert.notEqual(runNodeScript("no-such-script.mjs", ["--x"], { cwd }), 0);
+    assert.equal(runNodeScript("no-such-script.mjs", ["--x"], { cwd }), 1);
   });
 
   it("runNodeScriptAsync captures stdout/stderr and the exit code", async () => {
@@ -68,7 +68,7 @@ describe("lib: running cards-sync scripts", () => {
     assert.equal(okRun.code, 0);
     assert.match(okRun.stdout, /\[validate\] No card files found/);
     const bad = await runNodeScriptAsync("no-such-script.mjs", [], { cwd });
-    assert.notEqual(bad.code, 0);
+    assert.equal(bad.code, 1);
     assert.match(bad.stderr, /Cannot find module/);
   });
 });

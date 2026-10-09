@@ -6,7 +6,7 @@
  * GitHub CLI session or this checkout.
  */
 import { spawn, spawnSync } from "node:child_process";
-import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, linkSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -23,9 +23,10 @@ export const FAULT_SPAWN = ["--import", faultPreload];
 export function faultEnv(entryBasename) {
   return { NODE_OPTIONS: `--import ${faultPreload}`, HYPERION_FAULT_ENTRY: entryBasename };
 }
-export const isWindows = process.platform === "win32";
+/** Parent of every temp dir made here; children's git never looks for a repo above it. */
+const tmpRoot = realpathSync.native(tmpdir());
 
-/** Env vars that would make a run depend on the developer's machine or CI. */
+/** Env vars that would make a run depend on the developer's machine or CI (every GITHUB_* too). */
 const SCRUBBED = [
   "HYPERION_ROOT",
   "HYPERION_KIT_ROOT",
@@ -37,8 +38,7 @@ const SCRUBBED = [
   "HYPERION_FETCH_STATE",
   "HYPERION_RELOCATE_FROM",
   "HYPERION_RELOCATE_TO",
-  "GITHUB_REPOSITORY",
-  "GITHUB_TOKEN",
+  "CI",
   "GH_TOKEN",
   "PROJECT_SYNC_TOKEN",
   "PROJECT_NUMBER",
@@ -50,17 +50,20 @@ const SCRUBBED = [
   "GIT_WORK_TREE",
   "GIT_CONFIG_COUNT",
 ];
+const isScrubbed = (key) => SCRUBBED.includes(key.toUpperCase()) || key.toUpperCase().startsWith("GITHUB_");
 
 const created = [];
 
 export function makeTmp(prefix = "hyperion-cli-") {
-  const dir = mkdtempSync(join(tmpdir(), prefix));
+  const dir = mkdtempSync(join(tmpRoot, prefix));
   created.push(dir);
   return dir;
 }
 
 export function cleanupTmp() {
   for (const dir of created.splice(0)) rmSync(dir, { recursive: true, force: true });
+  nodeCopy = null;
+  hooksDir = null;
 }
 
 /** Write `{ "rel/path": string | object (as JSON) | null (skip) }` under root. */
@@ -75,17 +78,18 @@ export function writeFiles(root, files) {
 }
 
 /**
- * Child env: the current one minus SCRUBBED, then `extra` (undefined deletes a key).
+ * Child env: the current one minus SCRUBBED (and CI / GITHUB_*), then `extra`
+ * (opt back in there; undefined deletes a key).
  * `binDir` is prepended to PATH (case-insensitively — Windows spells it `Path`).
  */
 export function childEnv(extra = {}, { binDir = null } = {}) {
-  const env = { ...process.env, HYPERION_NO_DOTENV: "1", GITHUB_ACTIONS: "", GIT_TERMINAL_PROMPT: "0" };
-  for (const key of SCRUBBED) delete env[key];
+  const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !isScrubbed(key)));
+  Object.assign(env, { HYPERION_NO_DOTENV: "1", GIT_TERMINAL_PROMPT: "0", GIT_CEILING_DIRECTORIES: tmpRoot });
   if (binDir) {
-    const pathKey = Object.keys(env).find((k) => k.toUpperCase() === "PATH");
-    const current = pathKey ? env[pathKey] : "";
-    for (const k of Object.keys(env)) if (k.toUpperCase() === "PATH") delete env[k];
-    env.PATH = `${binDir}${delimiter}${current}`;
+    const pathKeys = Object.keys(env).filter((k) => k.toUpperCase() === "PATH");
+    const paths = pathKeys.map((k) => env[k]);
+    for (const k of pathKeys) delete env[k];
+    env.PATH = [binDir, ...paths].join(delimiter);
   }
   Object.assign(env, extra);
   for (const [k, v] of Object.entries(env)) if (v === undefined) delete env[k];
@@ -181,25 +185,38 @@ export function relocateEnv(from, to) {
   };
 }
 
+let nodeCopy = null;
+
+/** One copy of the node binary per test process (hard-linked into bin dirs, not re-copied). */
+function nodeBinary() {
+  if (!nodeCopy) {
+    nodeCopy = join(makeTmp("hyperion-node-"), "node.exe");
+    copyFileSync(process.execPath, nodeCopy);
+  }
+  return nodeCopy;
+}
+
 /**
  * Directory with fake `gh` / `npm` executables, to prepend to PATH.
  *   gh: "fail" → every call fails (as if gh were missing or logged out)
  *       "node" → gh is node itself, so `gh <sub> ...` runs the file `<sub>` in the cwd
  *                (write e.g. `auth`, `api`, `pr` scripts there to fake answers)
  *   npm: exit code for any `npm ...` call
+ * Every stub is written in both forms, with no platform check: Windows resolves the
+ * `.exe` / `.cmd` one and never runs an extensionless file; POSIX resolves the sh one.
  */
 export function makeBin({ gh = null, npm = null } = {}) {
   const dir = makeTmp("hyperion-bin-");
   if (gh === "fail") {
-    if (isWindows) writeFileSync(join(dir, "gh.exe"), "not an executable");
-    else writeScript(join(dir, "gh"), "#!/bin/sh\nexit 1\n");
+    writeFileSync(join(dir, "gh.exe"), "not an executable");
+    writeScript(join(dir, "gh"), "#!/bin/sh\nexit 1\n");
   } else if (gh === "node") {
-    if (isWindows) copyFileSync(process.execPath, join(dir, "gh.exe"));
-    else writeScript(join(dir, "gh"), `#!/bin/sh\nexec "${process.execPath}" "$@"\n`);
+    linkSync(nodeBinary(), join(dir, "gh.exe"));
+    writeScript(join(dir, "gh"), `#!/bin/sh\nexec "${process.execPath}" "$@"\n`);
   }
   if (npm !== null) {
-    if (isWindows) writeFileSync(join(dir, "npm.cmd"), `@exit /b ${npm}\r\n`);
-    else writeScript(join(dir, "npm"), `#!/bin/sh\nexit ${npm}\n`);
+    writeFileSync(join(dir, "npm.cmd"), `@exit /b ${npm}\r\n`);
+    writeScript(join(dir, "npm"), `#!/bin/sh\nexit ${npm}\n`);
   }
   return dir;
 }
@@ -209,11 +226,21 @@ function writeScript(file, content) {
   chmodSync(file, 0o755);
 }
 
-/** git in a temp dir, isolated from the developer's global/system config. */
+let hooksDir = null;
+
+/** git in a temp dir, isolated from the developer's system config, signing and hooks. */
 export function git(cwd, args, { env = {} } = {}) {
+  if (!hooksDir) hooksDir = makeTmp("hyperion-hooks-");
   const r = spawnSync(
     "git",
-    ["-c", "user.name=Hyperion Test", "-c", "user.email=test@example.com", "-c", "commit.gpgsign=false", "-c", "tag.gpgsign=false", "-c", "core.hooksPath=", ...args],
+    [
+      "-c", "user.name=Hyperion Test",
+      "-c", "user.email=test@example.com",
+      "-c", "commit.gpgsign=false",
+      "-c", "tag.gpgsign=false",
+      "-c", `core.hooksPath=${hooksDir}`,
+      ...args,
+    ],
     { cwd, encoding: "utf8", env: childEnv({ GIT_CONFIG_NOSYSTEM: "1", ...env }), windowsHide: true }
   );
   if (r.status !== 0) throw new Error(`git ${args.join(" ")} failed: ${r.stderr}`);
