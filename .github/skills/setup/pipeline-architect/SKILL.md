@@ -312,8 +312,9 @@ npm run hyperion:pipeline-apply -- --refresh-gates --yes   # after changing ci.g
   diff coverage reads lcov, Cobertura, Go cover or `coverage-final.json`;
   writes a table to the Job Summary (and the PR comment file).
 - `hyperion:doctor` flags `hyperion-product-ci.yml` when `ci.gates` changed
-  (`gates-hash` mismatch). Add `# hyperion:no-auto-refresh` to the file to
-  keep manual edits — refresh then skips it.
+  (`gates-hash` mismatch). Add a comment line starting with
+  `# hyperion:no-auto-refresh` to the file to keep manual edits — refresh then
+  skips it.
 
 If legacy workflows exist and hyperion-* were written:
 

@@ -1,7 +1,7 @@
 import { after, before, describe, test } from "node:test";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { isDefaultBranch } from "./watch.mjs";
@@ -40,6 +40,11 @@ if (m) {
 
 after(cleanupTempDirs);
 
+const READY = /Press Ctrl\+C to stop\./;
+const DEADLINE_MS = 30_000;
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const count = (text, pattern) => (text.match(new RegExp(pattern.source, "g")) || []).length;
+
 function startWatcher(cwd, env) {
   const log = join(cwd, ".watch-test.log");
   const child = spawn(process.execPath, ["--import", exitPreload, watchScript], {
@@ -48,22 +53,66 @@ function startWatcher(cwd, env) {
     stdio: ["ignore", "pipe", "pipe", "ipc"],
   });
   let output = "";
+  let baseline = 0;
   child.stdout.setEncoding("utf8").on("data", (d) => (output += d));
   child.stderr.setEncoding("utf8").on("data", (d) => (output += d));
   const closed = new Promise((resolve) => child.on("close", resolve));
 
-  return {
+  async function until(check, describe, timeoutMs = DEADLINE_MS) {
+    const deadline = Date.now() + timeoutMs;
+    while (!check()) {
+      if (Date.now() > deadline || child.exitCode !== null) throw new Error(`timed out waiting for ${describe}; output:\n${output}`);
+      await sleep(50);
+    }
+  }
+
+  const w = {
+    /** Everything the watcher printed, including the warm-up pass. */
     get output() {
       return output;
     },
-    spawns: () => (existsSync(log) ? readFileSync(log, "utf8").trim().split("\n").map((l) => JSON.parse(l)) : []),
-    async waitFor(pattern, count = 1, timeoutMs = 20_000) {
-      const re = new RegExp(pattern.source, "g");
-      const deadline = Date.now() + timeoutMs;
-      while ((output.match(re) || []).length < count) {
-        if (Date.now() > deadline) throw new Error(`timed out waiting for ${pattern} x${count}; output:\n${output}`);
-        await new Promise((r) => setTimeout(r, 50));
+    /** Output printed after the watcher was confirmed live. */
+    get recent() {
+      return output.slice(baseline);
+    },
+    spawns: () => (existsSync(log) ? readFileSync(log, "utf8").trim().split("\n").filter(Boolean).map((l) => JSON.parse(l)) : []),
+    waitFor(pattern, n = 1) {
+      return until(() => count(w.recent, pattern) >= n, `${pattern} x${n}`);
+    },
+    /**
+     * Resolves once fs.watch demonstrably delivers events (recursive watch on Linux initializes
+     * asynchronously after READY): rewrites a probe file under `cardsRel` until a change is
+     * reported, waits for every triggered pass to finish, then starts `recent`/`spawns` afresh.
+     */
+    async ready(cardsRel) {
+      await until(() => READY.test(output), String(READY));
+      const probe = join(cwd, cardsRel, ".watch-probe.txt");
+      const deadline = Date.now() + DEADLINE_MS;
+      const detected = () => /\[cards-watch\] Change detected/.test(output);
+      // Each attempt waits past the 600 ms debounce: rewriting sooner would keep resetting it.
+      for (let i = 0; !detected(); i++) {
+        if (Date.now() > deadline || child.exitCode !== null) throw new Error(`watcher never reported a change; output:\n${output}`);
+        writeFileSync(probe, String(i));
+        const retryAt = Date.now() + 2_000;
+        while (!detected() && Date.now() < retryAt) await sleep(50);
       }
+      // A pass ends with Done/Failed unless it was queued behind a running one; settled means every
+      // reported change has ended and nothing new appeared for longer than the 600 ms debounce.
+      const settled = () =>
+        count(output, /\[cards-watch\] Change detected/) ===
+        count(output, /\[cards-watch\] (Done|Failed)\b/) + count(output, /\[cards-watch\] Sync already running/);
+      let quietSince = 0;
+      let seen = -1;
+      await until(() => {
+        if (!settled() || output.length !== seen) {
+          seen = output.length;
+          quietSince = Date.now();
+          return false;
+        }
+        return Date.now() - quietSince > 1_500;
+      }, "the warm-up pass to settle");
+      baseline = output.length;
+      if (existsSync(log)) writeFileSync(log, "");
     },
     async stop() {
       if (child.exitCode === null && child.connected) child.send("exit");
@@ -73,9 +122,25 @@ function startWatcher(cwd, env) {
       return status;
     },
   };
+  return w;
 }
 
-const READY = /Press Ctrl\+C to stop\./;
+/**
+ * Runs `body` against a live watcher and stops it afterwards. The clean-exit assertion only runs
+ * when the body succeeded, so a body failure is never masked by the exit-code check.
+ */
+async function withWatcher(cwd, env, cardsRel, body) {
+  const w = startWatcher(cwd, env);
+  let status;
+  try {
+    await w.ready(cardsRel);
+    await body(w);
+  } finally {
+    status = await w.stop();
+  }
+  assert.equal(status, 0, w.output);
+  return w;
+}
 const task = (id, extra = {}) => card({ id, type: "Task", ...extra });
 
 test("isDefaultBranch fails closed when git cannot run in the directory", () => {
@@ -97,10 +162,10 @@ test("exits with an error when the cards folder is missing", () => {
 describe("watch.mjs watcher", { concurrency: 3 }, () => {
   test("off the default branch: validate only, queues changes that arrive mid-run, reports failures", async () => {
     const ws = makeTempDir("hyperion-watch-validate-");
-    writeFile(ws, ".github/cards/tasks/.keep", "");
-    const w = startWatcher(ws, { GIT_DIR: join(ws, "no-such-git-dir"), WATCH_TEST_DELAY_MS: "1500" });
-    try {
-      await w.waitFor(READY);
+    // Directories exist before the watcher starts, so no event depends on a new folder being picked up.
+    writeFile(ws, ".github/cards/tasks/_orphan/.keep", "");
+    const env = { GIT_DIR: join(ws, "no-such-git-dir"), WATCH_TEST_DELAY_MS: "1500" };
+    const w = await withWatcher(ws, env, ".github/cards", async (w) => {
       assert.match(w.output, /Dry-run mode \(default\)/);
       writeFile(ws, ".github/cards/tasks/_orphan/T-1.md", task("T-1"));
       await w.waitFor(/Validating cards\.\.\./);
@@ -108,33 +173,28 @@ describe("watch.mjs watcher", { concurrency: 3 }, () => {
       await w.waitFor(/Sync already running — queued for next pass\./);
       await w.waitFor(/Change detected: queued changes/);
       await w.waitFor(/Done \(validate only\)\./, 2);
-      assert.match(w.output, /Skipping forward sync — not on default branch/);
+      assert.match(w.recent, /Skipping forward sync — not on default branch/);
 
       writeFile(ws, ".github/cards/tasks/_orphan/BAD-1.md", task("BAD-1", { type: "Bogus" }));
       await w.waitFor(/Failed: validate\.mjs exited with code 1/);
-    } finally {
-      assert.equal(await w.stop(), 0, w.output);
-    }
+    });
+    assert.ok(w.spawns().length > 0);
     assert.ok(w.spawns().every((s) => s.script === "validate"), "never syncs off the default branch");
   });
 
   test("dry-run by default: incremental ids exclude samples/templates/non-cards; nested kit root is passed down", async () => {
     const ws = makeTempDir("hyperion-watch-nested-");
-    writeFile(ws, "Hyperion/.github/cards/tasks/.keep", "");
-    const w = startWatcher(ws, { CARDS_WATCH_ANY_BRANCH: "true" });
-    try {
-      await w.waitFor(READY);
-      const cards = "Hyperion/.github/cards/tasks";
+    const cards = "Hyperion/.github/cards/tasks";
+    writeFile(ws, `${cards}/_orphan/.keep`, "");
+    const w = await withWatcher(ws, { CARDS_WATCH_ANY_BRANCH: "true" }, "Hyperion/.github/cards", async (w) => {
       writeFile(ws, `${cards}/notes.txt`, "ignored");
       writeFile(ws, `${cards}/README.md`, "# readme");
       writeFile(ws, `${cards}/_orphan/T-9.template.md`, task("T-9"));
       writeFile(ws, `${cards}/_orphan/EXAMPLE-TASK-1.md`, task("EXAMPLE-TASK-1"));
       writeFile(ws, `${cards}/_orphan/T-1.md`, task("T-1"));
       await w.waitFor(/Done \(dry-run\)\./);
-      assert.match(w.output, /DRY RUN — no board will be written/);
-    } finally {
-      assert.equal(await w.stop(), 0, w.output);
-    }
+      assert.match(w.recent, /DRY RUN — no board will be written/);
+    });
     const sync = w.spawns().find((s) => s.script === "sync");
     assert.deepEqual(sync, { script: "sync", only: "T-1", dryRun: "true", yes: null, root: "Hyperion" });
   });
@@ -142,19 +202,17 @@ describe("watch.mjs watcher", { concurrency: 3 }, () => {
   test("LIVE mode: full sync for non-card changes, incremental for cards, logs sync failures", async () => {
     const ws = makeTempDir("hyperion-watch-live-");
     writeFile(ws, ".github/cards/tasks/_orphan/T-1.md", task("T-1"));
-    const w = startWatcher(ws, { CARDS_WATCH_ANY_BRANCH: "true", CARDS_WATCH_LIVE: "true", WATCH_TEST_SYNC_EXITS: "0,3" });
-    try {
-      await w.waitFor(READY);
+    writeFile(ws, ".github/cards/config/.keep", "");
+    const env = { CARDS_WATCH_ANY_BRANCH: "true", CARDS_WATCH_LIVE: "true", WATCH_TEST_SYNC_EXITS: "0,3" };
+    const w = await withWatcher(ws, env, ".github/cards", async (w) => {
       assert.match(w.output, /LIVE mode — real board writes on every change/);
       writeFile(ws, ".github/cards/config/projects-map.json", "{}");
       await w.waitFor(/Syncing all cards \(LIVE\)\.\.\./);
-      await w.waitFor(/\] Done\.\n/);
+      await w.waitFor(/\] Done\.\r?\n/);
       writeFile(ws, ".github/cards/tasks/_orphan/T-1.md", task("T-1", { status: "Done" }));
       await w.waitFor(/Incremental sync \(LIVE\): T-1/);
       await w.waitFor(/Failed: sync\.mjs exited with code 3/);
-    } finally {
-      assert.equal(await w.stop(), 0, w.output);
-    }
+    });
     const syncs = w.spawns().filter((s) => s.script === "sync");
     assert.deepEqual(syncs, [
       { script: "sync", only: null, dryRun: null, yes: "true", root: null },

@@ -161,10 +161,13 @@ export function walkRepo(root, { maxDepth = 5, skipRel = [] } = {}) {
     } catch {
       return;
     }
+    // Ruby apps keep source binstubs (bin/rails, bin/rake) next to the Gemfile; elsewhere bin/ is build output.
+    const rubyBinstubs = entries.some((e) => e.isFile() && e.name === "Gemfile");
     for (const e of entries) {
       const childRel = rel ? `${rel}/${e.name}` : e.name;
       if (e.isDirectory()) {
-        if (SKIP_DIRS.has(e.name) || skip.has(childRel) || depth >= maxDepth) continue;
+        const skipped = SKIP_DIRS.has(e.name) && !(e.name === "bin" && rubyBinstubs);
+        if (skipped || skip.has(childRel) || depth >= maxDepth) continue;
         visit(path.join(dirAbs, e.name), childRel, depth + 1);
       } else if (e.isFile()) {
         files.push(childRel);
@@ -827,13 +830,16 @@ function phpAnalysis(root, app, idx) {
   const has = (n) => Object.prototype.hasOwnProperty.call(deps, n);
   const cfg = (re) => idx.inDir(dir, re).length > 0;
   const phpunit = has("phpunit/phpunit") || cfg(/^phpunit\.xml(\.dist)?$/);
-  const phpVersion = majorMinor(composer.require?.php) || readToolVersions(root, dir).php || null;
+  const composerPhp = majorMinor(composer.require?.php);
+  const toolVersionsPhp = readToolVersions(root, dir).php || null;
+  const phpVersion = composerPhp || toolVersionsPhp;
+  const phpVersionSource = composerPhp ? "composer.json" : toolVersionsPhp ? ".tool-versions" : "default";
   return {
     pm: "composer",
     install: "composer install --no-interaction --prefer-dist",
     manifestText: JSON.stringify(deps),
     migrate: idx.has(joinRel(dir, "artisan")) ? "php artisan migrate --force" : null,
-    setup: { kind: "php", version: phpVersion || "8.3", versionSource: phpVersion ? "composer.json" : "default" },
+    setup: { kind: "php", version: phpVersion || "8.3", versionSource: phpVersionSource },
     gates: {
       lint: has("phpstan/phpstan") || cfg(/^phpstan\.neon(\.dist)?$/)
         ? gate("vendor/bin/phpstan analyse", { evidence: "phpstan" })
@@ -865,15 +871,17 @@ function rubyAnalysis(root, app, idx) {
   const gem = (n) => new RegExp(`gem\\s+["']${n}["']`).test(gemfile);
   const rspec = gem("rspec") || gem("rspec-rails") || idx.files.some((f) => isUnder(f, joinRel(dir, "spec")));
   const testCmd = rspec ? "bundle exec rspec" : "bundle exec rake test";
-  const rubyVersion = (readText(path.join(root, dir, ".ruby-version")) || readText(path.join(root, ".ruby-version")) || "").trim() ||
-    readToolVersions(root, dir).ruby || null;
+  const rubyVersionFile = (readText(path.join(root, dir, ".ruby-version")) || readText(path.join(root, ".ruby-version")) || "").trim();
+  const toolVersionsRuby = readToolVersions(root, dir).ruby || null;
+  const rubyVersion = rubyVersionFile || toolVersionsRuby;
+  const rubyVersionSource = rubyVersionFile ? ".ruby-version" : toolVersionsRuby ? ".tool-versions" : "setup-ruby default";
   const rails = idx.has(joinRel(dir, "bin/rails"));
   return {
     pm: "bundler",
     install: "bundle install",
     manifestText: gemfile,
     migrate: rails ? "bin/rails db:prepare" : null,
-    setup: { kind: "ruby", version: rubyVersion, versionSource: rubyVersion ? ".ruby-version" : "setup-ruby default" },
+    setup: { kind: "ruby", version: rubyVersion, versionSource: rubyVersionSource },
     gates: {
       lint: gem("rubocop") || idx.has(joinRel(dir, ".rubocop.yml"))
         ? gate("bundle exec rubocop", { evidence: "rubocop", fix: "bundle exec rubocop -a" })
@@ -2378,7 +2386,7 @@ const isMain = process.argv[1] && import.meta.url === pathToFileURL(process.argv
 
 async function main() {
   const { resolveHyperionPaths } = await import("./paths.mjs");
-  const { detectDefaultBranch, readCiGatesFromProjectYml } = await import("./pipeline-lib.mjs");
+  const { detectWorkflowBaseBranch, readCiGatesFromProjectYml } = await import("./pipeline-lib.mjs");
   const root = process.cwd();
   const paths = resolveHyperionPaths(root);
   const kitRootRel = paths.kitRootRel || "";
@@ -2404,7 +2412,7 @@ async function main() {
   const scan = scanRepoForGates(root, { kitRootRel });
   let questions = buildGateQuestions(scan, { gates });
   if (argv.includes("--pending")) questions = questions.filter((x) => x.status === "new");
-  const defaultBranch = detectDefaultBranch(root);
+  const defaultBranch = detectWorkflowBaseBranch(root).branch;
   const lang = normalizeTag(flag("--lang")) || (argv.includes("--en") ? "en" : resolveLanguages(root).primary);
 
   if (argv.includes("--json")) {

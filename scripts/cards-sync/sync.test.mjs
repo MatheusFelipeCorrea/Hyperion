@@ -1,6 +1,7 @@
 ﻿import test, { after } from "node:test";
 import assert from "node:assert/strict";
-import { rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import {
@@ -36,6 +37,7 @@ import {
   getLabelId,
   shouldPromptBeforeLiveSync,
   DEFAULT_STATUS_OPTIONS,
+  saveAutoCreatedProject,
 } from "./sync.mjs";
 import { pickCanonicalIssueForCardId } from "./lib.mjs";
 import { cleanupTempDirs, commitAll, initRepo, makeTempDir, runNode, scriptPath, writeFile } from "./test-support/ci-fixture.mjs";
@@ -721,4 +723,32 @@ console.log(JSON.stringify({ committed: [...h.committed.keys()].sort(), dirty: [
     dirty: [`${dir}/Ação-1.md`, `${dir}/Nação-3.md`],
     deleted: [`${dir}/Café-2.md`],
   });
+});
+
+test("saveAutoCreatedProject writes the projects-map.json entry whose projectNumber is in effect", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "hyperion-sync-save-"));
+  const file = join(dir, "projects-map.json");
+  const save = async (config) => {
+    writeFileSync(file, JSON.stringify(config));
+    const entry = await saveAutoCreatedProject(file, "acme/app", { projectNumber: 12, projectOwner: "acme" });
+    return { entry, saved: JSON.parse(readFileSync(file, "utf8")) };
+  };
+  try {
+    // A repositories entry left at 0 (e.g. by doctor) overrides default — saving to default would leave it shadowed.
+    const repo = await save({ default: { projectNumber: 7, projectOwner: "other" }, repositories: { "acme/app": { projectNumber: 0, locale: "en" } } });
+    assert.equal(repo.entry, 'repositories["acme/app"]');
+    assert.deepEqual(repo.saved.repositories["acme/app"], { projectNumber: 12, locale: "en", projectOwner: "acme" });
+    assert.deepEqual(repo.saved.default, { projectNumber: 7, projectOwner: "other" });
+
+    const fallback = await save({ default: { projectNumber: 0, projectOwner: "octo" }, repositories: { "acme/app": { locale: "en" }, "acme/other": { projectNumber: 0 } } });
+    assert.equal(fallback.entry, "default");
+    assert.deepEqual(fallback.saved.default, { projectNumber: 12, projectOwner: "octo" }, "an existing projectOwner is kept");
+    assert.deepEqual(fallback.saved.repositories, { "acme/app": { locale: "en" }, "acme/other": { projectNumber: 0 } });
+
+    const bare = await save({});
+    assert.equal(bare.entry, "default");
+    assert.deepEqual(bare.saved, { default: { projectNumber: 12, projectOwner: "acme" } });
+  } finally {
+    rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  }
 });

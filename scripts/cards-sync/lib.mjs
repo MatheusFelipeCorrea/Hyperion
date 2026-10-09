@@ -716,6 +716,14 @@ export async function detectProjectLocaleFromYml(projectYmlPath) {
   return null;
 }
 
+/** `management.backend` from project.yml text, lowercased; tolerates quotes, an inline `# comment` and CRLF. */
+export function parseProjectYmlBackend(raw) {
+  const match = String(raw).match(
+    /management:\s*[\s\S]*?backend[^\S\n]*:[^\S\n]*["']?([^\s#"']+)["']?[^\S\n]*(?:#[^\n]*)?$/m
+  );
+  return match ? match[1].toLowerCase() : null;
+}
+
 export function resolveLabelsCatalogFilePath(cardsRoot, repoConfig, locale) {
   if (Array.isArray(repoConfig.labels)) return null;
   const labelsFile = repoConfig.labelsFile;

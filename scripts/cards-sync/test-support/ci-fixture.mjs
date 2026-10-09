@@ -5,7 +5,7 @@
  * independent of the host repo / CI variables.
  */
 import { spawn, spawnSync } from "node:child_process";
-import { appendFileSync, cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -36,9 +36,33 @@ export function readFile(root, rel) {
   return readFileSync(join(root, rel), "utf8");
 }
 
+let noHooksDir = null;
+
+/** Empty directory used as core.hooksPath so the developer's own git hooks never run. */
+function emptyHooksDir() {
+  if (!noHooksDir || !existsSync(noHooksDir)) noHooksDir = makeTempDir("hyperion-ci-nohooks-");
+  return noHooksDir;
+}
+
+/** process.env without the variables that would point git at another repo or index. */
+function gitEnv() {
+  const env = { ...process.env, GIT_CONFIG_NOSYSTEM: "1" };
+  for (const key of Object.keys(env)) if (/^GIT_(DIR|WORK_TREE|INDEX_FILE)$/i.test(key)) delete env[key];
+  return env;
+}
+
 export function git(cwd, ...args) {
-  const r = spawnSync("git", ["-c", "user.email=t@e", "-c", "user.name=t", "-c", "core.autocrlf=false", ...args], {
+  const config = [
+    "user.email=t@e",
+    "user.name=t",
+    "core.autocrlf=false",
+    "commit.gpgsign=false",
+    "tag.gpgsign=false",
+    `core.hooksPath=${emptyHooksDir()}`,
+  ];
+  const r = spawnSync("git", [...config.flatMap((c) => ["-c", c]), ...args], {
     cwd,
+    env: gitEnv(),
     encoding: "utf8",
   });
   if (r.status !== 0) throw new Error(`git ${args.join(" ")} failed: ${r.stderr || r.stdout}`);
@@ -46,7 +70,9 @@ export function git(cwd, ...args) {
 }
 
 export function initRepo(dir, branch = "main") {
-  git(dir, "init", "-q", "-b", branch);
+  // `git init -b` needs git >= 2.28; symbolic-ref works on any version.
+  git(dir, "init", "-q");
+  git(dir, "symbolic-ref", "HEAD", `refs/heads/${branch}`);
   // Scripts under test call git without our -c flags; pin line endings for them too (no extra spawn).
   appendFileSync(join(dir, ".git", "config"), "[core]\n\tautocrlf = false\n");
   return dir;
@@ -84,7 +110,7 @@ export function card({ id, status = "Backlog", type = "Story", priority = "Mediu
   ].join("\n");
 }
 
-const SCRUB = /^(GITHUB_|CARDS_|CI_MERGE_REQUEST_|SLACK_|DISCORD_|HYPERION_)|^(DRY_RUN|GH_TOKEN|GIT_DIR|PROJECT_SYNC_TOKEN|NODE_OPTIONS)$/i;
+const SCRUB = /^(GITHUB_|CARDS_|CI_MERGE_REQUEST_|SLACK_|DISCORD_|HYPERION_)|^(DRY_RUN|GH_TOKEN|GIT_DIR|GIT_WORK_TREE|GIT_INDEX_FILE|PROJECT_SYNC_TOKEN|NODE_OPTIONS)$/i;
 
 /** process.env minus anything that would steer the scripts, plus the fixed test identity. */
 export function cleanEnv(extra = {}) {
