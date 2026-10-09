@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import {
   buildPipelineDiagrams,
   diagramsDir,
@@ -218,5 +220,80 @@ describe("diagramsDir", () => {
     assert.equal(diagramsDir("/r", "outputs:\n  diagrams: docs/arch\ndocs:\n  diagrams: x\n"), path.resolve("/r", "docs/arch"));
     assert.equal(diagramsDir("/r", "docs:\n  diagrams: doc/diagrams\n"), path.resolve("/r", "doc/diagrams"));
     assert.equal(diagramsDir("/r", ""), path.resolve("/r", ".github/diagrams"));
+  });
+
+  it("falls back to .github/diagrams when project.yml is not valid YAML", () => {
+    assert.equal(diagramsDir("/r", "outputs: [unclosed"), path.resolve("/r", ".github/diagrams"));
+  });
+});
+
+describe("pipeline-diagram CLI", () => {
+  const SCRIPT = fileURLToPath(new URL("./pipeline-diagram.mjs", import.meta.url));
+  const env = { ...process.env, GIT_CEILING_DIRECTORIES: os.tmpdir() };
+  delete env.HYPERION_ROOT;
+  let cli;
+  before(() => {
+    cli = fs.mkdtempSync(path.join(os.tmpdir(), "hyperion-diagram-cli-"));
+    write(cli, "api/package.json", { scripts: { test: "jest" }, devDependencies: { jest: "^29" } });
+    write(cli, ".github/workflows/deploy.yml", GENERIC);
+  });
+  after(() => fs.rmSync(cli, { recursive: true, force: true }));
+  const run = (args, cwd = cli) => spawnSync(process.execPath, [SCRIPT, ...args], { cwd, env, encoding: "utf8" });
+
+  it("rejects unknown --source/--format and presets", () => {
+    const bad = run(["--source", "bogus"]);
+    assert.equal(bad.status, 2);
+    assert.match(bad.stderr, /Usage: pipeline-diagram/);
+    assert.equal(run(["--format", "svg"]).status, 2);
+    const preset = run(["--preset", "max"]);
+    assert.equal(preset.status, 2);
+    assert.match(preset.stderr, /Unknown preset "max"/);
+  });
+
+  it("prints Markdown with mermaid and plantuml blocks without writing", () => {
+    const r = run(["--source", "workflows", "--lang", "en"]);
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(r.stdout, /```mermaid\n---\ntitle: Deploy/);
+    assert.match(r.stdout, /```plantuml\n@startuml/);
+    assert.match(r.stdout, /Nothing written\./);
+    assert.ok(!fs.existsSync(path.join(cli, ".github/diagrams")));
+  });
+
+  it("--write saves .mmd/.puml/README under outputs.diagrams, with ci.gates from project.yml", () => {
+    write(cli, ".github/project.yml", "outputs:\n  diagrams: docs/diagrams\nci:\n  gates:\n    defaults:\n      lint: block\n");
+    try {
+      const r = run(["--write", "--no-steps"]);
+      assert.equal(r.status, 0, r.stderr);
+      const out = path.join(cli, "docs/diagrams/Pipeline");
+      for (const f of ["pipeline-gates.mmd", "pipeline-gates.puml", "workflow-deploy.mmd", "README.md"]) {
+        assert.ok(fs.existsSync(path.join(out, f)), `missing ${f}`);
+      }
+      assert.match(r.stdout, /note: hyperion-product-ci\.yml differs from ci\.gates/);
+      assert.match(r.stdout, /Wrote \d+ file\(s\):\n {2}docs\/diagrams\/Pipeline\//);
+    } finally {
+      fs.rmSync(path.join(cli, ".github/project.yml"));
+      fs.rmSync(path.join(cli, "docs"), { recursive: true, force: true });
+    }
+  });
+
+  it("--gates-file + --preset feed the gates diagram; --out picks the folder; nothing to write without gates", () => {
+    write(cli, "draft.yml", "ci:\n  gates:\n    defaults:\n      coverage: warn\n");
+    const r = run(["--source", "gates", "--format", "mermaid", "--gates-file", "draft.yml", "--preset", "minimal", "--write", "--out", "out"]);
+    assert.equal(r.status, 0, r.stderr);
+    assert.ok(fs.existsSync(path.join(cli, "out/pipeline-gates.mmd")));
+    assert.ok(!fs.existsSync(path.join(cli, "out/pipeline-gates.puml")));
+
+    const empty = run(["--source", "gates", "--write", "--out", "out-empty"]);
+    assert.equal(empty.status, 0, empty.stderr);
+    assert.match(empty.stdout, /note: No ci\.gates in project\.yml/);
+    assert.match(empty.stdout, /No diagrams to write\./);
+    fs.rmSync(path.join(cli, "out"), { recursive: true, force: true });
+    fs.rmSync(path.join(cli, "out-empty"), { recursive: true, force: true });
+  });
+
+  it("exits 1 with the error when --gates-file is missing", () => {
+    const r = run(["--gates-file", "nope.yml"]);
+    assert.equal(r.status, 1);
+    assert.match(r.stderr, /ENOENT/);
   });
 });

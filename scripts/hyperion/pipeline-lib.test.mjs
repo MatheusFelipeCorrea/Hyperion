@@ -1,6 +1,22 @@
-import { describe, it } from "node:test";
+import { after, before, describe, it } from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import {
+  appendForkGuardJob,
+  auditHyperionPipelineFiles,
+  detectExternalProviders,
+  detectPipeline,
+  detectStack,
+  formatCiYamlBlock,
+  inspectProductCiGates,
+  listGithubWorkflows,
+  NO_AUTO_REFRESH_MARKER,
+  readCardsSyncMode,
+  readCiGatesFromProjectYml,
+  renderPrBoardGuardForkWorkflow,
+  resolvePipelineRenderOptions,
   classifyWorkflows,
   buildPipelinePlan,
   readCiFromProjectYml,
@@ -402,5 +418,399 @@ describe("detectDefaultBranch", () => {
   it("returns main or master string", () => {
     const branch = detectDefaultBranch();
     assert.match(branch, /^(main|master|[\w./-]+)$/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Temp-repo coverage: audits, detection, plans and render options
+// ---------------------------------------------------------------------------
+
+const tmpRoots = [];
+const savedEnv = {};
+const ENV_KEYS = ["HYPERION_ROOT", "GIT_DIR", "GIT_WORK_TREE", "GIT_CEILING_DIRECTORIES"];
+
+before(() => {
+  for (const k of ENV_KEYS) savedEnv[k] = process.env[k];
+  delete process.env.HYPERION_ROOT;
+  delete process.env.GIT_DIR;
+  delete process.env.GIT_WORK_TREE;
+  process.env.GIT_CEILING_DIRECTORIES = os.tmpdir();
+});
+
+after(() => {
+  for (const k of ENV_KEYS) {
+    if (savedEnv[k] === undefined) delete process.env[k];
+    else process.env[k] = savedEnv[k];
+  }
+  for (const d of tmpRoots) fs.rmSync(d, { recursive: true, force: true });
+});
+
+/** origin/HEAD → main resolves on the first git probe; failed probes cost seconds on Windows. */
+const ORIGIN_MAIN_GIT = {
+  ".git/HEAD": "ref: refs/heads/main\n",
+  ".git/refs/remotes/origin/HEAD": "ref: refs/remotes/origin/main\n",
+  ".git/refs/heads/.keep": "",
+  ".git/objects/.keep": "",
+};
+
+function makeRepo(files = {}, { git = true } = {}) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "hyperion-pipeline-lib-"));
+  tmpRoots.push(dir);
+  for (const [rel, content] of Object.entries(git ? { ...ORIGIN_MAIN_GIT, ...files } : files)) {
+    fs.mkdirSync(path.dirname(path.join(dir, rel)), { recursive: true });
+    fs.writeFileSync(path.join(dir, rel), typeof content === "string" ? content : JSON.stringify(content));
+  }
+  return dir;
+}
+
+const SHA = "1111111111111111111111111111111111111111";
+
+/** Minimal on-disk .git (HEAD + refs, no objects) — enough for symbolic-ref / rev-parse. */
+function fakeGit({ head, originHead = null, branches = [] }) {
+  const files = { ".git/HEAD": `${head}\n`, ".git/objects/.keep": "" };
+  if (originHead) files[".git/refs/remotes/origin/HEAD"] = `ref: refs/remotes/origin/${originHead}\n`;
+  for (const b of branches) files[`.git/refs/heads/${b}`] = `${SHA}\n`;
+  const dir = makeRepo(files, { git: false });
+  fs.mkdirSync(path.join(dir, ".git", "refs", "heads"), { recursive: true });
+  return dir;
+}
+
+describe("detectDefaultBranch (temp repos)", () => {
+  it("prefers origin/HEAD, then the checked-out branch, then main/master, else main", () => {
+    assert.equal(detectDefaultBranch(fakeGit({ head: "ref: refs/heads/feature", originHead: "develop" })), "develop");
+    assert.equal(detectDefaultBranch(fakeGit({ head: "ref: refs/heads/trunk" })), "trunk");
+    assert.equal(detectDefaultBranch(fakeGit({ head: SHA, branches: ["master"] })), "master");
+    assert.equal(detectDefaultBranch(makeRepo({}, { git: false })), "main");
+  });
+});
+
+describe("workflow audits (failing shapes)", () => {
+  it("auditSyncCardsWorkflow: empty file, auto-mode gaps and pull-forward gaps", () => {
+    assert.deepEqual(auditSyncCardsWorkflow(""), { ok: false, issues: ["missing_file"], missing: ["file"] });
+
+    const auto = "jobs:\n  sync:\n    steps:\n      - run: node scripts/cards-sync/sync.mjs --auto\non_projects_v2_item: {}\n";
+    const a = auditSyncCardsWorkflow(auto, { kitRootRel: "Hyperion/", syncMode: "auto" });
+    assert.deepEqual(a.issues, [
+      "missing_loop_guard",
+      "missing_contents_write",
+      "missing_push_retry",
+      "invalid_projects_v2_item_trigger",
+      "missing_push_branch_filter",
+      "missing_concurrency_block",
+      "missing_cancel_in_progress",
+      "cards_paths_mismatch",
+      "missing_working_directory",
+    ]);
+    assert.ok(a.missing.includes("on"));
+
+    const pull = [
+      "on:",
+      "  push:",
+      "    branches: [main]",
+      '    paths: [".github/cards/**"]',
+      "concurrency:",
+      "  cancel-in-progress: false",
+      "jobs:",
+      "  sync:",
+      "    defaults:",
+      "      run:",
+      "        working-directory: kit",
+      "",
+    ].join("\n");
+    assert.deepEqual(auditSyncCardsWorkflow(pull).issues, [
+      "missing_ci_pull_push",
+      "missing_ci_project_requirement",
+      "missing_strict_git",
+      "unexpected_working_directory",
+    ]);
+  });
+
+  it("GitLab, Azure, recheck and PR-guard audits list every gap", () => {
+    assert.deepEqual(auditGitLabHyperionCi(""), { ok: false, issues: ["missing_file"] });
+    assert.deepEqual(auditGitLabHyperionCi("stages: []\n", { kitRootRel: "Hyperion" }).issues, [
+      "missing_resource_group",
+      "missing_default_branch_rule",
+      "cards_paths_mismatch",
+      "missing_kit_cd",
+    ]);
+    assert.deepEqual(auditAzureHyperionCi(""), { ok: false, issues: ["missing_file"] });
+    assert.deepEqual(auditAzureHyperionCi("jobs: []\n").issues, [
+      "missing_default_branch_parameter",
+      "missing_branch_condition",
+      "missing_default_branch_parameter_ref",
+    ]);
+    assert.deepEqual(auditPrRecheckWorkflow(""), { ok: false, issues: ["missing_file"] });
+    assert.deepEqual(auditPrRecheckWorkflow("name: x\n").issues, [
+      "missing_schedule",
+      "missing_repository_dispatch",
+      "missing_report_script",
+      "missing_dispatch_type",
+    ]);
+    assert.deepEqual(auditPrBoardGuardWorkflow(""), { ok: false, issues: ["missing_file"] });
+    assert.deepEqual(auditPrBoardGuardWorkflow("name: x\n", { kitRootRel: "Hyperion" }).issues, [
+      "missing_pull_request_trigger",
+      "missing_pr_board_guard_script",
+      "missing_merge_group_trigger",
+      "missing_strict_git",
+      "missing_pr_base_sha",
+      "missing_ci_project_requirement",
+      "missing_fork_validate_job",
+      "cards_paths_mismatch",
+      "missing_working_directory",
+    ]);
+  });
+});
+
+describe("nested-kit renderers", () => {
+  it("PR guard, recheck, Azure and the deprecated fork job honor kit.root", () => {
+    const guard = renderPrBoardGuardWorkflow({ kitRootRel: "Hyperion", defaultBranch: "dev" });
+    assert.equal(auditPrBoardGuardWorkflow(guard, { kitRootRel: "Hyperion" }).ok, true);
+    assert.match(guard, /branches: \[dev\]/);
+    const azure = renderAzureHyperionCi({ kitRootRel: "Hyperion", defaultBranch: "trunk" });
+    assert.match(azure, /cd Hyperion && npm run docs:check/);
+    assert.match(azure, /default: trunk/);
+    assert.match(renderPrBoardGuardForkWorkflow({ kitRootRel: "Hyperion" }), /working-directory: Hyperion/);
+    assert.doesNotMatch(renderPrBoardGuardForkWorkflow(), /working-directory/);
+    const appended = appendForkGuardJob("name: guard\njobs:\n  board-guard:\n    runs-on: x\n");
+    assert.match(appended, /board-guard-fork:/);
+    assert.equal(appendForkGuardJob(appended), appended);
+  });
+
+  // Known bug: appendForkGuardJob trimStart()s the job, so it lands at column 0 instead of under jobs:.
+  it("appendForkGuardJob nests the fork job under jobs:", { todo: "appendForkGuardJob loses job indentation" }, () => {
+    assert.match(appendForkGuardJob("jobs:\n  board-guard:\n    runs-on: x\n"), /\n {2}board-guard-fork:\n/);
+  });
+
+  // Known bug: renderPrRecheckWorkflow computes wdBlock but never interpolates it, so nested kits
+  // run scripts/cards-sync/report-pr-guard-check.mjs from the product root.
+  it("PR recheck runs inside kit.root", { todo: "renderPrRecheckWorkflow drops kitRootRel" }, () => {
+    assert.match(renderPrRecheckWorkflow({ kitRootRel: "Hyperion" }), /working-directory: Hyperion/);
+  });
+});
+
+describe("project.yml ci parsing", () => {
+  it("readCiFromProjectYml: absent block, provider/policy/stack and existing list", () => {
+    assert.equal(readCiFromProjectYml(null), null);
+    assert.equal(readCiFromProjectYml("version: 1\n"), null);
+    const cfg = readCiFromProjectYml('ci:\n  provider: gitlab-ci\n  policy: merge\n  stack: go\n  existing:\n    - ".gitlab-ci.yml"\n    - deploy.yml\n');
+    assert.equal(cfg.provider, "gitlab-ci");
+    assert.equal(cfg.policy, "merge");
+    assert.equal(cfg.stack, "go");
+    assert.deepEqual(cfg.existing, [".gitlab-ci.yml", "deploy.yml"]);
+  });
+
+  it("readCiGatesFromProjectYml warns and returns null on invalid YAML", async (t) => {
+    const warn = t.mock.method(console, "warn", () => {});
+    assert.equal(await readCiGatesFromProjectYml("ci:\n  gates:\n    defaults: [unclosed\n"), null);
+    assert.match(warn.mock.calls[0].arguments[0], /Could not parse ci\.gates/);
+    assert.equal(await readCiGatesFromProjectYml("ci:\n  gates: 3\n"), null);
+  });
+});
+
+describe("repo scanning", () => {
+  it("lists GitHub workflows and external CI providers", async () => {
+    assert.deepEqual(await listGithubWorkflows(makeRepo()), []);
+    const root = makeRepo({
+      ".github/workflows/b.yaml": "",
+      ".github/workflows/a.yml": "",
+      ".github/workflows/notes.md": "",
+      ".gitlab-ci.yml": "",
+      "azure-pipelines.yaml": "",
+      ".circleci/config.yml": "",
+      Jenkinsfile: "",
+      "bitbucket-pipelines.yml": "",
+    });
+    assert.deepEqual(await listGithubWorkflows(root), ["a.yml", "b.yaml"]);
+    assert.deepEqual(
+      (await detectExternalProviders(root)).map((e) => `${e.provider}:${e.file}`),
+      ["gitlab-ci:.gitlab-ci.yml", "azure-pipelines:azure-pipelines.yaml", "circleci:.circleci/config.yml", "jenkins:Jenkinsfile", "bitbucket:bitbucket-pipelines.yml"]
+    );
+  });
+
+  it("detectStack recognizes every supported ecosystem", async () => {
+    const cases = [
+      [{ "bun.lockb": "" }, "node-bun"],
+      [{ "bun.lock": "" }, "node-bun"],
+      [{ "package.json": "{}", "pnpm-lock.yaml": "" }, "node-pnpm"],
+      [{ "package.json": "{}", "yarn.lock": "" }, "node-yarn"],
+      [{ "package.json": "{}" }, "node-npm"],
+      [{ "pyproject.toml": "" }, "python"],
+      [{ "requirements.txt": "" }, "python"],
+      [{ "go.mod": "" }, "go"],
+      [{ "Cargo.toml": "" }, "rust"],
+      [{ "pom.xml": "" }, "java-maven"],
+      [{ "settings.gradle.kts": "" }, "java-gradle"],
+      [{ "composer.json": "{}" }, "php"],
+      [{ Gemfile: "" }, "ruby"],
+      [{ "Directory.Build.props": "" }, "dotnet"],
+      [{ "App.csproj": "" }, "dotnet"],
+      [{ "docker-compose.yml": "" }, "docker"],
+      [{ Dockerfile: "" }, "docker"],
+      [{ "README.md": "" }, "unknown"],
+    ];
+    for (const [files, stack] of cases) {
+      assert.equal(await detectStack(makeRepo(files)), stack, JSON.stringify(files));
+    }
+    assert.equal(await detectStack(path.join(os.tmpdir(), "hyperion-pipeline-lib-missing-xyz")), "unknown");
+  });
+
+  it("detectPipeline merges workflows, external CI, project.yml ci and ci.gates", async () => {
+    const root = makeRepo({
+      "package.json": { scripts: { test: "node --test" } },
+      ".github/workflows/deploy.yml": "name: deploy\n",
+      ".github/workflows/ci.yml": "name: legacy\n",
+      ".github/workflows/hyperion-sync-cards.yml": "name: sync\n",
+      ".gitlab-ci.yml": "stages: []\n",
+      ".github/project.yml": 'ci:\n  provider: github-actions\n  policy: detect\n  stack: auto\n  existing:\n    - "build.yml"\n  hyperion:\n    security_scan: false\n  gates:\n    defaults:\n      lint: block\n',
+    });
+    const d = await detectPipeline(root);
+    assert.deepEqual(d.workflows, ["ci.yml", "deploy.yml", "hyperion-sync-cards.yml"]);
+    assert.deepEqual(d.classified, { hyperion: ["hyperion-sync-cards.yml"], product: ["deploy.yml"], legacy: ["ci.yml"] });
+    assert.equal(d.config.provider, "gitlab-ci");
+    assert.equal(d.config.stack, "node-npm");
+    assert.equal(d.config.hyperion.security_scan, false);
+    assert.equal(d.config.hyperion.cards_sync, true);
+    assert.deepEqual(d.config.existing, ["build.yml", ".github/workflows/deploy.yml", ".github/workflows/ci.yml", ".gitlab-ci.yml"]);
+    assert.equal(d.hasProductCi, true);
+    assert.equal(d.config.gates.defaults.lint, "block");
+    assert.equal(d.productCiGates.exists, false);
+    assert.equal(d.productCiGates.apps, 1);
+    assert.match(formatCiYamlBlock(d), /^ci:\n {2}provider: gitlab-ci\n {2}policy: detect\n {2}stack: node-npm\n {2}existing:\n {4}- "build.yml"/);
+    assert.doesNotMatch(formatCiYamlBlock(d), /# gates:/);
+
+    const empty = await detectPipeline(makeRepo());
+    assert.equal(empty.config.provider, "github-actions");
+    assert.equal(empty.config.stack, "unknown");
+    assert.equal(empty.hasProductCi, false);
+    assert.equal(empty.productCiGates, null);
+    assert.match(formatCiYamlBlock(empty), /# gates: run \/pipeline/);
+  });
+
+  it("formatCiYamlBlock falls back to classified workflows when config.existing is empty", () => {
+    const yaml = formatCiYamlBlock({
+      config: { ...DEFAULT_CI_CONFIG, existing: [], hyperion: { ...DEFAULT_CI_CONFIG.hyperion, cards_sync_mode: "auto", product_ci: true } },
+      hasProductCi: true,
+      stack: "go",
+      classified: { product: ["deploy.yml"], legacy: ["ci.yml"], hyperion: [] },
+    });
+    assert.match(yaml, / {2}existing:\n {4}- ".github\/workflows\/deploy.yml"\n {4}- ".github\/workflows\/ci.yml"/);
+    assert.match(yaml, /product_ci: true/);
+    assert.match(yaml, /cards_sync_mode: auto/);
+  });
+});
+
+describe("buildPipelinePlan (more branches)", () => {
+  const base = (overrides = {}, hyperion = {}) => ({
+    config: { ...DEFAULT_CI_CONFIG, existing: [], hyperion: { ...DEFAULT_CI_CONFIG.hyperion, ...hyperion }, ...overrides },
+    hasProductCi: false,
+    classified: { legacy: [], product: [], hyperion: [] },
+    stack: "node-npm",
+    external: [],
+  });
+
+  it("warns about legacy workflows and uses the auto-reconcile reason", () => {
+    const plan = buildPipelinePlan({
+      ...base({}, { cards_sync_mode: "auto", kit_validation: true }),
+      hasProductCi: true,
+      classified: { legacy: ["ci.yml", "security.yml"], product: [], hyperion: [] },
+    });
+    assert.ok(plan.warnings.some((w) => /Legacy kit workflows found \(ci\.yml, security\.yml\)/.test(w)));
+    assert.match(plan.actions.find((a) => a.template === "hyperion-sync-cards.yml").reason, /auto reconcile/);
+    assert.ok(plan.actions.some((a) => a.template === "hyperion-validate.yml"));
+  });
+
+  it("ci.gates alongside existing product CI warns, and a generic product CI is replaced", () => {
+    const withProduct = buildPipelinePlan({ ...base({ gates: { defaults: {} } }), hasProductCi: true });
+    assert.ok(withProduct.warnings.some((w) => /runs in addition .*\(other workflows\)/.test(w) || /other workflows/.test(w)));
+    assert.match(withProduct.actions.find((a) => a.render === "gates").reason, /\(0 app\(s\)\)/);
+
+    const generic = buildPipelinePlan({
+      ...base({ gates: { defaults: {} } }),
+      classified: { legacy: [], product: [], hyperion: ["hyperion-product-ci.yml"] },
+      productCiGates: { exists: true, currentHash: null, expectedHash: "x", noAutoRefresh: false, apps: 1 },
+    });
+    const replace = generic.actions.find((a) => a.replace);
+    assert.match(replace.reason, /Replace generic product CI/);
+    assert.ok(generic.warnings.some((w) => /--refresh-gates --yes/.test(w)));
+  });
+
+  it("hyperion-only policy plans a greenfield product CI", () => {
+    const plan = buildPipelinePlan(base({ policy: "hyperion-only" }));
+    assert.match(plan.actions.find((a) => a.template === "hyperion-product-ci.yml").reason, /Greenfield product CI for stack: node-npm/);
+  });
+
+  it("GitLab/Azure snippets are skipped when every Hyperion job is disabled", () => {
+    const plan = buildPipelinePlan({
+      ...base({ provider: "gitlab-ci" }, { cards_sync: false, kit_validation: false, security_scan: false }),
+      external: [{ provider: "azure-pipelines", file: "azure-pipelines.yml" }],
+    });
+    assert.deepEqual(plan.actions, []);
+  });
+});
+
+describe("render options and file audit", () => {
+  it("readCardsSyncMode and resolvePipelineRenderOptions read project.yml", () => {
+    const auto = makeRepo({ ".github/project.yml": "ci:\n  hyperion:\n    cards_sync_mode: \"auto\"\n" });
+    assert.equal(readCardsSyncMode(auto), "auto");
+    assert.equal(readCardsSyncMode(makeRepo()), "pull-forward");
+    const opts = resolvePipelineRenderOptions(auto, { kitRootRel: "Kit\\" });
+    assert.equal(opts.kitRootRel, "Kit");
+    assert.equal(opts.defaultBranch, "main");
+    assert.equal(opts.syncMode, "auto");
+    assert.ok(Array.isArray(opts.i18n.languages));
+    const nested = makeRepo({ ".github/project.yml": "kit:\n  root: Hyperion\n" });
+    assert.equal(resolvePipelineRenderOptions(nested).kitRootRel, "Hyperion");
+  });
+
+  it("auditHyperionPipelineFiles flags outdated files, stale product CI and (optionally) missing sync workflows", async () => {
+    const gatesYml = "ci:\n  gates:\n    defaults:\n      lint: block\n";
+    const stale = makeRepo({
+      "package.json": { scripts: { lint: "eslint ." } },
+      ".github/project.yml": gatesYml,
+      ".github/workflows/hyperion-sync-cards.yml": "on:\n  push:\n",
+      ".github/workflows/hyperion-cards-pr-check.yml": "name: x\n",
+      ".github/workflows/hyperion-cards-pr-recheck.yml": "name: x\n",
+      ".github/workflows/hyperion-product-ci.yml": "name: generic\n",
+      ".gitlab/hyperion-ci.yml": "stages: []\n",
+      "hyperion-azure-pipelines.yml": "jobs: []\n",
+    });
+    const { renderOpts, findings } = await auditHyperionPipelineFiles(stale, { defaultBranch: "main" });
+    assert.deepEqual(renderOpts, { kitRootRel: "", defaultBranch: "main", syncMode: "pull-forward" });
+    assert.deepEqual(findings.map((f) => f.kind), [
+      "github-sync-cards",
+      "github-cards-pr-guard",
+      "github-cards-pr-recheck",
+      "gitlab-ci",
+      "azure-pipelines",
+      "github-product-ci-gates",
+    ]);
+    assert.deepEqual(findings.at(-1).issues, ["not_rendered_from_gates"]);
+
+    const fresh = makeRepo({
+      "package.json": { scripts: { lint: "eslint ." } },
+      ".github/project.yml": gatesYml,
+      ".github/workflows/hyperion-sync-cards.yml": renderSyncCardsWorkflow(),
+      ".github/workflows/hyperion-cards-pr-check.yml": renderPrBoardGuardWorkflow(),
+      ".github/workflows/hyperion-cards-pr-recheck.yml": renderPrRecheckWorkflow(),
+      ".github/workflows/hyperion-product-ci.yml": "# hyperion:gates-hash 0000000000000000\nname: old\n",
+      ".gitlab/hyperion-ci.yml": renderGitLabHyperionCi(),
+      "hyperion-azure-pipelines.yml": renderAzureHyperionCi(),
+    });
+    const freshAudit = await auditHyperionPipelineFiles(fresh);
+    assert.deepEqual(freshAudit.findings.map((f) => [f.kind, f.issues]), [["github-product-ci-gates", ["gates_changed"]]]);
+
+    fs.writeFileSync(path.join(fresh, ".github/workflows/hyperion-product-ci.yml"), `# ${NO_AUTO_REFRESH_MARKER}\nname: pinned\n`);
+    assert.deepEqual((await auditHyperionPipelineFiles(fresh)).findings, []);
+
+    const state = await inspectProductCiGates(fresh, { defaults: { lint: "block" } });
+    assert.equal(state.noAutoRefresh, true);
+    assert.equal(state.currentHash, null);
+
+    const missing = await auditHyperionPipelineFiles(makeRepo(), { expectSyncWorkflow: true, defaultBranch: "main" });
+    assert.deepEqual(missing.findings.map((f) => [f.kind, f.issues[0]]), [
+      ["github-sync-cards", "missing_file"],
+      ["github-cards-pr-guard", "missing_file"],
+      ["github-cards-pr-recheck", "missing_file"],
+    ]);
   });
 });
