@@ -463,7 +463,7 @@ test("forward records per-card failures, keeps going, and exits 1 when an issue 
 
 test("forward logs a WARN (and continues) when Project fields, colors, views or Sprint can't be configured", () => {
   const board = project({
-    fields: [selectField("F_status", "Status", ["Todo"]), selectField("F_type", "Type", TYPES), { __typename: "ProjectV2Mystery", id: "F_due", name: "Due Date" }],
+    fields: [selectField("F_status", "Status", ["Archived"]), selectField("F_type", "Type", TYPES), { __typename: "ProjectV2Mystery", id: "F_due", name: "Due Date" }],
     views: [{ id: "V_x", name: "Mine", layout: "TABLE_LAYOUT" }],
   });
   const cards = { "stories/APP-1.md": card({ id: "APP-1", type: "Bug", dueDate: "2026-02-02" }) };
