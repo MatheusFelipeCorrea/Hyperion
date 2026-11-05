@@ -50,7 +50,9 @@ Se você usa Cursor, Copilot ou Claude Code, **não precisa rodar npm**. Diga:
 | **`/migrate`** ou *"Adapta Hyperion a este repo"* | Repo legado → project.yml + memory + pipeline |
 | **`/refine`** ou *"Refina em cards"* | Gera cards estruturados |
 | **`/audit`** ou *"Auditoria completa"* | 6 dimensões de auditoria |
+| **`/fluency`** ou *"Fluência de IA"* | Scan de fluência + harness (duas notas /15) |
 | **`/review`** | Code review |
+| **`/smoke`** ou *"Sobe a app e testa a spec"* | Smoke da aplicação real; só reporta |
 | **`/pr`** | Abre o PR no idioma do repo (`locale`; multilíngue se `languages` tiver mais de um) |
 | **`/pr-review`** | Revisão de PR aberto (diff + testes) |
 | **`/deps`** | Saúde de dependências (audit + outdated) |

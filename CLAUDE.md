@@ -33,7 +33,7 @@ Skills live in `.github/skills/` organized by category:
 
 - **planning/** — acceptance-spec, api-contract-guide, card-refiner, feature-flag-manager, hypothesis-forge, project-architect, refactor-guide, sprint-retro
 - **setup/** — cards-sync-setup, hyperion-ops, integration-bridge, memory-capture, pipeline-architect, project-discovery, project-startup, repo-migration
-- **quality/** — architecture-audit, code-review, compliance-audit, dependency-health, devops-audit, eng-metrics, full-audit, po-audit, pr-review, security-audit, tech-debt-tracker, testing-strategy, ux-audit
+- **quality/** — ai-fluency, architecture-audit, code-review, compliance-audit, dependency-health, devops-audit, eng-metrics, full-audit, po-audit, pr-review, security-audit, smoke, tech-debt-tracker, testing-strategy, ux-audit
 - **docs/** — adr-generator, changelog-generator, plantuml-generator, pr-writer, readme-updater, release-manager
 
 When the user asks for any of these capabilities, read the corresponding `SKILL.md` and follow its instructions exactly.
@@ -73,6 +73,7 @@ See `.github/agents/README.md` for catalog and recommended flow.
 | /architect | `.github/skills/planning/project-architect/SKILL.md` |
 | /adr | `.github/skills/docs/adr-generator/SKILL.md` |
 | /audit | `.github/skills/quality/full-audit/SKILL.md` |
+| /fluency | `.github/skills/quality/ai-fluency/SKILL.md` |
 | /security | `.github/skills/quality/security-audit/SKILL.md` |
 | /deps | `.github/skills/quality/dependency-health/SKILL.md` |
 | /architecture | `.github/skills/quality/architecture-audit/SKILL.md` |
@@ -80,6 +81,7 @@ See `.github/agents/README.md` for catalog and recommended flow.
 | /po | `.github/skills/quality/po-audit/SKILL.md` |
 | /ux | `.github/skills/quality/ux-audit/SKILL.md` |
 | /review | `.github/skills/quality/code-review/SKILL.md` |
+| /smoke | `.github/skills/quality/smoke/SKILL.md` |
 | /pr | `.github/skills/docs/pr-writer/SKILL.md` |
 | /pr-review | .github/agents/pr-reviewer.agent.md |
 | /implement | .github/agents/implementation-plan.agent.md |

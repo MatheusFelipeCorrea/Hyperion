@@ -7,7 +7,7 @@
   <a href="https://github.com/MatheusFelipeCorrea/Hyperion"><img src="https://img.shields.io/badge/repo-Hyperion-2563EB?style=for-the-badge&labelColor=0B1220&logo=github" alt="GitHub"></a>
   <a href="https://github.com/MatheusFelipeCorrea/Hyperion/actions/workflows/hyperion-validate.yml"><img src="https://img.shields.io/github/actions/workflow/status/MatheusFelipeCorrea/Hyperion/hyperion-validate.yml?branch=main&style=for-the-badge&label=validate&labelColor=0B1220" alt="Kit validation"></a>
   <img src="https://img.shields.io/badge/agents-8-F5D76E?style=for-the-badge&labelColor=0B1220" alt="8 agents">
-  <img src="https://img.shields.io/badge/skills-35-F5D76E?style=for-the-badge&labelColor=0B1220" alt="35 skills">
+  <img src="https://img.shields.io/badge/skills-37-F5D76E?style=for-the-badge&labelColor=0B1220" alt="37 skills">
 </p>
 
 <p align="center">
@@ -135,6 +135,8 @@ Trilha completa: [fluxo-completo.md](./.github/docs/meta/fluxo-completo.md) · E
 | dependency-health | `/deps` | Dependências desatualizadas / risco |
 | tech-debt-tracker | `/tech-debt` | Inventário de dívida |
 | eng-metrics | `/eng-metrics` | Snapshot DORA (deploy, lead time, MTTR) |
+| ai-fluency | `/fluency` | Fluência de IA + harness (duas notas /15) |
+| smoke | `/smoke` | Sobe a app e exercita a spec; só reporta |
 | compliance-audit | `/compliance` | Sinais técnicos LGPD/GDPR |
 
 ### 📚 Docs & release
