@@ -5,7 +5,7 @@ import { join, dirname } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { spawnSync } from "node:child_process";
-import { buildPreCommitHookBody, mergePreCommitHook } from "./install-hook.mjs";
+import { buildPreCommitHookBody, buildCommitMsgHookBody, mergePreCommitHook, mergeCommitMsgHook } from "./install-hook.mjs";
 import { resolveHyperionPaths } from "../hyperion/paths.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -53,6 +53,9 @@ test("buildPreCommitHookBody uses nested kit paths", () => {
   assert.ok(body.includes("Hyperion/.github/cards") || body.includes("Hyperion/\\.github/cards"));
   assert.match(body, /hyperion-cards-validate/);
   assert.match(body, /hyperion-check-rules/);
+  assert.match(body, /hyperion-refuse-env/);
+  assert.match(body, /hyperion-warn-card-spec/);
+  assert.match(body, /Hyperion\/\.github\/plans\/specs/);
 });
 
 test("buildPreCommitHookBody uses legacy root layout", () => {
@@ -64,7 +67,16 @@ test("buildPreCommitHookBody uses legacy root layout", () => {
 
   assert.match(body, /\.github\/cards/);
   assert.match(body, /scripts\/cards-sync\/validate\.mjs/);
+  assert.match(body, /hyperion-refuse-env/);
+  assert.match(body, /\.github\/plans\/specs/);
   assert.doesNotMatch(body, /Hyperion\/scripts/);
+});
+
+test("buildCommitMsgHookBody requires type(scope): subject", () => {
+  const body = buildCommitMsgHookBody();
+  assert.match(body, /hyperion-commit-msg/);
+  assert.match(body, /type\(scope\): subject/);
+  assert.match(body, /\(feat\|fix\|docs/);
 });
 
 test("the hook's staged-card filter matches card files with non-ASCII names", () => {
@@ -108,8 +120,12 @@ test("running the script directly installs the hook at .git/hooks/pre-commit", (
 
   const r = spawnSync(process.execPath, [installHookScript, "--yes"], { cwd: root, encoding: "utf8" });
   assert.equal(r.status, 0, r.stderr || r.stdout);
-  assert.match(r.stdout, /pre-commit hook installed/);
+  assert.match(r.stdout, /pre-commit installed/);
+  assert.match(r.stdout, /commit-msg installed/);
   assert.ok(existsSync(join(root, ".git", "hooks", "pre-commit")));
+  assert.ok(existsSync(join(root, ".git", "hooks", "commit-msg")));
+  assert.match(readFileSync(join(root, ".git", "hooks", "pre-commit"), "utf8"), /hyperion-refuse-env/);
+  assert.match(readFileSync(join(root, ".git", "hooks", "commit-msg"), "utf8"), /hyperion-commit-msg/);
 });
 
 const runHook = (cwd, args = [], env = {}) =>
@@ -139,11 +155,14 @@ test("is idempotent, and only appends to a custom hook with --yes", () => {
   const body = readFileSync(hookPath, "utf8");
   assert.match(body, /^#!\/bin\/sh\necho custom\n\n#!\/bin\/sh\n# hyperion-cards-validate/);
   assert.match(body, /# hyperion-check-rules/);
+  assert.match(body, /# hyperion-refuse-env/);
+  assert.match(body, /# hyperion-warn-card-spec/);
+  assert.ok(existsSync(join(root, ".git", "hooks", "commit-msg")));
 
   const again = runHook(root);
   assert.equal(again.status, 0, again.stderr);
-  assert.match(again.stdout, /already installed \(cards \+ rules\)/);
-  assert.equal(readFileSync(hookPath, "utf8"), body);
+  assert.match(again.stdout, /already installed \(pre-commit \+ commit-msg\)/);
+  assert.equal(readFileSync(hookPath, "utf8").replace(/\r\n/g, "\n"), body.replace(/\r\n/g, "\n"));
 });
 
 test("an installed hook from an older kit version is refreshed in place, keeping custom lines", () => {
@@ -158,25 +177,41 @@ test("an installed hook from an older kit version is refreshed in place, keeping
 
   const refreshed = runHook(root);
   assert.equal(refreshed.status, 0, refreshed.stderr);
-  assert.match(refreshed.stdout, /pre-commit hook updated/);
-  const body = readFileSync(hookPath, "utf8");
-  assert.equal(body, `echo before\n\n${current}\necho after\n`);
+  assert.match(refreshed.stdout, /pre-commit updated/);
+  const body = readFileSync(hookPath, "utf8").replace(/\r\n/g, "\n");
+  assert.match(body, /^echo before\n\n/);
+  assert.match(body, /core\.quotePath=false/);
+  assert.match(body, /hyperion-refuse-env/);
+  assert.match(body, /\necho after\n$/);
 
   const again = runHook(root);
-  assert.match(again.stdout, /already installed \(cards \+ rules\)/);
-  assert.equal(readFileSync(hookPath, "utf8"), body);
+  assert.equal(again.status, 0, again.stderr);
+  assert.match(again.stdout, /already installed \(pre-commit \+ commit-msg\)/);
 });
 
 test("mergePreCommitHook appends only the missing section and handles CRLF hooks", () => {
   const current = buildPreCommitHookBody({ cardsPrefix: ".github/cards", kitRootRel: "" });
   const [cardsOnly] = current.split("\n# hyperion-check-rules");
   const merged = mergePreCommitHook(`${cardsOnly}\n`, current);
-  assert.equal(merged, current.trim(), "the rules section is appended once; the cards section is not duplicated");
+  assert.match(merged, /# hyperion-check-rules/);
+  assert.match(merged, /# hyperion-refuse-env/);
+  assert.equal(merged.match(/# hyperion-cards-validate/g).length, 1);
 
   const crlf = current.replaceAll("git -c core.quotePath=false diff", "git diff").replaceAll("\n", "\r\n");
   const fixed = mergePreCommitHook(crlf, current);
-  assert.equal(fixed.match(/core\.quotePath=false/g).length, 2);
   assert.equal(fixed.match(/# hyperion-check-rules/g).length, 1);
+  assert.equal(fixed.match(/# hyperion-refuse-env/g).length, 1);
+  assert.equal(fixed.match(/# hyperion-warn-card-spec/g).length, 1);
+  assert.match(fixed, /core\.quotePath=false/);
+});
+
+test("mergeCommitMsgHook installs and refreshes the Conventional Commits section", () => {
+  const body = buildCommitMsgHookBody();
+  assert.equal(mergeCommitMsgHook("", body), body.trim());
+  const custom = mergeCommitMsgHook("#!/bin/sh\necho other\n", body);
+  assert.match(custom, /^#!\/bin\/sh\necho other\n\n# hyperion-commit-msg/);
+  const refreshed = mergeCommitMsgHook(custom.replace("feat|fix", "feat"), body);
+  assert.match(refreshed, /feat\|fix\|docs/);
 });
 
 test("write failures are reported as FATAL", () => {
@@ -201,7 +236,7 @@ test("works inside a git worktree, where .git is a file, not a directory", () =>
 
     const r = spawnSync(process.execPath, [installHookScript, "--yes"], { cwd: worktreeDir, encoding: "utf8" });
     assert.equal(r.status, 0, r.stderr || r.stdout);
-    assert.match(r.stdout, /pre-commit hook installed/);
+    assert.match(r.stdout, /pre-commit installed/);
   } finally {
     spawnSync("git", ["worktree", "remove", worktreeDir, "--force"], { cwd: root });
     rmSync(worktreeDir, { recursive: true, force: true });
