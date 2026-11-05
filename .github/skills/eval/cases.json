@@ -186,5 +186,13 @@
   {
     "skill": "compliance-audit",
     "mustContain": [".github/audits/results/compliance/compliance-signals-{date}.md", "This is not legal advice and does not certify compliance."]
+  },
+  {
+    "skill": "ai-fluency",
+    "mustContain": ["## Output", "Fundamentos", "Harness"]
+  },
+  {
+    "skill": "smoke",
+    "mustContain": ["## Output", ".github/plans/specs/", "reports. It does not fix"]
   }
 ]

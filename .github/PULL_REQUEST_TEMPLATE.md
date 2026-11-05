@@ -1,14 +1,17 @@
 ## 📋 Summary
 
-<!-- What does this PR change and why? -->
+<!-- What / why (1–3 sentences). Linked behavior change? -->
 
 **Card:** <!-- CARD_ID ou n/a -->
+
+**Risk:** <!-- none | docs-only | sync/CI | user-facing command -->
 
 ## 🏷️ Type
 
 - [ ] Bug fix
 - [ ] New skill / agent behavior
 - [ ] Docs / onboarding
+- [ ] Cards / sync / backends
 - [ ] Scripts / CI / tooling
 - [ ] Other
 
