@@ -203,6 +203,18 @@
     "when_en": "DORA metrics (deploy, lead time, MTTR)",
     "output": ".github/audits/results/_summary/eng-metrics-*.md"
   },
+  "smoke": {
+    "phase": "quality",
+    "when_pt": "Sobe a app e exercita a spec; só reporta",
+    "when_en": "Boot the app and exercise the spec; report only",
+    "output": ".github/plans/specs/{story-id}/smoke/report.md"
+  },
+  "ai-fluency": {
+    "phase": "quality",
+    "when_pt": "Fluência de IA e maturidade de harness",
+    "when_en": "AI fluency and harness maturity",
+    "output": ".github/audits/results/_summary/ai-fluency-report.md"
+  },
   "compliance-audit": {
     "phase": "quality",
     "when_pt": "Sinais técnicos LGPD/GDPR",

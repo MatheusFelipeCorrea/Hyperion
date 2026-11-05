@@ -2,6 +2,8 @@
 
 <!-- What does this PR change and why? -->
 
+**Card:** <!-- CARD_ID ou n/a -->
+
 ## 🏷️ Type
 
 - [ ] Bug fix

@@ -117,7 +117,7 @@ Skills live in `.github/skills/` organized by category:
 
 - **planning/** — acceptance-spec, api-contract-guide, card-refiner, feature-flag-manager, hypothesis-forge, project-architect, refactor-guide, sprint-retro
 - **setup/** — cards-sync-setup, hyperion-ops, integration-bridge, memory-capture, pipeline-architect, project-discovery, project-startup, repo-migration
-- **quality/** — architecture-audit, code-review, compliance-audit, dependency-health, devops-audit, eng-metrics, full-audit, po-audit, pr-review, security-audit, tech-debt-tracker, testing-strategy, ux-audit
+- **quality/** — ai-fluency, architecture-audit, code-review, compliance-audit, dependency-health, devops-audit, eng-metrics, full-audit, po-audit, pr-review, security-audit, smoke, tech-debt-tracker, testing-strategy, ux-audit
 - **docs/** — adr-generator, changelog-generator, plantuml-generator, pr-writer, readme-updater, release-manager
 
 When the user asks for any of these capabilities, read the corresponding `SKILL.md` and follow its instructions exactly.
@@ -153,6 +153,7 @@ When a task maps to an existing skill, suggest using it — **or run npm yoursel
 | Greenfield architecture | `project-architect` — or user says `/architect` |
 | Architecture Decision Record | `adr-generator` — or user says `/adr` |
 | **Full audit (6 dimensions)** | `full-audit` — or user says `/audit` |
+| AI fluency and harness scan (two scores out of 15) | `ai-fluency` — or user says `/fluency` |
 | Security review | `security-audit` — or user says `/security` |
 | Dependency audit + outdated | `dependency-health` — or user says `/deps` |
 | Architecture review | `architecture-audit` — or user says `/architecture` |
@@ -160,6 +161,7 @@ When a task maps to an existing skill, suggest using it — **or run npm yoursel
 | Product alignment | `po-audit` — or user says `/po` |
 | UX review | `ux-audit` — or user says `/ux` |
 | Code review | `code-review` — or user says `/review` |
+| Boot the app and exercise the spec; report only | `smoke` — or user says `/smoke` |
 | Open a PR in the repo language (multilingual when configured) | `pr-writer` — or user says `/pr` |
 | Review open PR (diff + tests) | `pr-reviewer` agent |
 | Phased implementation plan | `implementation-plan` agent |

@@ -47,6 +47,8 @@ Override: read `project.yml` → `outputs` and `docs.*` first; fall back to path
 | **tech-debt-tracker** | Debt inventory | `.github/docs/tech-debt-inventory.md` |
 | **pr-review** | PR review report | `.github/plans/reviews/pr-{id}-review.md` |
 | **dependency-health** | Dependency audit | `.github/audits/results/dependency/` |
+| **ai-fluency** | AI fluency report | `.github/audits/results/_summary/ai-fluency-report.md` |
+| **smoke** | Smoke report + screenshots | `.github/plans/specs/{story-id}/smoke/` |
 
 ## Docs
 

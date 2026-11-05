@@ -1,7 +1,7 @@
 # 🧩 Hyperion skills catalog
 
 <p align="center">
-  <img src="https://img.shields.io/badge/skills-35-F5D76E?style=for-the-badge&labelColor=0B1220" alt="35 skills">
+  <img src="https://img.shields.io/badge/skills-37-F5D76E?style=for-the-badge&labelColor=0B1220" alt="37 skills">
   <img src="https://img.shields.io/badge/agents-8-F5D76E?style=for-the-badge&labelColor=0B1220" alt="8 agents">
 </p>
 
@@ -54,6 +54,7 @@ Human index: **when**, **command**, **output**.
 
 | Skill | Command | When | Output | SKILL |
 |-------|---------|--------|--------|-------|
+| **ai-fluency** | `/fluency` | AI fluency and harness maturity | .github/audits/results/_summary/ai-fluency-report.md | [SKILL.md](../../skills/quality/ai-fluency/SKILL.md) |
 | **architecture-audit** | `/architecture` | Architecture review | .github/audits/results/architecture/ | [SKILL.md](../../skills/quality/architecture-audit/SKILL.md) |
 | **code-review** | `/review` | Ad-hoc code review | .github/audits/results/code-review/ | [SKILL.md](../../skills/quality/code-review/SKILL.md) |
 | **compliance-audit** | `/compliance` | LGPD/GDPR technical signals | .github/audits/results/compliance/ | [SKILL.md](../../skills/quality/compliance-audit/SKILL.md) |
@@ -63,6 +64,7 @@ Human index: **when**, **command**, **output**.
 | **full-audit** | `/audit` | Six-dimension audit (/audit) | .github/audits/results/ | [SKILL.md](../../skills/quality/full-audit/SKILL.md) |
 | **po-audit** | `/po` | Product alignment | .github/audits/results/product-owner/ | [SKILL.md](../../skills/quality/po-audit/SKILL.md) |
 | **security-audit** | `/security` | Security review | .github/audits/results/application-security/ | [SKILL.md](../../skills/quality/security-audit/SKILL.md) |
+| **smoke** | `/smoke` | Boot the app and exercise the spec; report only | .github/plans/specs/{story-id}/smoke/report.md | [SKILL.md](../../skills/quality/smoke/SKILL.md) |
 | **tech-debt-tracker** | `/tech-debt` | Tech debt inventory | .github/docs/tech-debt-inventory.md | [SKILL.md](../../skills/quality/tech-debt-tracker/SKILL.md) |
 | **ux-audit** | `/ux` | UX review | .github/audits/results/ux-design/ | [SKILL.md](../../skills/quality/ux-audit/SKILL.md) |
 

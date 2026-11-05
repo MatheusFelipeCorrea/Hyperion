@@ -38,7 +38,7 @@ Skills live in `.github/skills/` organized by category:
 
 - **planning/** — acceptance-spec, api-contract-guide, card-refiner, feature-flag-manager, hypothesis-forge, project-architect, refactor-guide, sprint-retro
 - **setup/** — cards-sync-setup, hyperion-ops, integration-bridge, memory-capture, pipeline-architect, project-discovery, project-startup, repo-migration
-- **quality/** — architecture-audit, code-review, compliance-audit, dependency-health, devops-audit, eng-metrics, full-audit, po-audit, pr-review, security-audit, tech-debt-tracker, testing-strategy, ux-audit
+- **quality/** — ai-fluency, architecture-audit, code-review, compliance-audit, dependency-health, devops-audit, eng-metrics, full-audit, po-audit, pr-review, security-audit, smoke, tech-debt-tracker, testing-strategy, ux-audit
 - **docs/** — adr-generator, changelog-generator, plantuml-generator, pr-writer, readme-updater, release-manager
 
 When the user asks for any of these capabilities, read the corresponding `SKILL.md` and follow its instructions exactly.
@@ -78,6 +78,7 @@ See `.github/agents/README.md` for catalog and recommended flow.
 | `/architect` | `project-architect` |
 | `/adr` | `adr-generator` |
 | `/audit` or "auditoria completa" | `full-audit` |
+| `/fluency` | `ai-fluency` |
 | `/security` | `security-audit` |
 | `/deps` | `dependency-health` |
 | `/architecture` | `architecture-audit` |
@@ -85,6 +86,7 @@ See `.github/agents/README.md` for catalog and recommended flow.
 | `/po` | `po-audit` |
 | `/ux` | `ux-audit` |
 | `/review` | `code-review` |
+| `/smoke` | `smoke` |
 | `/pr` | `pr-writer` |
 | `/pr-review` | `pr-reviewer` agent |
 | `/implement` | `implementation-plan` agent |

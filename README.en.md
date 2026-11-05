@@ -7,7 +7,7 @@
   <a href="https://github.com/MatheusFelipeCorrea/Hyperion"><img src="https://img.shields.io/badge/repo-Hyperion-2563EB?style=for-the-badge&labelColor=0B1220&logo=github" alt="GitHub"></a>
   <a href="https://github.com/MatheusFelipeCorrea/Hyperion/actions/workflows/hyperion-validate.yml"><img src="https://img.shields.io/github/actions/workflow/status/MatheusFelipeCorrea/Hyperion/hyperion-validate.yml?branch=main&style=for-the-badge&label=validate&labelColor=0B1220" alt="Kit validation"></a>
   <img src="https://img.shields.io/badge/agents-8-F5D76E?style=for-the-badge&labelColor=0B1220" alt="8 agents">
-  <img src="https://img.shields.io/badge/skills-35-F5D76E?style=for-the-badge&labelColor=0B1220" alt="35 skills">
+  <img src="https://img.shields.io/badge/skills-37-F5D76E?style=for-the-badge&labelColor=0B1220" alt="37 skills">
 </p>
 
 <p align="center">
@@ -135,6 +135,8 @@ Full flow: [full-flow-en.md](./.github/docs/meta/full-flow-en.md) · Study by le
 | dependency-health | `/deps` | Outdated / risky dependencies |
 | tech-debt-tracker | `/tech-debt` | Debt inventory |
 | eng-metrics | `/eng-metrics` | DORA snapshot (deploy, lead time, MTTR) |
+| ai-fluency | `/fluency` | AI fluency + harness (two scores out of 15) |
+| smoke | `/smoke` | Boot the app and exercise the spec; report only |
 | compliance-audit | `/compliance` | LGPD/GDPR technical signals |
 
 ### 📚 Docs & release

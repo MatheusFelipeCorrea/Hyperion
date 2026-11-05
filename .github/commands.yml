@@ -56,6 +56,10 @@ commands:
     skill: "full-audit"
     description: "Full audit (6 dimensions)"
 
+  - phrase: "/fluency"
+    skill: "ai-fluency"
+    description: "AI fluency and harness scan (two scores out of 15)"
+
   - phrase: "/security"
     skill: "security-audit"
     description: "Security review"
@@ -83,6 +87,10 @@ commands:
   - phrase: "/review"
     skill: "code-review"
     description: "Code review"
+
+  - phrase: "/smoke"
+    skill: "smoke"
+    description: "Boot the app and exercise the spec; report only"
 
   - phrase: "/pr"
     skill: "pr-writer"
