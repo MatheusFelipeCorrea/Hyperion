@@ -1,9 +1,11 @@
 # Code owners — GitHub requests a review from these owners on matching PRs.
 # See: https://docs.github.com/articles/about-code-owners
 #
-# Blocking merges on your approval requires branch protection:
-#   Settings → Branches → "Require a pull request before merging"
-#   + "Require review from Code Owners" (and ≥1 approving review).
+# This file REQUESTS review. Blocking merges is configured in the repo:
+#   - `dev`: status checks only (no required review — solo-maintainer friendly)
+#   - `qa` / `main`: Repository Rulesets require 1 approve + code owners;
+#     role Admin is on the bypass list (owner is not locked out of their own PRs;
+#     GitHub never allows self-approve).
 #
 # This is Hyperion's OWN repo config — it is never copied to an adopting
 # project by /setup, /migrate, or `hyperion:upgrade` (not in MANAGED_FILES
@@ -12,9 +14,8 @@
 # selectively into your own project, delete this file or replace the
 # username below with your own team.
 
-# Default: Matheus Felipe Correa reviews everything unless a more specific
-# rule below matches. With code-owner reviews required on the branch, every
-# PR needs his approval before merge.
+# Default: Matheus Felipe Correa is requested on everything unless a more
+# specific rule below matches.
 *                           @MatheusFelipeCorrea
 
 # Security-sensitive surfaces (explicit; same owner)
