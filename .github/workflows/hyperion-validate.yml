@@ -4,8 +4,8 @@ name: Hyperion — Kit Validation
 # Safe to add alongside existing product CI — does not replace lint/test/build.
 #
 # On this repo, this is also a required status check gating dev → qa → main
-# promotion. The distribution purity check is NOT here: this file ships to
-# products via hyperion:upgrade, so it lives in the kit-only kit-purity.yml.
+# promotion. The distribution purity check is NOT here: it lives in the
+# kit-only kit-purity.yml. hyperion:upgrade does not copy this file.
 
 on:
   push:

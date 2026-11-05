@@ -10,6 +10,7 @@ import {
 } from "./lib.mjs";
 import { detectPipeline, buildPipelinePlan, auditHyperionPipelineFiles } from "./pipeline-lib.mjs";
 import { ciError, ciErrorList } from "./ci-annotate.mjs";
+import { detectLeakedKitWorkflows, formatLeakedKitWorkflowsHelp } from "./upgrade-lib.mjs";
 
 const argYes = process.argv.includes("--yes");
 const argSkipCards = process.argv.includes("--skip-cards");
@@ -49,6 +50,12 @@ async function main() {
     }
   }
 
+  const leakedHelp = formatLeakedKitWorkflowsHelp(await detectLeakedKitWorkflows(workspaceRoot));
+  if (leakedHelp.length) {
+    warn(leakedHelp[0]);
+    for (const line of leakedHelp.slice(1)) log("", line);
+  }
+
   if (health.issues.length === 0 && health.warnings.length === 0) {
     ok("Kit structure looks good.");
   }
@@ -66,7 +73,7 @@ async function main() {
     }
   }
 
-  const totalWarnings = health.warnings.length + cardsWarningCount;
+  const totalWarnings = health.warnings.length + cardsWarningCount + (leakedHelp.length ? 1 : 0);
 
   log("", "");
   if (health.issues.length > 0) {

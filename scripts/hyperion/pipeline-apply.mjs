@@ -5,7 +5,7 @@
  *
  * Flags:
  *   --yes              Write planned files (and refresh targets when combined with --refresh-sync)
- *   --refresh-sync     Refresh hyperion-sync-cards.yml and CI snippets when outdated (safe overwrite)
+ *   --refresh-sync     Refresh hyperion-sync-cards.yml, hyperion-cards-pr-check.yml, hyperion-cards-pr-recheck.yml and the GitLab/Azure snippets when outdated (safe overwrite; never security/validate)
  *   --refresh-gates    Re-render hyperion-product-ci.yml when ci.gates changed (skips files with hyperion:no-auto-refresh)
  *   --migrate-legacy   Remove legacy ci.yml / sync-cards.yml after hyperion-* exist
  */
