@@ -28,19 +28,29 @@ flowchart LR
 
 | Branch | What it is | Accepts PRs from | Protection configured today |
 |--------|------------|------------------|-----------------------------|
-| `dev` | Integration. All work lands here first. | Any `feat/`, `fix/`, `docs/`, `chore/`, `refactor/`, `test/` branch (forks included) and Dependabot | Required check: `hyperion-validate` (Ubuntu + Windows). No force-push or deletion. |
-| `qa` | Release candidate. | **Only `dev`** from this repository | Same as `dev`: only `hyperion-validate` is required. |
-| `main` | The public version: what `git clone` and `hyperion:upgrade` deliver. Always clean. | **Only `qa`** | `hyperion-validate` required, and the PR branch must be up to date with `main`. Merges only through a PR, admins included. No force-push or deletion. |
+| `dev` | Integration. All work lands here first. | Any `feat/`, `fix/`, `docs/`, `chore/`, `refactor/`, `test/` branch (forks included) and Dependabot | Required check: `hyperion-validate` (Ubuntu + Windows). No force-push or deletion. **No** required review (maintainer merges their own PR without ceremony). |
+| `qa` | Release candidate. | **Only `dev`** from this repository | `hyperion-validate` required + **1 approving review with code owners**. The **Admin** role may bypass (owner is not locked out; non-Admin contributors stay blocked). |
+| `main` | The public version: what `git clone` and `hyperion:upgrade` deliver. Always clean. | **Only `qa`** | Same as `qa`: checks + code owners; Admin on the bypass list. Prefer the PR branch up to date with `main`. No force-push or deletion. |
 | `internal` | Hyperion using Hyperion: linked board, real cards. | **Only `main`** (`internal-sync.yml` does it) | None: the branch is not protected. |
+
+### Reviews and CODEOWNERS
+
+[`.github/CODEOWNERS`](../../CODEOWNERS) documents ownership (`@MatheusFelipeCorrea`) and **requests** a review on every PR. The file alone does not block merges.
+
+| Where | What GitHub does |
+|-------|------------------|
+| `dev` | CODEOWNERS only requests review. Merge is allowed once checks are green (solo-friendly integration). |
+| `qa` / `main` | A Repository Ruleset requires 1 approval **and** a code-owner review. Write access without Admin cannot merge without that. |
+| PR author | GitHub **never** allows self-approval. The owner/Admin uses the ruleset bypass on `qa`/`main`, or merges freely on `dev`. |
 
 The "Accepts PRs from" column is the flow rule. `branch-flow` checks it on every PR into `qa`, `main` and `internal`, rejects anything out of order and says where to send it. For example, a PR from `feat/x` into `main` fails with "Merge it into 'dev' first; it reaches main through the dev → qa (QA release gate) → main promotion". A fork's `dev` branch is rejected in `qa` too: only this repository's `dev` promotes. Today, though, `branch-flow` is **not a required check**: a red result warns, it does not block the merge.
 
-**Direct pushes:** only `main` blocks them (it requires a PR, admins included). On `dev` and `qa` a direct push is still technically possible; don't do it, open a PR.
+**Direct pushes:** avoid them on any protected branch — open a PR. On `qa`/`main` the ruleset + checks are the source of truth for reviews.
 
 **Recommended, not configured yet:**
 
 - Make `branch-flow` required on `qa`, `main` and `internal`, and `qa-gate` required on `qa`.
-- Require a PR to merge into `dev` and `qa`, as `main` already does.
+- Also require a PR (no direct push) on `dev`.
 - Protect `internal` (no force-push or deletion, merges only through a PR).
 
 ---
