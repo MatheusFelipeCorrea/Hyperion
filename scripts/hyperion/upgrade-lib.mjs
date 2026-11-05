@@ -399,8 +399,8 @@ const REQUIRE_PROJECT_OFF_RE = /CARDS_CI_REQUIRE_PROJECT:\s*["']?false/;
 export const KIT_ONLY_WORKFLOWS = [
   {
     file: HYPERION_WORKFLOWS.validate,
-    why: "the kit's CI: runs distribution-purity-check, which fails on a product's real cards and projectNumber",
-    isKitCopy: (text) => text.includes("distribution-purity-check"),
+    why: "the kit's CI: names kit-purity.yml and runs on dev/qa; the product template does not",
+    isKitCopy: (text) => text.includes("kit-purity.yml"),
   },
   {
     file: HYPERION_WORKFLOWS.syncCards,
