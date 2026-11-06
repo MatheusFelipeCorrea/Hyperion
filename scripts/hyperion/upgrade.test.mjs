@@ -21,6 +21,8 @@ import {
   isPreserved,
   summarizePlan,
   recordUpgradeChangelog,
+  healMissingDocsPathsInProjectYml,
+  resolveProductRootForUpgrade,
   MANAGED_FILES,
   UPGRADE_BACKUP_DIR,
   KIT_ONLY_WORKFLOWS,
@@ -164,6 +166,68 @@ describe("upgrade-lib", () => {
     } finally {
       rmSync(kit, { recursive: true, force: true });
       rmSync(client, { recursive: true, force: true });
+    }
+  });
+
+  it("nulls missing docs.* paths in project.yml (legacy main example) without inventing folders", () => {
+    const root = mkdtempSync(join(tmpdir(), "heal-docs-"));
+    try {
+      mkdirSync(join(root, ".github", "diagrams"), { recursive: true });
+      const before = [
+        "docs:",
+        "  requirements: null",
+        "  blueprints: .github/docs",
+        "  diagrams: .github/diagrams",
+        "",
+        "name: Acme",
+        "",
+      ].join("\n");
+      const { text, healed } = healMissingDocsPathsInProjectYml(before, root);
+      assert.deepEqual(healed, [{ key: "blueprints", was: ".github/docs" }]);
+      assert.match(text, /blueprints: null/);
+      assert.match(text, /diagrams: \.github\/diagrams/);
+      assert.match(text, /name: Acme/);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("resolveProductRootForUpgrade prefers nested product with kit.root", () => {
+    const product = mkdtempSync(join(tmpdir(), "prod-"));
+    const kitDir = join(product, "Hyperion");
+    mkdirSync(join(product, ".github"), { recursive: true });
+    mkdirSync(kitDir, { recursive: true });
+    writeFileSync(join(product, ".github", "project.yml"), "kit:\n  root: Hyperion\nname: App\n");
+    try {
+      assert.equal(resolveProductRootForUpgrade(kitDir), product);
+    } finally {
+      rmSync(product, { recursive: true, force: true });
+    }
+  });
+
+  it("applyUpgradePlan heals nested product project.yml docs.blueprints from legacy main", async () => {
+    const product = mkdtempSync(join(tmpdir(), "prod-heal-"));
+    const kit = mkdtempSync(join(tmpdir(), "kit-heal-"));
+    const nested = join(product, "Hyperion");
+    try {
+      makeKit(kit);
+      mkdirSync(join(product, ".github", "workflows"), { recursive: true });
+      mkdirSync(join(nested, "scripts", "hyperion"), { recursive: true });
+      writeFileSync(
+        join(product, ".github", "project.yml"),
+        "kit:\n  root: Hyperion\ndocs:\n  blueprints: .github/docs\n  diagrams: null\nname: App\n"
+      );
+      writeFileSync(join(product, "package.json"), '{ "name": "app" }\n');
+      writeFileSync(join(nested, "package.json"), '{ "name": "app-hyperion" }\n');
+      writeFileSync(join(nested, "scripts", "hyperion", "doctor.mjs"), "export const v = 1;\n");
+      const plan = await buildUpgradePlan(kit, nested);
+      const { healedDocs } = await applyUpgradePlan(kit, nested, plan, { yes: true });
+      assert.ok(healedDocs.some((h) => h.key === "blueprints" && h.was === ".github/docs"));
+      assert.match(readFileSync(join(product, ".github", "project.yml"), "utf8"), /blueprints: null/);
+      assert.match(readFileSync(join(product, ".github", "project.yml"), "utf8"), /kit:\n  root: Hyperion/);
+    } finally {
+      rmSync(product, { recursive: true, force: true });
+      rmSync(kit, { recursive: true, force: true });
     }
   });
 

@@ -125,7 +125,9 @@ jobs:
           echo 'name: product-ci' > "$P/.github/workflows/ci.yml"
           git -C "$CANDIDATE" archive origin/main | tar -x -C "$P/Hyperion"
           cp "$P/Hyperion/.github/project.example.yml" "$P/.github/project.yml"
-          ( cd "$P" && sha256sum .github/project.yml .github/workflows/ci.yml > "$RUNNER_TEMP/owned.sha" )
+          # Workflows must survive byte-for-byte. project.yml may be healed
+          # (docs.* → null when the path is missing — legacy main example).
+          ( cd "$P" && sha256sum .github/workflows/ci.yml > "$RUNNER_TEMP/owned.sha" )
           ls "$P/.github/workflows" > "$RUNNER_TEMP/workflows-before"
 
           cd "$P/Hyperion"
@@ -136,7 +138,7 @@ jobs:
           node scripts/hyperion/adopt-check.mjs --root ..
 
           if ! ( cd "$P" && sha256sum -c "$RUNNER_TEMP/owned.sha" ); then
-            echo "::error title=Upgrade overwrote product files::hyperion:upgrade changed a file the product owns (.github/project.yml or .github/workflows/ci.yml — see FAILED above). Products' own files must survive an upgrade byte for byte: keep them out of MANAGED_FILES/MANAGED_DIRS in scripts/hyperion/upgrade-lib.mjs."
+            echo "::error title=Upgrade overwrote product workflows::hyperion:upgrade changed .github/workflows/ci.yml (see FAILED above). Product workflows must survive an upgrade byte for byte: keep them out of MANAGED_FILES/MANAGED_DIRS in scripts/hyperion/upgrade-lib.mjs."
             exit 1
           fi
           if ! ls "$P/.github/workflows" | diff "$RUNNER_TEMP/workflows-before" -; then
