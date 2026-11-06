@@ -85,7 +85,10 @@ test("initialize returns protocolVersion, tools capability, and serverInfo", asy
   assert.equal(res.result.serverInfo.name, "hyperion");
   assert.match(res.result.serverInfo.version, /^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/);
   assert.equal(code, 0);
-  assert.match(stderr, /starting \(tools: hyperion_doctor, hyperion_project_verify\)/);
+  assert.match(
+    stderr,
+    /starting \(tools: hyperion_doctor, hyperion_project_verify, hyperion_pipeline_gates, hyperion_detect_language, hyperion_process_guard_status, hyperion_adopt_check, hyperion_distribution_purity_check\)/
+  );
   assert.match(stderr, /stdin closed — exiting/);
 });
 
@@ -103,16 +106,61 @@ test("a notification (no id) gets no response at all", async () => {
   assert.deepEqual(responses, [{ jsonrpc: "2.0", id: 99, result: {} }]);
 });
 
-test("tools/list returns hyperion_doctor and hyperion_project_verify with input schemas", async () => {
+test("tools/list returns all read-only Hyperion tools with input schemas", async () => {
   const { responses } = await runServer([{ jsonrpc: "2.0", id: 2, method: "tools/list" }], 1);
   const tools = responses[0].result.tools;
-  assert.deepEqual(tools.map((t) => t.name), ["hyperion_doctor", "hyperion_project_verify"]);
+  assert.deepEqual(tools.map((t) => t.name), [
+    "hyperion_doctor",
+    "hyperion_project_verify",
+    "hyperion_pipeline_gates",
+    "hyperion_detect_language",
+    "hyperion_process_guard_status",
+    "hyperion_adopt_check",
+    "hyperion_distribution_purity_check",
+  ]);
   for (const tool of tools) {
     assert.equal(typeof tool.description, "string");
     assert.equal(tool.inputSchema.type, "object");
     assert.equal(tool.run, undefined);
   }
   assert.equal(tools[1].inputSchema.properties.root.type, "string");
+  assert.equal(tools[2].inputSchema.properties.preset.type, "string");
+  assert.equal(tools[3].inputSchema.properties.no_gh.type, "boolean");
+});
+
+test("tools/call hyperion_detect_language returns JSON suggestion", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "hyperion-mcp-lang-"));
+  tempDirs.push(root);
+  writeFileSync(
+    path.join(root, "README.md"),
+    "This is the guide for the tool and how to use it with the team and the project.\n"
+  );
+  const { responses } = await runServer(
+    [
+      {
+        jsonrpc: "2.0",
+        id: 21,
+        method: "tools/call",
+        params: { name: "hyperion_detect_language", arguments: { root, no_gh: true } },
+      },
+    ],
+    1
+  );
+  assert.equal(responses[0].id, 21);
+  assert.equal(responses[0].result.isError, false);
+  const payload = JSON.parse(responses[0].result.content[0].text);
+  assert.equal(payload.suggestion, "en");
+  assert.equal(typeof payload.confidence, "number");
+});
+
+test("tools/call hyperion_process_guard_status is read-only and exits 0", async () => {
+  const { responses } = await runServer(
+    [{ jsonrpc: "2.0", id: 22, method: "tools/call", params: { name: "hyperion_process_guard_status", arguments: {} } }],
+    1
+  );
+  assert.equal(responses[0].id, 22);
+  assert.equal(responses[0].result.isError, false);
+  assert.match(responses[0].result.content[0].text, /\[process-guard\]/);
 });
 
 test("tools/call on an unknown or missing tool returns a JSON-RPC error, not a crash", async () => {

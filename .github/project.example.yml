@@ -107,8 +107,13 @@ ci:
   # Quality gates from the /pipeline interview (npm run hyperion:pipeline-gates --yaml for a draft).
   # Modes: off | warn (runs, never fails) | block (fails the pipeline). Renders hyperion-product-ci.yml.
   # Preview cost + diff before applying: npm run hyperion:pipeline-gates -- --preview
-  # gates:
-  #   preset: balanced         # minimal | balanced | strict — explicit keys below win
+  #
+  # Opt-in (recommended): balanced preset turns coverage on as warn + sticky PR comment,
+  # without failing the build. Apply with:
+  #   npm run hyperion:pipeline-apply -- --refresh-gates --yes
+  # Local check without CI: npm run hyperion:coverage-gate -- --mode warn --min 80
+  gates:
+    preset: balanced         # minimal | balanced | strict — explicit keys below win
   #   declined: [notify]       # interview questions the team refused (not asked again)
   #   branches: [main, dev]
   #   pull_request: true
