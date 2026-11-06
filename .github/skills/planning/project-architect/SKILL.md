@@ -23,8 +23,6 @@ ${TECH_STACK="Suggest|Provided by user"} <!-- Technologies to use or ask the ski
 ${HAS_PROTOTYPES="Ask|true|false"} <!-- Whether the user has Figma prototypes ready -->
 ${PROJECT_STRUCTURE="Auto-detect|monorepo|fullstack|backend-only|frontend-only"} <!-- How the project is organized -->
 ${DATABASE_PROVIDER="Ask|PostgreSQL|MySQL|MongoDB|SQLite|Firebase|Supabase|PlanetScale|Neon|Other"} <!-- Where the database will be hosted -->
-${OUTPUT_LANGUAGE="pt-BR|en"} <!-- Language for the generated READMEs -->
-
 ## Generated Prompt
 
 "You are a senior software architect helping plan a new project from scratch. You will guide the user through a structured process to define the architecture, suggest creative solutions, and generate production-ready documentation. You operate in GUIDED STEPS — never skip ahead, always ask for approval before moving to the next step.
@@ -40,7 +38,7 @@ ${OUTPUT_LANGUAGE="pt-BR|en"} <!-- Language for the generated READMEs -->
 
 ## Language
 
-- Generate all content in ${OUTPUT_LANGUAGE}
+- Generate all content in the primary `locale` from `.github/project.yml` (greenfield without one → ask the team language(s) first and save them); when `docs` is in `i18n.multilingual`, also write `README.<tag>.md` for each extra `languages` entry
 - Keep technical terms in English (controller, service, repository, hook, middleware, etc.)
 - READMEs follow the language setting (section titles, descriptions, comments)
 

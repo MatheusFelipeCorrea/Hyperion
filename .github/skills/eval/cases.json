@@ -132,6 +132,10 @@
     "mustContain": [".github/docs/adr/ADR-{NNN}-{slug}.md", "Superseded by ADR-{NNN}"]
   },
   {
+    "skill": "pr-writer",
+    "mustContain": ["i18n.multilingual", "<details><summary>English</summary>", "wait for approval", "## Output"]
+  },
+  {
     "skill": "readme-updater",
     "mustContain": ["NEVER rewrite the README from scratch", "WAIT for approval", "## Output"]
   },
@@ -149,7 +153,7 @@
   },
   {
     "skill": "code-review",
-    "mustContain": ["DEV-<PHASE>-<NN>", "Read-only by default.", "## Output"]
+    "mustContain": ["DEV-<PHASE>-<NN>", "Read-only by default.", "## Output", "OWASP Top 10", "Spec & scenarios"]
   },
   {
     "skill": "devops-audit",
@@ -166,5 +170,29 @@
   {
     "skill": "ux-audit",
     "mustContain": ["UX-<PHASE>-<NN>", "canonical decision", "## Output"]
+  },
+  {
+    "skill": "feature-flag-manager",
+    "mustContain": [".github/docs/flags/{flag_name}.md", "Removal date", "## Output"]
+  },
+  {
+    "skill": "api-contract-guide",
+    "mustContain": [".github/docs/api/{name}-contract.md", "When in doubt, treat it as breaking", "## Output"]
+  },
+  {
+    "skill": "eng-metrics",
+    "mustContain": [".github/audits/results/_summary/eng-metrics-{date}.md", "Not computable", "## Output"]
+  },
+  {
+    "skill": "compliance-audit",
+    "mustContain": [".github/audits/results/compliance/compliance-signals-{date}.md", "This is not legal advice and does not certify compliance."]
+  },
+  {
+    "skill": "ai-fluency",
+    "mustContain": ["## Output", "Fundamentos", "Harness"]
+  },
+  {
+    "skill": "smoke",
+    "mustContain": ["## Output", ".github/plans/specs/", "reports. It does not fix"]
   }
 ]

@@ -44,6 +44,20 @@ npm run hyperion:project-verify
 
 Do not declare Configure complete if verify fails. Always include an `uncertainties:` list (empty array or items for the user).
 
+### Language (ask first in Configure mode)
+
+Everything Hyperion writes for people — PRs, commit subjects, cards, specs,
+docs, CI comments, CLI messages — follows `locale` / `languages`. Before any
+other question:
+
+1. Run `npm run hyperion:detect-language` (README + recent commits + PR titles) for a suggestion.
+2. Ask, in the person's language: *"Which language(s) should Hyperion use for PRs, cards and docs? Primary first; add more if the team reads several (e.g. pt-BR + en)."* Show the suggestion and what it was based on. Any BCP 47 tag works (`en`, `pt-BR`, `es`, `fr`, `de`…).
+3. Persist `locale: <primary>`; when more than one, also `languages: [<primary>, <extra>…]` (primary first). Only add `i18n.multilingual` when the person wants surfaces other than the default `pr, comments, release`.
+4. If the language has no shipped message catalog (shipped: en, pt-BR, es), say that CI/CLI strings fall back to English until `.github/i18n/<tag>.json` exists — agent-written text works in any language.
+
+Non-interactive equivalent: `npm run hyperion:setup -- --locale pt-BR --languages pt-BR,en`.
+Policy: [language-policy-en.md](../../../docs/meta/language-policy-en.md).
+
 ## Resolution order
 
 1. Read `.github/project.yml` when present.
@@ -80,7 +94,8 @@ Return only what downstream work needs:
 ```yaml
 project:
   name: detected-or-configured
-  locale: configured-or-user-language
+  locale: confirmed-primary-language
+  languages: [primary, optional-extra]
   layout: single|monorepo|multi-package
 apps:
   <id>:
@@ -112,7 +127,7 @@ uncertainties:
 
 Map the discovered context to the contract, keeping only verified entries:
 
-- `name`, `locale`, `layout`
+- `name`, `locale` (+ `languages` when the team reads more than one), `layout`
 - `apps.<id>`: `root`, `manifest`, `source_dirs`, optional `orm`
 - `docs`: `requirements`, `*_readme`, `diagrams`, `historical_audits` (only when found)
 - `outputs`: keep defaults unless the repo already uses other paths
@@ -147,5 +162,5 @@ one already exists), and confirm before saving.
 - Prefer existing project conventions over generic best practices.
 - Missing dimensions are `null` / `N/A`, not failures.
 - Ask only when an uncertainty materially changes the task.
-- Match the configured locale; otherwise match the user's language.
+- Chat replies follow the person's language; written artifacts follow `locale` / `languages` (see the LANGUAGE section of the runtime rules).
 - Do not expose secret values while inspecting configuration.

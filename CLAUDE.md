@@ -10,15 +10,31 @@ Before any task, read:
 - `.github/memory/DOMAIN.md` — business domain
 - `.github/memory/DECISIONS.md` — decisions already made
 
+## Language
+
+<!-- HYPERION:LANGUAGE:START -->
+Read `locale` (primary language) and `languages` (primary first) from `.github/project.yml`. No `locale` → ask the team language(s) via `/setup` before writing artifacts; until then use `en`.
+
+| What | Language |
+|------|----------|
+| Chat replies | The person's language |
+| Cards, specs, plans, ADRs, memory, audits, reports | Primary (`locale`) |
+| PR title/body, PR/review comments, release notes | Primary; when `languages` has more than one and the surface is in `i18n.multilingual` (default `pr`, `comments`, `release`), add one `<details><summary>Language name</summary>` block per extra language |
+| Commit messages | Conventional type/scope in English + subject in the primary language (`feat(auth): adiciona login com Google`) |
+| Code, identifiers, branches, CARD_ID, paths, CLI flags, CI job/step names | Always English |
+
+Fixed script messages (CI comments, board guard, coverage) come from `scripts/hyperion/i18n/<tag>.json` (+ `.github/i18n/<tag>.json` override) — never hand-translate them. Policy: `.github/docs/meta/language-policy-en.md`.
+<!-- HYPERION:LANGUAGE:END -->
+
 ## Available Skills
 
 <!-- HYPERION:SKILLS:START -->
 Skills live in `.github/skills/` organized by category:
 
-- **planning/** — acceptance-spec, card-refiner, hypothesis-forge, project-architect, refactor-guide, sprint-retro
+- **planning/** — acceptance-spec, api-contract-guide, card-refiner, feature-flag-manager, hypothesis-forge, project-architect, refactor-guide, sprint-retro
 - **setup/** — cards-sync-setup, hyperion-ops, integration-bridge, memory-capture, pipeline-architect, project-discovery, project-startup, repo-migration
-- **quality/** — architecture-audit, code-review, dependency-health, devops-audit, full-audit, po-audit, pr-review, security-audit, tech-debt-tracker, testing-strategy, ux-audit
-- **docs/** — adr-generator, changelog-generator, plantuml-generator, readme-updater, release-manager
+- **quality/** — ai-fluency, architecture-audit, code-review, compliance-audit, dependency-health, devops-audit, eng-metrics, full-audit, po-audit, pr-review, security-audit, smoke, tech-debt-tracker, testing-strategy, ux-audit
+- **docs/** — adr-generator, changelog-generator, plantuml-generator, pr-writer, readme-updater, release-manager
 
 When the user asks for any of these capabilities, read the corresponding `SKILL.md` and follow its instructions exactly.
 <!-- HYPERION:SKILLS:END -->
@@ -57,6 +73,7 @@ See `.github/agents/README.md` for catalog and recommended flow.
 | /architect | `.github/skills/planning/project-architect/SKILL.md` |
 | /adr | `.github/skills/docs/adr-generator/SKILL.md` |
 | /audit | `.github/skills/quality/full-audit/SKILL.md` |
+| /fluency | `.github/skills/quality/ai-fluency/SKILL.md` |
 | /security | `.github/skills/quality/security-audit/SKILL.md` |
 | /deps | `.github/skills/quality/dependency-health/SKILL.md` |
 | /architecture | `.github/skills/quality/architecture-audit/SKILL.md` |
@@ -64,6 +81,8 @@ See `.github/agents/README.md` for catalog and recommended flow.
 | /po | `.github/skills/quality/po-audit/SKILL.md` |
 | /ux | `.github/skills/quality/ux-audit/SKILL.md` |
 | /review | `.github/skills/quality/code-review/SKILL.md` |
+| /smoke | `.github/skills/quality/smoke/SKILL.md` |
+| /pr | `.github/skills/docs/pr-writer/SKILL.md` |
 | /pr-review | .github/agents/pr-reviewer.agent.md |
 | /implement | .github/agents/implementation-plan.agent.md |
 | /execute | .github/agents/implementation-executor.agent.md |
@@ -72,9 +91,13 @@ See `.github/agents/README.md` for catalog and recommended flow.
 | /release | .github/agents/release.agent.md |
 | /mentor | .github/agents/mentoring.agent.md |
 | /refactor | `.github/skills/planning/refactor-guide/SKILL.md` |
+| /feature-flags | `.github/skills/planning/feature-flag-manager/SKILL.md` |
+| /api-contract | `.github/skills/planning/api-contract-guide/SKILL.md` |
 | /retro | `.github/skills/planning/sprint-retro/SKILL.md` |
 | /test-plan | `.github/skills/quality/testing-strategy/SKILL.md` |
 | /tech-debt | `.github/skills/quality/tech-debt-tracker/SKILL.md` |
+| /eng-metrics | `.github/skills/quality/eng-metrics/SKILL.md` |
+| /compliance | `.github/skills/quality/compliance-audit/SKILL.md` |
 | /changelog | `.github/skills/docs/changelog-generator/SKILL.md` |
 | /connect | `.github/skills/setup/integration-bridge/SKILL.md` |
 | /cards-setup | `.github/skills/setup/cards-sync-setup/SKILL.md` |

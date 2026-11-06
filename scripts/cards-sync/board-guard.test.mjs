@@ -7,7 +7,34 @@ import {
   detectExternalDriftFields,
   normalizeSyncFieldValue,
   parseFrontmatterForGuard,
+  resolveCardsSyncMode,
+  guardIgnoreFields,
 } from "./board-guard.mjs";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+
+test("detectExternalDriftFields skips ignored (board-owned) fields in auto mode", () => {
+  const head = { status: "In Progress", sprint: "S1", priority: "P1" };
+  const base = { status: "In Progress", sprint: "S1", priority: "P1" };
+  const board = { status: "Done", sprint: "S2", priority: "P0" };
+  const drifts = detectExternalDriftFields(head, base, board, { ignoreFields: guardIgnoreFields("auto") });
+  assert.deepEqual(drifts.map((d) => d.field), ["priority"]);
+  assert.equal(detectExternalDriftFields(head, base, board, { ignoreFields: guardIgnoreFields("pull-forward") }).length, 3);
+});
+
+test("resolveCardsSyncMode: env wins, then project.yml, default pull-forward", () => {
+  const root = mkdtempSync(join(tmpdir(), "guard-mode-"));
+  try {
+    assert.equal(resolveCardsSyncMode(root, {}), "pull-forward");
+    mkdirSync(join(root, ".github"), { recursive: true });
+    writeFileSync(join(root, ".github", "project.yml"), "ci:\n  hyperion:\n    cards_sync: true\n    cards_sync_mode: auto\n");
+    assert.equal(resolveCardsSyncMode(root, {}), "auto");
+    assert.equal(resolveCardsSyncMode(root, { CARDS_SYNC_MODE: "pull-forward" }), "pull-forward");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 
 test("boardLabel maps backend names", () => {
   assert.equal(boardLabel("github"), "GitHub Project board");
@@ -86,6 +113,14 @@ test("printBoardDriftHelp includes push instruction for PR context", () => {
   const lines = [];
   printBoardDriftHelp([".github/cards/epics/A.md"], "github", "pr", (m) => lines.push(m));
   assert.ok(lines.some((l) => l.includes("git push")));
+});
+
+test("printBoardDriftHelp follows the repo language; commit type and commands stay English", () => {
+  const lines = [];
+  printBoardDriftHelp([".github/cards/epics/A.md"], "github", "pr", (m) => lines.push(m), [], "pt-BR");
+  assert.ok(lines.includes("npm run cards:reverse") || lines.some((l) => l.trim() === "npm run cards:reverse"));
+  assert.ok(lines.some((l) => /git commit -m "chore\(cards\): /.test(l)));
+  assert.ok(!lines.some((l) => l.includes("Merge is blocked")));
 });
 
 test("detectExternalDriftFields detects board_sync_at external drift", () => {

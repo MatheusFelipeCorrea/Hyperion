@@ -115,19 +115,48 @@ Cada achado deve conter:
 
 Não chame algo de bug sem demonstrar um caminho plausível de falha. Pontos positivos também exigem `path:line`.
 
+# Checklist — Spec e cenários
+
+Percorra no diff e no card/spec vinculados. Marque pass / fail / N/A com evidência.
+
+- [ ] `CARD_ID` (branch, PR ou scope do commit) resolve para card em `.github/cards/`
+- [ ] Spec de aceite em `.github/plans/specs/{card_id}/` quando a mudança é user-facing
+- [ ] Cada cenário BDD (Given/When/Then ou equivalente) tem teste ou N/A explícito
+- [ ] Happy path, pelo menos um caminho de falha/borda, e authz/ownership (dados por usuário) considerados
+- [ ] Mudança de comportamento alinhada ao card/spec; scope creep silencioso é apontado
+
+# Checklist — OWASP Top 10
+
+Marque N/A só quando a superfície não existe no diff. Não invente stack.
+
+- [ ] **A01** Access control — ownership/tenant; sem IDOR
+- [ ] **A02** Cryptographic failures — sem secrets no código; hashes adequados
+- [ ] **A03** Injection — queries parametrizadas; HTML/shell seguros
+- [ ] **A04** Insecure design — rate limit / confirmação em fluxos sensíveis
+- [ ] **A05** Misconfiguration — sem `.env` commitado; CORS/`debug` seguros
+- [ ] **A06** Vulnerable components — deps novas sem CVE crítico/alto óbvio
+- [ ] **A07** Auth failures — login/reset/OTP endurecidos se mudaram
+- [ ] **A08** Integrity — deserialização segura; CI sem vazamento de secret
+- [ ] **A09** Logging — sem secret/PII; falhas de auth auditáveis se auth mudou
+- [ ] **A10** SSRF — URLs de usuário com allowlist
+
+Próximo passo após review limpo em story executável: `/smoke {card_id}`, depois `/retro`.
+
 # Estrutura obrigatória do relatório
 
 1. **Resumo executivo**
    - qualidade geral, bugs e riscos dominantes;
 2. **Escopo e contexto detectado**
    - módulos, arquitetura, stack, overlay, limitações e itens `N/A`;
-3. **Achados priorizados**
+3. **Checklists**
+   - resultado Spec/cenários + OWASP (pass/fail/N/A);
+4. **Achados priorizados**
    - achados `DEV-*`, separando bugs, riscos e dívida;
-4. **Pontos positivos**
+5. **Pontos positivos**
    - decisões e implementações eficazes comprovadas;
-5. **Quick wins**
+6. **Quick wins**
    - correções valiosas e de baixo esforço;
-6. **Roadmap e riscos**
+7. **Roadmap e riscos**
    - correções imediatas, refactors estruturais, testes e riscos residuais.
 
 Finalize com perguntas apenas quando uma regra ou contrato ausente mudar materialmente a conclusão.

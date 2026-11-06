@@ -32,7 +32,13 @@ export const COMMANDS = {
   "pipeline-detect": { script: "pipeline-detect.mjs", desc: "Detect CI" },
   "pipeline-plan": { script: "pipeline-plan.mjs", desc: "Plan hyperion workflows" },
   "pipeline-apply": { script: "pipeline-apply.mjs", desc: "Apply hyperion workflows" },
+  "pipeline-gates": { script: "pipeline-gates.mjs", desc: "Scan repo for quality gates (/pipeline interview)" },
+  "pipeline-diagram": { script: "pipeline-diagram.mjs", desc: "Pipeline diagram (Mermaid + PlantUML) from ci.gates + workflows" },
+  "detect-language": { script: "detect-language.mjs", desc: "Suggest the team language (README, commits, PR titles)" },
+  "coverage-gate": { script: "coverage-gate.mjs", desc: "Enforce a coverage threshold from a report" },
   "phase-verify": { script: "phase-verify.mjs", desc: "Gate /execute Verification" },
+  "process-guard": { script: "process-guard.mjs", desc: "SDD gate: block /review|/smoke while pending-sync" },
+  "pre-push-check": { script: "pre-push-check.mjs", desc: "Stack-adaptive local build/test (pre-push hook)" },
   "project-verify": { script: "project-verify.mjs", desc: "Gate project.yml" },
   "review-verify": { script: "review-verify.mjs", desc: "Gate PR review artifact" },
   "generate-rules": { script: "generate-runtime-rules.mjs", desc: "Regen runtime rules" },
@@ -40,17 +46,48 @@ export const COMMANDS = {
   "skills-eval": { script: "skills-eval.mjs", desc: "Structural skills eval" },
   "skills-catalog": { script: "skills-catalog.mjs", desc: "Generate skills catalog" },
   "docs-check": { script: "docs-check.mjs", desc: "Markdown link check" },
+  "docs-prose-check": { script: "docs-prose-check.mjs", desc: "Docs prose drift check" },
   "skills-validate": { script: "skills-validate.mjs", desc: "Validate skill frontmatter" },
+  "llm-eval": { script: "llm-eval.mjs", desc: "LLM eval fixtures" },
+  "distribution-purity-check": { script: "distribution-purity-check.mjs", desc: "No binding to this repo" },
+  "adopt-check": { script: "adopt-check.mjs", desc: "No leftover Hyperion identity in your repo" },
+  telemetry: { script: "telemetry.mjs", desc: "Local opt-in agent-gate usage summary" },
+  "spec-review-verify": { script: "spec-review-verify.mjs", desc: "Gate /spec-review artifact" },
+  "audit-verify": { script: "audit-verify.mjs", desc: "Gate /audit-run summary" },
+  "audit-diff": { script: "audit-diff.mjs", desc: "Compare two /audit-run rounds dimension by dimension" },
+  create: { script: "create-hyperion.mjs", desc: "Scaffold a new product with a nested Hyperion kit" },
+  "mcp-server": { script: "mcp-server.mjs", desc: "MCP stdio server: doctor + project-verify tools (read-only)" },
+  "plan-verify": { script: "plan-verify.mjs", desc: "Gate /implement plan" },
+  "release-verify": { script: "release-verify.mjs", desc: "Gate /release artifact" },
+  "install-shims": { script: "install-product-shims.mjs", desc: "Install product npm shims" },
 };
 
-const CARDS_COMMANDS = {
+// Every `hyperion:*`/`docs:*`/`skills:*` npm script must have a matching
+// COMMANDS entry — this file and package.json are two lists of the same
+// thing kept in sync by hand, and that's exactly how the count of missing
+// commands here kept drifting (6 → 7 → 8) across audit rounds without
+// anyone catching it. See cli.test.mjs for the parity test that now
+// guards this.
+
+export const CARDS_COMMANDS = {
   sync: { script: "sync.mjs", desc: "cards:sync" },
   "dry-run": { script: "sync.mjs", desc: "cards dry-run", args: ["--dry-run"] },
   reverse: { script: "sync.mjs", desc: "cards reverse", args: ["--reverse"] },
+  auto: { script: "sync.mjs", desc: "cards auto reconcile", args: ["--auto"] },
   doctor: { script: "doctor.mjs", desc: "cards:doctor", args: ["--interactive"] },
   validate: { script: "validate.mjs", desc: "cards:validate" },
   init: { script: "init.mjs", desc: "cards:init" },
   watch: { script: "watch.mjs", desc: "cards:watch" },
+  metrics: { script: "metrics.mjs", desc: "cards:metrics" },
+  history: { script: "history.mjs", desc: "cards:history" },
+  notify: { script: "notify.mjs", desc: "cards:notify" },
+  "ci-sync": { script: "ci-sync.mjs", desc: "cards:ci-sync" },
+  "pr-guard": { script: "pr-board-guard.mjs", desc: "cards:pr-guard" },
+  "pr-recheck": { script: "report-pr-guard-check.mjs", desc: "cards:pr-recheck" },
+  hook: { script: "install-hook.mjs", desc: "cards:hook" },
+  "labels-reset": { script: "labels-reset.mjs", desc: "cards:labels-reset" },
+  "migrate-layout": { script: "migrate-layout.mjs", desc: "cards:migrate-layout" },
+  "project-fields-apply": { script: "project-fields-apply.mjs", desc: "cards:project-fields-apply" },
 };
 
 export function resolveCommand(argv) {

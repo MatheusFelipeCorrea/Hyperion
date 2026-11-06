@@ -3,6 +3,7 @@ import path from "node:path";
 import {
   parseOnlyFilter,
   parseCardFile,
+  buildEdges,
   buildIssueTitle,
   buildRemoteDescriptionFromCard,
   resolveMappedStatus,
@@ -29,13 +30,77 @@ function basicAuthHeaderFromPat(pat) {
   return Buffer.from(`:${pat}`).toString("base64");
 }
 
+// WIQL supports substring search in fields like System.Description. WIQL is
+// organization-wide, so every query is scoped to the project in the request URL
+// (@project). A WIQL query returns at most 20,000 work items; past that Azure
+// answers VS402337 and the sync fails instead of silently reading a partial list.
 export function buildAzureWiqlForCardId(cardId) {
-  // WIQL supports searching by substring in fields like System.Description.
-  return `SELECT [System.Id] FROM WorkItems WHERE [System.Description] CONTAINS 'CARD_ID: ${cardId}' ORDER BY [System.Changed Date] DESC`;
+  return `SELECT [System.Id] FROM WorkItems WHERE [System.TeamProject] = @project AND [System.Description] CONTAINS 'CARD_ID: ${cardId}' ORDER BY [System.ChangedDate] DESC`;
 }
 
 export function buildAzureWiqlForAllCardIds() {
-  return `SELECT [System.Id] FROM WorkItems WHERE [System.Description] CONTAINS 'CARD_ID:' ORDER BY [System.Changed Date] DESC`;
+  return `SELECT [System.Id] FROM WorkItems WHERE [System.TeamProject] = @project AND [System.Description] CONTAINS 'CARD_ID:' ORDER BY [System.ChangedDate] DESC`;
+}
+
+/** workitemsbatch accepts at most 200 ids per call. */
+export const AZURE_BATCH_SIZE = 200;
+
+export function chunkIds(ids, size = AZURE_BATCH_SIZE) {
+  const chunks = [];
+  for (let i = 0; i < ids.length; i += size) chunks.push(ids.slice(i, i + size));
+  return chunks;
+}
+
+/**
+ * Reads work items 200 ids at a time. errorPolicy "omit" returns null for an id that
+ * was deleted or is not readable between the WIQL query and this call, instead of
+ * failing the whole batch; those are dropped.
+ */
+async function azureReadWorkItems(azureRequest, ids, fields) {
+  const items = [];
+  for (const chunk of chunkIds(ids)) {
+    const batch = await azureRequest(`/_apis/wit/workitemsbatch?api-version=7.0`, "POST", {
+      ids: chunk,
+      fields,
+      errorPolicy: "omit",
+    });
+    items.push(...(batch?.value || []).filter(Boolean));
+  }
+  return items;
+}
+
+async function azureQueryCardWorkItemIds(azureRequest) {
+  const wiql = await azureRequest(`/_apis/wit/wiql?api-version=7.0`, "POST", {
+    query: buildAzureWiqlForAllCardIds(),
+  });
+  return (wiql?.workItems || []).map((w) => w?.id).filter(Boolean);
+}
+
+/**
+ * Parent-child hierarchy: Azure DevOps work items link via a relation on
+ * the child pointing back at the parent (System.LinkTypes.Hierarchy-Reverse),
+ * mirroring the buildEdges()-driven linking already done for Jira.
+ *
+ * Standalone + exported (not a closure over runForwardSyncAzure's local
+ * baseUrl/project/azureRequest) specifically so it's unit-testable with a
+ * stub request function, instead of only ever exercised inside the full
+ * forward-sync flow.
+ *
+ * @param {(endpoint: string, method: string, body?: unknown, contentType?: string) => Promise<unknown>} azureRequest
+ */
+export async function azureLinkWorkItems(azureRequest, baseUrl, project, childId, parentId) {
+  const parentUrl = `${baseUrl}/${encodeURIComponent(project)}/_apis/wit/workitems/${parentId}`;
+  const ops = [
+    {
+      op: "add",
+      path: "/relations/-",
+      value: {
+        rel: "System.LinkTypes.Hierarchy-Reverse",
+        url: parentUrl,
+      },
+    },
+  ];
+  await azureRequest(`/_apis/wit/workitems/${childId}?api-version=7.0`, "PATCH", ops, "application/json-patch+json");
 }
 
 export async function runForwardSyncAzure(repoConfig, management) {
@@ -76,17 +141,24 @@ export async function runForwardSyncAzure(repoConfig, management) {
     return payload;
   }
 
-  async function azureFindWorkItemIdByCardId(cardId) {
-    const wiql = buildAzureWiqlForCardId(cardId);
-    const data = await azureRequest(`/_apis/wit/wiql?api-version=7.0`, "POST", { query: wiql });
-    const candidates = data?.workItems || [];
-    for (const item of candidates) {
-      if (!item?.id) continue;
-      const wi = await azureRequest(`/_apis/wit/workitems/${item.id}?api-version=7.0&fields=System.Description`);
-      const foundId = parseCardIdFromIssueBody(wi?.fields?.["System.Description"] || "");
-      if (foundId === cardId) return item.id;
+  /**
+   * One WIQL query for every work item carrying a CARD_ID, then batched reads, instead
+   * of a query per card. CONTAINS is a substring match, so each description's CARD_ID
+   * is parsed exactly (PROJ-F10 never stands in for PROJ-F1). When several work items
+   * carry the same CARD_ID, the most recently changed one wins (WIQL order).
+   */
+  async function azureIndexWorkItemsByCardId() {
+    const ids = await azureQueryCardWorkItemIds(azureRequest);
+    const descriptionById = new Map();
+    for (const item of await azureReadWorkItems(azureRequest, ids, ["System.Id", "System.Description"])) {
+      if (item.id) descriptionById.set(item.id, item.fields?.["System.Description"] || "");
     }
-    return null;
+    const index = new Map();
+    for (const id of ids) {
+      const cardId = parseCardIdFromIssueBody(descriptionById.get(id) || "");
+      if (cardId && !index.has(cardId)) index.set(cardId, id);
+    }
+    return index;
   }
 
   async function azureCreateWorkItem(card) {
@@ -98,7 +170,7 @@ export async function runForwardSyncAzure(repoConfig, management) {
     ];
 
     const data = await azureRequest(
-      `/_apis/wit/workitems/${encodeURIComponent(workItemType)}?api-version=7.0`,
+      `/_apis/wit/workitems/$${encodeURIComponent(workItemType)}?api-version=7.0`,
       "POST",
       ops,
       "application/json-patch+json"
@@ -164,9 +236,14 @@ export async function runForwardSyncAzure(repoConfig, management) {
 
   log("Dry-run in Azure mode depends on your DRY_RUN/--dry-run env; no GitHub side-effects.");
 
+  const edges = buildEdges(syncableCards);
+  log(`Parent-child links: ${edges.length}`);
+
+  const existingByCardId = await azureIndexWorkItemsByCardId();
   const actions = [];
+  const workItemByCardId = new Map();
   for (const card of syncableCards) {
-    const existingId = await azureFindWorkItemIdByCardId(card.cardId);
+    const existingId = existingByCardId.get(card.cardId) || null;
     if (dryRun) {
       actions.push({
         action: existingId ? "UPDATE" : "CREATE",
@@ -184,6 +261,7 @@ export async function runForwardSyncAzure(repoConfig, management) {
       workItemId = await azureCreateWorkItem(card);
       actions.push({ action: "CREATED", cardId: card.cardId, workItemId });
     }
+    workItemByCardId.set(card.cardId, workItemId);
     if (workItemId && card.status) {
       const st = await azureApplyState(workItemId, card.status);
       actions.push({
@@ -193,6 +271,20 @@ export async function runForwardSyncAzure(repoConfig, management) {
         status: card.status,
         ...st,
       });
+    }
+  }
+
+  if (!dryRun) {
+    for (const edge of edges) {
+      const parentId = workItemByCardId.get(edge.parentCardId);
+      const childId = workItemByCardId.get(edge.childCardId);
+      if (!parentId || !childId) continue;
+      try {
+        await azureLinkWorkItems(azureRequest, baseUrl, project, childId, parentId);
+        actions.push({ action: "LINKED", parent: parentId, child: childId });
+      } catch (error) {
+        actions.push({ action: "LINK_FAILED", parent: parentId, child: childId, reason: error.message });
+      }
     }
   }
 
@@ -240,20 +332,20 @@ export async function runReverseSyncAzure(repoConfig, management) {
     return payload;
   }
 
-  const wiql = await azureRequest(`/_apis/wit/wiql?api-version=7.0&$top=100`, "POST", {
-    query: buildAzureWiqlForAllCardIds(),
-  });
-  const ids = (wiql?.workItems || []).map((w) => w.id).filter(Boolean);
+  const ids = await azureQueryCardWorkItemIds(azureRequest);
   if (!ids.length) {
     log("No Azure work items with CARD_ID found.");
     return;
   }
 
-  const batch = await azureRequest(`/_apis/wit/workitemsbatch?api-version=7.0`, "POST", {
-    ids,
-    fields: ["System.Id", "System.Title", "System.Description", "System.State", "System.Tags", "System.ChangedDate"],
-  });
-  const items = batch?.value || [];
+  const items = await azureReadWorkItems(azureRequest, ids, [
+    "System.Id",
+    "System.Title",
+    "System.Description",
+    "System.State",
+    "System.Tags",
+    "System.ChangedDate",
+  ]);
   log(`Azure work items found: ${items.length}`);
 
   let written = 0;

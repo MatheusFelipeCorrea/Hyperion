@@ -1,8 +1,9 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
-import { listCardsMarkdownFiles, checkCardPathLayout } from "./lib.mjs";
+import { listCardsMarkdownFiles, checkCardPathLayout, parseFrontmatter, parseProjectYmlBackend } from "./lib.mjs";
 import { resolveHyperionPaths } from "../hyperion/paths.mjs";
+import { ciFailList } from "../hyperion/ci-annotate.mjs";
 
 const paths = resolveHyperionPaths(process.cwd());
 const workspaceRoot = paths.workspaceRoot;
@@ -24,92 +25,36 @@ const ALLOWED_STATUS = new Set([
   "Done",
 ]);
 
-function parseFrontmatter(content) {
-  const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n([\s\S]*)$/);
-  if (!match) return null;
-
-  const yamlBlock = match[1];
-  const body = match[2];
-  const meta = {};
-
-  let currentKey = null;
-  let currentArray = null;
-
-  for (const line of yamlBlock.split("\n")) {
-    const trimmed = line.trimEnd();
-
-    // YAML simple arrays
-    if (/^\s*-\s+/.test(trimmed) && currentKey && currentArray !== null) {
-      const value = trimmed
-        .replace(/^\s*-\s+/, "")
-        .replace(/^["']|["']$/g, "")
-        .trim();
-      if (value) currentArray.push(value);
-      continue;
-    }
-
-    if (currentKey && currentArray !== null) {
-      meta[currentKey] = currentArray;
-      currentArray = null;
-      currentKey = null;
-    }
-
-    const kvMatch = trimmed.match(/^([a-zA-Z_]+)\s*:\s*(.*)$/);
-    if (!kvMatch) continue;
-
-    const key = kvMatch[1];
-    let value = kvMatch[2].trim();
-
-    if (value === "") {
-      currentKey = key;
-      currentArray = [];
-      continue;
-    }
-
-    if (value === "null") {
-      meta[key] = null;
-      continue;
-    }
-
-    const inlineArray = value.match(/^\[([^\]]*)\]$/);
-    if (inlineArray) {
-      meta[key] = inlineArray[1]
-        .split(",")
-        .map((v) => v.trim().replace(/^["']|["']$/g, ""))
-        .filter(Boolean);
-      continue;
-    }
-
-    value = value.replace(/^["']|["']$/g, "");
-    const num = Number(value);
-    if (!Number.isNaN(num) && value !== "") meta[key] = num;
-    else meta[key] = value;
-  }
-
-  if (currentKey && currentArray !== null) {
-    meta[currentKey] = currentArray;
-  }
-
-  return { meta, body };
-}
-
+/**
+ * Returns { card, reason }. `card` is null when the file can't be parsed as
+ * a card at all — the caller must surface `reason` loudly (not just skip),
+ * since a silently-dropped card also silently never syncs.
+ */
 function extractCard(content, relativeFile) {
   const parsed = parseFrontmatter(content);
-  if (!parsed?.meta?.card_id) return null;
+  if (!parsed) {
+    return { card: null, reason: "malformed frontmatter — expected a `---`-delimited YAML block at the top of the file" };
+  }
+  if (!parsed.meta?.card_id) {
+    return { card: null, reason: "missing required `card_id` in frontmatter" };
+  }
 
   const meta = parsed.meta;
   return {
-    cardId: meta.card_id,
-    status: meta.status || null,
-    type: meta.type || "Story",
-    priority: meta.priority || null,
-    sprint: meta.sprint || null,
-    storyPoints: meta.story_points ?? null,
-    reporter: meta.reporter || null,
-    parent: meta.parent || null,
-    dueDate: meta.due_date || null,
-    categories: Array.isArray(meta.categories) ? meta.categories : [],
-    relativeFile,
+    card: {
+      cardId: meta.card_id,
+      status: meta.status || null,
+      type: meta.type || "Story",
+      priority: meta.priority || null,
+      sprint: meta.sprint || null,
+      storyPoints: meta.story_points ?? null,
+      reporter: meta.reporter || null,
+      parent: meta.parent || null,
+      dueDate: meta.due_date || null,
+      categories: Array.isArray(meta.categories) ? meta.categories : [],
+      relativeFile,
+    },
+    reason: null,
   };
 }
 
@@ -144,15 +89,15 @@ try {
     console.log("[validate] Suggestion: run `project-discovery` in Configure mode, then re-run validate.");
   } else {
     const projectRaw = await fs.readFile(projectYmlPath, "utf8");
-    const localeMatch = projectRaw.match(/^\s*locale\s*:\s*([^\s#]+)\s*$/m);
-    const backendMatch = projectRaw.match(/management:\s*[\s\S]*?backend\s*:\s*([^\s#]+)\s*(?:\n|$)/m);
+    const localeMatch = projectRaw.match(/^\s*locale\s*:\s*["']?([^\s#"']+)["']?\s*(?:#.*)?$/m);
 
     const locale = localeMatch?.[1];
-    const backend = backendMatch?.[1];
+    const backend = parseProjectYmlBackend(projectRaw);
 
-    if (backend && backend !== "github" && backend !== "jira") {
-      console.log(`[validate] ⚠️  management.backend is set to "${backend}".`);
-      console.log("[validate] This kit currently performs real sync for GitHub and Jira. Other backends remain roadmap.");
+    const SUPPORTED_BACKENDS = ["github", "jira", "azure-devops", "azure", "gitlab", "linear"];
+    if (backend && !SUPPORTED_BACKENDS.includes(backend)) {
+      console.log(`[validate] ⚠️  management.backend is set to "${backend}", which this kit doesn't recognize.`);
+      console.log(`[validate] Supported backends: ${SUPPORTED_BACKENDS.join(", ")}.`);
     }
 
     if (locale) {
@@ -164,14 +109,18 @@ try {
 }
 
 const errors = [];
+const skipped = [];
 const cards = [];
 const cardIdSet = new Set();
 
 for (const file of allMd) {
   const relative = path.relative(workspaceRoot, file).replace(/\\/g, "/");
   const raw = await fs.readFile(file, "utf8");
-  const card = extractCard(raw, relative);
-  if (!card) continue;
+  const { card, reason } = extractCard(raw, relative);
+  if (!card) {
+    skipped.push(`${relative}: ${reason} — this file will NOT be validated or synced.`);
+    continue;
+  }
 
   cards.push(card);
 
@@ -217,7 +166,8 @@ for (const file of allMd) {
     if (typeof card.parent !== "string") errors.push(`${relative}: parent must be a CARD_ID string or null.`);
   }
 
-  if (!Array.isArray(card.categories)) errors.push(`${relative}: categories must be an array.`);
+  // extractCard() already normalizes categories to an array, so no
+  // Array.isArray check is needed here — only the element type matters.
   if (card.categories.some((c) => typeof c !== "string")) errors.push(`${relative}: categories must be an array of strings.`);
 
   // Nested-by-parent layout (warning by default; --strict-layout promotes to error)
@@ -249,7 +199,16 @@ for (const card of cards) {
 if (errors.length) {
   console.log("[validate] ❌ Cards validation failed:");
   for (const e of errors) console.log(`- ${e}`);
+  ciFailList(workspaceRoot, "cards.fail.validate", errors);
   process.exit(1);
+}
+
+if (skipped.length) {
+  // Loud on purpose: a card that never made it into `cards` also never
+  // syncs, silently. Reported separately from layout warnings below since
+  // it's a different class of problem (unparseable, not just misplaced).
+  console.log(`[validate] ⚠️  ${skipped.length} file(s) skipped — could not be read as cards:`);
+  for (const s of skipped) console.log(`- ${s}`);
 }
 
 if (warnings.length) {

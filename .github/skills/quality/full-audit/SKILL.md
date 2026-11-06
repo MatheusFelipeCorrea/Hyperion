@@ -3,8 +3,9 @@ name: full-audit
 description: >-
   Runs the complete audit suite (Product Owner, Security, DevOps, Code Review,
   UX, Architecture) in sequence, one dimension at a time, and writes a
-  consolidated summary. Use when the user asks for a full/complete repository
-  audit, a health check, or an audit sweep.
+  consolidated summary. Companion to audit-runner agent — use this standalone
+  when the runtime has no agent support. Use when the user asks for a
+  full/complete repository audit, a health check, or an audit sweep.
 ---
 
 # Full Audit — orchestrated repo sweep
@@ -12,6 +13,13 @@ description: >-
 Coordinates the six audit skills defined in `.github/audits/manifest.yml`. It does
 not re-implement their checklists; it **runs each one in order** and aggregates
 results. Heavy, so it works dimension-by-dimension and pauses for the user.
+
+**Companion to the `audit-runner` agent** (`.github/agents/audit-runner.agent.md`,
+`/audit-run`) — same manifest, same dimension order, same consolidated-summary
+shape. Use this skill directly when the runtime has no agent support, or as a
+sub-step inside another flow; prefer `/audit-run` when an agent runtime is
+available, since it also gates completion on `hyperion:audit-verify` and can
+capture cross-cutting themes to memory.
 
 ## Step 1 — Context
 

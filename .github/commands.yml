@@ -56,6 +56,10 @@ commands:
     skill: "full-audit"
     description: "Full audit (6 dimensions)"
 
+  - phrase: "/fluency"
+    skill: "ai-fluency"
+    description: "AI fluency and harness scan (two scores out of 15)"
+
   - phrase: "/security"
     skill: "security-audit"
     description: "Security review"
@@ -83,6 +87,14 @@ commands:
   - phrase: "/review"
     skill: "code-review"
     description: "Code review"
+
+  - phrase: "/smoke"
+    skill: "smoke"
+    description: "Boot the app and exercise the spec; report only"
+
+  - phrase: "/pr"
+    skill: "pr-writer"
+    description: "Open a PR in the repo language (multilingual when configured)"
 
   - phrase: "/pr-review"
     skill: "pr-reviewer"
@@ -123,6 +135,14 @@ commands:
     skill: "refactor-guide"
     description: "Safe refactoring guide"
 
+  - phrase: "/feature-flags"
+    skill: "feature-flag-manager"
+    description: "Flag lifecycle: rollout, kill switch, removal date"
+
+  - phrase: "/api-contract"
+    skill: "api-contract-guide"
+    description: "API versioning, breaking changes, deprecation"
+
   - phrase: "/retro"
     skill: "sprint-retro"
     description: "Sprint retrospective"
@@ -134,6 +154,14 @@ commands:
   - phrase: "/tech-debt"
     skill: "tech-debt-tracker"
     description: "Tech debt inventory"
+
+  - phrase: "/eng-metrics"
+    skill: "eng-metrics"
+    description: "DORA metrics snapshot"
+
+  - phrase: "/compliance"
+    skill: "compliance-audit"
+    description: "LGPD/GDPR technical signals"
 
   - phrase: "/changelog"
     skill: "changelog-generator"
@@ -176,10 +204,24 @@ npm_shortcuts:
     desc: "Dry-run Hyperion workflow install"
   - cmd: "npm run hyperion:pipeline-apply -- --yes"
     desc: "Apply hyperion-* workflows"
+  - cmd: "npm run hyperion:pipeline-gates"
+    desc: "Scan repo for CI gates (lint, format, coverage, audit, docker…) + interview questions"
+  - cmd: "npm run hyperion:pipeline-gates -- --preview"
+    desc: "CI-minute estimate + diff of hyperion-product-ci.yml from ci.gates (writes nothing)"
+  - cmd: "npm run hyperion:pipeline-diagram -- --write"
+    desc: "Pipeline diagram (Mermaid + PlantUML) from ci.gates + .github/workflows → diagrams/Pipeline/"
+  - cmd: "npm run hyperion:detect-language"
+    desc: "Suggest the team language from README, commits and PR titles (setup asks to confirm)"
+  - cmd: "npm run hyperion:setup -- --locale pt-BR --languages pt-BR,en"
+    desc: "Save the team language(s) in project.yml — primary first; more than one = multilingual PRs/comments"
   - cmd: "npm run hyperion:repo-detect"
     desc: "Detect test/lint/build commands for this repo"
   - cmd: "npm run hyperion:phase-verify"
     desc: "Enforce /execute Verification (tests_result PASS)"
+  - cmd: "npm run hyperion:process-guard -- --check review"
+    desc: "Block /review|/smoke while pending-sync (implement/execute without BDD spec)"
+  - cmd: "npm run hyperion:pre-push-check"
+    desc: "Stack-adaptive local build/test (same as the pre-push hook)"
   - cmd: "npm run hyperion:project-verify"
     desc: "Enforce project.yml after /migrate or /discover"
   - cmd: "npm run hyperion:review-verify"
@@ -200,3 +242,5 @@ npm_shortcuts:
     desc: "Apply from local kit path (offline)"
   - cmd: "npm run cards:watch"
     desc: "Auto-sync on save"
+  - cmd: "npm run cards:auto -- --dry-run"
+    desc: "Preview two-way reconcile (board status/sprint ↔ markdown, duplicates, deletions)"

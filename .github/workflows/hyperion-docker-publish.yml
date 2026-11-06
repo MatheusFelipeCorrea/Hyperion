@@ -81,9 +81,47 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
-      - name: Build and push
+      - name: Build image (local only — not pushed until it passes the smoke test below)
         uses: docker/build-push-action@v7
         with:
           context: .
-          push: true
+          push: false
+          load: true
           tags: ${{ steps.tags.outputs.tags }}
+
+      - name: Smoke-test the image before publishing
+        # cli.mjs (the ENTRYPOINT) only reads scripts/ from whatever's
+        # mounted at /workspace — same as a real user's `docker run -v
+        # $(pwd):/workspace`. This is exactly the check that would have
+        # caught cli.mjs missing real commands (COMMANDS drifting out of
+        # sync with package.json) before a broken image got published —
+        # exercises every command that was missing before that fix, not
+        # just one, so a future regression on any of them fails the build.
+        run: |
+          set -e
+          IMAGE_TAG=$(echo "${{ steps.tags.outputs.tags }}" | cut -d, -f1)
+          echo "Smoke-testing $IMAGE_TAG"
+          docker run --rm -v "$PWD:/workspace" "$IMAGE_TAG" help
+          docker run --rm -v "$PWD:/workspace" "$IMAGE_TAG" distribution-purity-check
+          for cmd in docs-prose-check llm-eval spec-review-verify audit-verify plan-verify release-verify install-shims; do
+            echo "  -- $cmd --help"
+            docker run --rm -v "$PWD:/workspace" "$IMAGE_TAG" "$cmd" --help
+          done
+          # The `cards <sub>` dispatch (a distinct code path from the plain
+          # hyperion:*/docs:*/skills:* commands above — see cli.mjs's
+          # resolveCommand) never ran inside the real container before,
+          # which is exactly how 7 of the 18 cards:* scripts went
+          # unreachable via `docker run` without the smoke test noticing.
+          # cards validate is real (not --help) but read-only/local-only —
+          # safe to run for real against this checkout.
+          echo "  -- cards validate"
+          docker run --rm -v "$PWD:/workspace" "$IMAGE_TAG" cards validate
+
+      - name: Push image (smoke test passed)
+        run: |
+          set -e
+          IFS=',' read -ra TAGS <<< "${{ steps.tags.outputs.tags }}"
+          for t in "${TAGS[@]}"; do
+            echo "Pushing $t"
+            docker push "$t"
+          done

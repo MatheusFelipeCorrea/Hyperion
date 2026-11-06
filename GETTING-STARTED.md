@@ -10,6 +10,8 @@
   <img src="https://img.shields.io/badge/6_comandos-primeira_semana-2563EB?style=flat-square&labelColor=0B1220" alt="6">
 </p>
 
+**Português** · **English:** [GETTING-STARTED.en.md](./GETTING-STARTED.en.md)
+
 Do zero (ou repo legado) ao primeiro release. **Não precisa saber o que é um “agent”.** No primeiro dia, pare nos **6 comandos** — o resto é para depois.
 
 ### O que o Hyperion faz (em uma frase)
@@ -20,7 +22,7 @@ Você copia o kit para o **seu** repo → fala com a IA no chat (`/setup`, `/ref
 |------|------------------|
 | 🧭 Ligar o kit | `/setup` · `/migrate` · `/doctor` |
 | 📋 Planejar | `/refine` · `/spec` · `/explore` |
-| ⚡ Entregar | `/implement` · `/execute` · `/pr-review` |
+| ⚡ Entregar | `/implement` · `/execute` · `/pr` · `/pr-review` |
 | 🔍 Qualidade | `/audit` · `/deps` |
 | 📚 Docs / release | `/diagram` · `/release` |
 
@@ -85,6 +87,16 @@ git clone https://github.com/MatheusFelipeCorrea/Hyperion.git
 
 ### Preferido — pasta `Hyperion/` no produto (sem poluir a raiz)
 
+**Um comando** (se você já tem um clone do Hyperion à mão): dentro do clone,
+
+```bash
+node scripts/hyperion/create-hyperion.mjs /caminho/para/seu-produto --yes
+```
+
+Isso copia o kit inteiro para `seu-produto/Hyperion/` (pulando `.git`, `node_modules` e saídas de runtime como `plans/`/`audits/results/`), roda `npm install` dentro de `Hyperion/`, e grava os shims na raiz do produto — os passos 1–4 abaixo, automatizados. Sem `--yes` ele só mostra o preview (dry-run). `--repo owner/name` busca o kit direto do GitHub em vez de usar o clone local.
+
+Manual, passo a passo (o que o comando acima faz por você):
+
 1. Clone/ZIP → pasta chamada **`Hyperion`**.
 2. Coloque-a em `seu-produto/Hyperion/` (kit inteiro: `.github`, `scripts`, `Dockerfile`, …).
 3. Instale as dependências do kit — dentro de `Hyperion/`:
@@ -120,6 +132,8 @@ Copie para a **raiz do seu repositório** (não o `.git` do Hyperion):
 | `.env.example`, `CLAUDE.md`, `.cursor/rules/`, `.github/copilot-instructions.md` conforme a IDE | Artefatos gerados (`plans/`, audit results) |
 | — | **`CODEOWNERS`, `.github/FUNDING.yml`, `LICENSE`, `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `SECURITY.md`, `SUPPORT.md`, `.github/ISSUE_TEMPLATE/`, `.github/PULL_REQUEST_TEMPLATE.md`** — arquivos do repositório do próprio kit Hyperion, não do seu produto. Se você clonou o repo inteiro (em vez de copiar seletivo), troque ou remova esses. |
 
+Não confie só na memória pra essa lista — depois de copiar, rode `npm run hyperion:adopt-check` (ou `hyperion adopt-check` via CLI/Docker): ele varre esses arquivos e falha se algum ainda carregar a identidade do próprio Hyperion (username do mantenedor, "Hyperion Contributors" no LICENSE, etc.).
+
 Atualizar um repo que já tem o kit: `npm run hyperion:upgrade` (na pasta do kit / com `kit.root`).
 
 Sem Node: [node-and-docker.md](./.github/docs/meta/node-and-docker.md). Gates: [definition-of-done.md](./.github/docs/meta/definition-of-done.md).
@@ -137,6 +151,17 @@ O agente detecta stack, CI, testes e escreve `project.yml` com bloco `commands:`
 ### Repo novo ou setup completo
 
 > **`/setup`** — ou *"Configura o Hyperion neste repo"*
+
+### Idioma do repo
+
+O `/setup` e o `/migrate` perguntam em qual idioma o time trabalha e sugerem um a partir do README e dos commits. Pelo terminal:
+
+```bash
+npm run hyperion:detect-language
+npm run hyperion:setup -- --locale pt-BR --languages pt-BR,en
+```
+
+`locale` é o idioma principal (cards, docs, mensagens do CI). Com mais de um em `languages`, PRs, comentários e releases saem em todos. Regras: [language-policy.md](./.github/docs/meta/language-policy.md).
 
 ### Detectar comandos do repo (avançado / terminal)
 
@@ -173,6 +198,7 @@ Cards em `.github/cards/` — GitHub completo; Jira/Azure/GitLab/Linear com `--r
 | Gate de spec (opcional na 1ª vez) | **`/spec-review`** |
 | Plano em fases | **`/implement`** |
 | Executar fase (+ testes do repo) | **`/execute`** |
+| Abrir o PR (idioma do repo) | **`/pr`** |
 | Revisar PR | **`/pr-review`** |
 
 Testes usam `commands.test` do **seu** `project.yml` — não hardcoded.
@@ -196,7 +222,7 @@ Testes usam `commands.test` do **seu** `project.yml` — não hardcoded.
 
 ```text
 /migrate ou /setup → /refine → /spec → /spec-review → /implement → /execute
-  → /pr-review → /audit-run → /deps → /release
+  → /pr → /pr-review → /audit-run → /deps → /release
 ```
 
 ![Jornada Hyperion](./.github/docs/assets/hyperion-journey-full.png)
@@ -221,6 +247,7 @@ Testes usam `commands.test` do **seu** `project.yml` — não hardcoded.
 | Repo legado confuso | **`/migrate`** |
 | Testes falham no executor | Edite `commands.test` em `project.yml` |
 | Regras Cursor | `npm run hyperion:cursor` |
+| Saída no idioma errado | Ajuste `locale` / `languages` no `project.yml` (`npm run hyperion:doctor` mostra o valor atual) |
 | Não sei o que escrever no chat | **`/help`** ou [armadilhas-comuns.md](./.github/docs/troubleshooting/armadilhas-comuns.md) |
 
 ---

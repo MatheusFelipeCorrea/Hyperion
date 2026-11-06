@@ -76,7 +76,7 @@ If exit ≠ 0 → fix the artifact (missing `card_id`/`verdict`, a missing secti
 
 - **Never write production code** in this agent
 - If spec missing, recommend `/spec` before APPROVED
-- Match user language; keep IDs in English
+- Review artifact in the primary `locale` from `.github/project.yml`; chat in the person's language; keep IDs in English
 - Wait for human acknowledgment before suggesting `/implement`
 
 ## Handoff
