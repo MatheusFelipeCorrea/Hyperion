@@ -10,6 +10,15 @@ Format inspired by [Keep a Changelog](https://keepachangelog.com/). Versioning f
 ## [Unreleased]
 
 ### Added
+- **MCP server tools expanded** — `hyperion_pipeline_gates`, `hyperion_detect_language`, `hyperion_process_guard_status`, `hyperion_adopt_check`, `hyperion_distribution_purity_check` alongside doctor/project-verify (still read-only).
+- **Coverage gate opt-in in `project.example.yml`** — `ci.gates.preset: balanced` enabled by default in the example (coverage warn + sticky comment); local one-liner `npm run hyperion:coverage-gate -- --mode warn --min 80`.
+
+### Fixed
+- **`detect-language` CLI test flaked on Windows** — `execFileSync("gh")` cannot run `.cmd` stubs; tests inject PR titles via `HYPERION_DETECT_PR_TITLES`.
+
+## [0.3.0] — 2026-11-06
+
+### Added
 - **Branch, PR and pipeline flow doc** (`.github/docs/meta/fluxo-de-branches-e-pipeline.md` + `branch-and-pipeline-flow-en.md`) — the `dev` → `qa` → `main` → `internal` flow with a diagram, which branch accepts PRs from where, the branch protection actually configured today (only `hyperion-validate` required on `dev`/`qa`/`main`, PR-only merges on `main`, `internal` unprotected) kept apart from what is recommended but not enforced yet, branch conduct, a contributor's PR path, maintainer promotion (QA gate jobs, what to do when it fails, `internal-sync` and its `INTERNAL_SYNC_TOKEN` fallback, release tags), every workflow in the kit repo and when it runs, the 95% honest coverage rule (enforced only on `dev` → `qa`), which failures are reported as annotations and which only in the log, and which pipelines a product gets (and which it never does). Linked from `CONTRIBUTING.md` and the docs index.
 - **Pipeline script tests** — new suites for `pipeline-apply`, `pipeline-detect`, `pipeline-plan` and `product-ci-jobs`, plus wider coverage in `audit-diff`, `coverage-gate`, `pipeline-diagram`, `pipeline-gates`, `pipeline-lib`, `product-ci-render` and `repo-detect` (every target ≥97% lines). Eight `todo` tests pin known bugs (diff-base import cycle, refresh marker in generated product CI, templates read from cwd in nested layouts, recheck workflow options/working-directory, fork-guard indentation, duplicate e2e job ids, Rails `bin` skip, `.tool-versions` version source) until their fixes land.
 - **Install / upgrade CLI tests** — new suites for the `hyperion` CLI entry, `create-hyperion`, `detect-language`, `doctor`, `hyperion-sync`, `init`, `init-checklist`, `lib`, `setup`, `telemetry`, `upgrade` (CLI and remote fetch), plus wider `install-product-shims` and `upgrade` coverage. Shared helpers in `scripts/hyperion/test-support/` (CLI harness, fault and relocation preloads) keep every run offline and inside temp dirs.
@@ -178,7 +187,8 @@ First public-adoption polish on `main`.
 - README as study hub (five areas, skills tables, copy / don’t-copy guidance).
 - Skills catalog generator emits branded headers (CI `--check` stable).
 
-[Unreleased]: https://github.com/MatheusFelipeCorrea/Hyperion/compare/v0.2.0...main
+[Unreleased]: https://github.com/MatheusFelipeCorrea/Hyperion/compare/v0.3.0...main
+[0.3.0]: https://github.com/MatheusFelipeCorrea/Hyperion/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/MatheusFelipeCorrea/Hyperion/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/MatheusFelipeCorrea/Hyperion/releases/tag/v0.1.0
 
