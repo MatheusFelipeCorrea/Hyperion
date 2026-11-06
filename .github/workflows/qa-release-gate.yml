@@ -131,7 +131,10 @@ jobs:
           ls "$P/.github/workflows" > "$RUNNER_TEMP/workflows-before"
 
           cd "$P/Hyperion"
-          node scripts/hyperion/upgrade.mjs --from "$CANDIDATE" --yes
+          # Run the *candidate* upgrade script, not the one from origin/main's
+          # archive — Node loads upgrade-lib at process start, so migrations
+          # (e.g. heal missing docs.* paths) only run when this binary is new.
+          node "$CANDIDATE/scripts/hyperion/upgrade.mjs" --from "$CANDIDATE" --yes
           npm ci
           node scripts/hyperion/doctor.mjs
           node scripts/hyperion/project-verify.mjs --root ..

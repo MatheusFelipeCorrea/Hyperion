@@ -15,14 +15,15 @@
  */
 import process from "node:process";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { pathExists, fail, log, ok, warn } from "./lib.mjs";
 import {
-  applyUpgradePlan,
-  buildUpgradePlan,
+  applyUpgradePlan as applyUpgradePlanLocal,
+  buildUpgradePlan as buildUpgradePlanLocal,
   detectLeakedKitWorkflows,
   formatLeakedKitWorkflowsHelp,
   formatWorkflowRefreshHelp,
-  summarizePlan,
+  summarizePlan as summarizePlanLocal,
   UPGRADE_BACKUP_DIR,
 } from "./upgrade-lib.mjs";
 import {
@@ -33,6 +34,28 @@ import {
   resolveOrigin,
   sameCommit,
 } from "./upgrade-fetch.mjs";
+
+/**
+ * Prefer plan/apply (and migrations like docs.* heal) from the kit being
+ * installed — Node binds static imports at process start, so an old local
+ * upgrade.mjs would otherwise skip heals that only exist in --from / tip.
+ */
+async function loadPlanApi(kitRoot) {
+  const candidate = path.join(kitRoot, "scripts", "hyperion", "upgrade-lib.mjs");
+  if (!(await pathExists(candidate))) {
+    return {
+      buildUpgradePlan: buildUpgradePlanLocal,
+      applyUpgradePlan: applyUpgradePlanLocal,
+      summarizePlan: summarizePlanLocal,
+    };
+  }
+  const mod = await import(pathToFileURL(candidate).href);
+  return {
+    buildUpgradePlan: mod.buildUpgradePlan || buildUpgradePlanLocal,
+    applyUpgradePlan: mod.applyUpgradePlan || applyUpgradePlanLocal,
+    summarizePlan: mod.summarizePlan || summarizePlanLocal,
+  };
+}
 
 function parseArgs(argv) {
   let from = process.env.HYPERION_KIT_ROOT || "";
@@ -158,8 +181,9 @@ async function main() {
     log("", args.yes ? "Mode: APPLY (--yes)" : "Mode: DRY-RUN (pass --yes to apply)");
     log("", "");
 
-    const items = await buildUpgradePlan(kitRoot, targetRoot);
-    const counts = summarizePlan(items);
+    const planApi = await loadPlanApi(kitRoot);
+    const items = await planApi.buildUpgradePlan(kitRoot, targetRoot);
+    const counts = planApi.summarizePlan(items);
     const show = items.filter((i) => i.action === "add" || i.action === "update");
     const capped = show.slice(0, 40);
     for (const i of capped) {
@@ -187,7 +211,7 @@ async function main() {
       return;
     }
 
-    const { applied, backedUp, healedDocs = [] } = await applyUpgradePlan(kitRoot, targetRoot, items, {
+    const { applied, backedUp, healedDocs = [] } = await planApi.applyUpgradePlan(kitRoot, targetRoot, items, {
       yes: true,
       remoteMeta,
       sourceLabel,
