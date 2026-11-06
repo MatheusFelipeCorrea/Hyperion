@@ -9,11 +9,11 @@ Format inspired by [Keep a Changelog](https://keepachangelog.com/). Versioning f
 
 ## [Unreleased]
 
-### Added
-- **CLI first-run demo GIF** (`docs/demo/hyperion-first-run.gif`) — Charm VHS recording linked from README Quickstart; regenerate with the tape under `docs/demo/`.
-
 ### Fixed
 - **`install-product-shims --help`** — exits 0 with usage (Docker image smoke was treating `--help` as a real install and failing the `v0.3.0` publish).
+
+### Removed
+- **CLI first-run demo GIF** (`docs/demo/`) — removed from Quickstart and the repo.
 
 ## [0.3.0] — 2026-11-06
 
