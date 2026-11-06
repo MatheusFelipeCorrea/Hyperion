@@ -16,6 +16,18 @@ import { fileURLToPath } from "node:url";
 import { resolveHyperionPaths } from "./paths.mjs";
 import { ok, warn, log, pathExists } from "./lib.mjs";
 
+if (process.argv.includes("--help") || process.argv.includes("-h")) {
+  console.log(`Usage:
+  node scripts/hyperion/install-product-shims.mjs [--kit <name>] [--force]
+  npm run hyperion:install-shims --prefix Hyperion
+  npm run hyperion:init -- --adopt
+
+Writes product-root shims (CLAUDE.md, .cursor/rules, project.yml kit.root, …)
+so Cursor / Claude / Actions see a nested Hyperion kit folder. Does not
+overwrite existing product files unless --force.`);
+  process.exit(0);
+}
+
 const force = process.argv.includes("--force");
 const kitName = process.argv.includes("--kit")
   ? process.argv[process.argv.indexOf("--kit") + 1]
