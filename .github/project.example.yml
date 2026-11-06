@@ -38,10 +38,11 @@ apps:
     source_dirs:
       - src
 
-# Documentation paths (all optional — discovery fills what it finds)
+# Documentation paths (all optional — discovery fills what it finds).
+# Leave null until the path exists; project-verify fails on declared-but-missing paths.
 docs:
   requirements: null
-  blueprints: .github/docs
+  blueprints: null
   diagrams: null
 
 # Where agents/skills write new artifacts

@@ -37,6 +37,8 @@ export const COMMANDS = {
   "detect-language": { script: "detect-language.mjs", desc: "Suggest the team language (README, commits, PR titles)" },
   "coverage-gate": { script: "coverage-gate.mjs", desc: "Enforce a coverage threshold from a report" },
   "phase-verify": { script: "phase-verify.mjs", desc: "Gate /execute Verification" },
+  "process-guard": { script: "process-guard.mjs", desc: "SDD gate: block /review|/smoke while pending-sync" },
+  "pre-push-check": { script: "pre-push-check.mjs", desc: "Stack-adaptive local build/test (pre-push hook)" },
   "project-verify": { script: "project-verify.mjs", desc: "Gate project.yml" },
   "review-verify": { script: "review-verify.mjs", desc: "Gate PR review artifact" },
   "generate-rules": { script: "generate-runtime-rules.mjs", desc: "Regen runtime rules" },

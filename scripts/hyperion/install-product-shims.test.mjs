@@ -134,6 +134,16 @@ describe("install-product-shims (relocated into a temp product)", { concurrency:
     assert.match(r.stdout, /layout=nested cardsPrefix=Kit\/\.github\/cards/);
   });
 
+  it("seeds .editorconfig at the product root from the kit when missing", async () => {
+    const dir = product({ "Kit/.editorconfig": "root = true\n[*]\nindent_size = 2\n" });
+    const r = await shims(dir);
+    assert.equal(r.status, 0, r.out);
+    assert.match(read(dir, ".editorconfig"), /indent_size = 2/);
+    assert.match(r.stdout, /\.editorconfig/);
+    const again = await shims(dir);
+    assert.match(again.stdout, /Skip existing \.editorconfig/);
+  });
+
   it("prepends kit.root when the example has no version line", async () => {
     const dir = product({ "Kit/.github/project.example.yml": "name: Example\n" });
     assert.equal((await shims(dir)).status, 0);
