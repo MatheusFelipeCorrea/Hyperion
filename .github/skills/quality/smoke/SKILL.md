@@ -10,6 +10,14 @@ description: >-
 
 Execution sensor between `/review` and `/retro`. Boot the real application, walk the story's scenarios, and record what actually happened.
 
+## Process guard (mandatory first)
+
+```bash
+npm run hyperion:process-guard -- --check smoke
+```
+
+Exit **2** → pending-sync without BDD spec. **Stop**; do not boot the app. Point at `/spec` / acceptance scenarios for the card, then retry.
+
 `/smoke` **reports. It does not fix.** A bug found here is a new cycle (`/implement` or `/execute`), not an edit made during the smoke.
 
 Usage: `/smoke {story-id}` (a `card_id` or the spec folder name).

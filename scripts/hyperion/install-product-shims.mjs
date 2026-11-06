@@ -128,6 +128,17 @@ Full command map: \`${kitName}/CLAUDE.md\` and \`${kitName}/.github/commands.yml
     "Cursor rules shim"
   );
 
+  const editorconfigSrc = path.join(nestedKit, ".editorconfig");
+  const editorconfigDst = path.join(workspaceRoot, ".editorconfig");
+  if (await pathExists(editorconfigSrc)) {
+    if ((await pathExists(editorconfigDst)) && !force) {
+      warn("Skip existing .editorconfig");
+    } else {
+      await fs.copyFile(editorconfigSrc, editorconfigDst);
+      ok("Wrote .editorconfig at product root");
+    }
+  }
+
   const paths = resolveHyperionPaths(workspaceRoot);
   ok(`Resolver layout=${paths.layout} cardsPrefix=${paths.cardsPrefix}`);
   log("", "Next: open chat in the product repo → /setup or /migrate");

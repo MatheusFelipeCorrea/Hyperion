@@ -5,7 +5,14 @@ import { join, dirname } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { spawnSync } from "node:child_process";
-import { buildPreCommitHookBody, buildCommitMsgHookBody, mergePreCommitHook, mergeCommitMsgHook } from "./install-hook.mjs";
+import {
+  buildPreCommitHookBody,
+  buildCommitMsgHookBody,
+  buildPrePushHookBody,
+  mergePreCommitHook,
+  mergeCommitMsgHook,
+  mergePrePushHook,
+} from "./install-hook.mjs";
 import { resolveHyperionPaths } from "../hyperion/paths.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -79,6 +86,25 @@ test("buildCommitMsgHookBody requires type(scope): subject", () => {
   assert.match(body, /\(feat\|fix\|docs/);
 });
 
+test("buildPrePushHookBody points at stack-adaptive pre-push-check", () => {
+  const nested = buildPrePushHookBody({ kitRootRel: "Hyperion" });
+  assert.match(nested, /hyperion-pre-push/);
+  assert.match(nested, /Hyperion\/scripts\/hyperion\/pre-push-check\.mjs/);
+  assert.match(nested, /SKIP_PREPUSH/);
+  const legacy = buildPrePushHookBody({ kitRootRel: "" });
+  assert.match(legacy, /scripts\/hyperion\/pre-push-check\.mjs/);
+  assert.doesNotMatch(legacy, /Hyperion\/scripts/);
+});
+
+test("mergePrePushHook rewrites the managed section in place", () => {
+  const body = buildPrePushHookBody({ kitRootRel: "" });
+  const once = mergePrePushHook("", body);
+  const twice = mergePrePushHook(`${once}\n\n# custom keep\necho hi\n`, body);
+  assert.match(twice, /hyperion-pre-push/);
+  assert.match(twice, /custom keep/);
+  assert.equal((twice.match(/hyperion-pre-push/g) || []).length, 1);
+});
+
 test("the hook's staged-card filter matches card files with non-ASCII names", () => {
   const root = makeTemp("hyperion-hook-utf8-");
   initGitRepo(root);
@@ -122,10 +148,13 @@ test("running the script directly installs the hook at .git/hooks/pre-commit", (
   assert.equal(r.status, 0, r.stderr || r.stdout);
   assert.match(r.stdout, /pre-commit installed/);
   assert.match(r.stdout, /commit-msg installed/);
+  assert.match(r.stdout, /pre-push installed/);
   assert.ok(existsSync(join(root, ".git", "hooks", "pre-commit")));
   assert.ok(existsSync(join(root, ".git", "hooks", "commit-msg")));
+  assert.ok(existsSync(join(root, ".git", "hooks", "pre-push")));
   assert.match(readFileSync(join(root, ".git", "hooks", "pre-commit"), "utf8"), /hyperion-refuse-env/);
   assert.match(readFileSync(join(root, ".git", "hooks", "commit-msg"), "utf8"), /hyperion-commit-msg/);
+  assert.match(readFileSync(join(root, ".git", "hooks", "pre-push"), "utf8"), /pre-push-check\.mjs/);
 });
 
 const runHook = (cwd, args = [], env = {}) =>
@@ -161,8 +190,10 @@ test("is idempotent, and only appends to a custom hook with --yes", () => {
 
   const again = runHook(root);
   assert.equal(again.status, 0, again.stderr);
-  assert.match(again.stdout, /already installed \(pre-commit \+ commit-msg\)/);
+  assert.match(again.stdout, /already installed \(pre-commit \+ commit-msg \+ pre-push\)/);
   assert.equal(readFileSync(hookPath, "utf8").replace(/\r\n/g, "\n"), body.replace(/\r\n/g, "\n"));
+  assert.ok(existsSync(join(root, ".git", "hooks", "pre-push")));
+  assert.match(readFileSync(join(root, ".git", "hooks", "pre-push"), "utf8"), /hyperion-pre-push/);
 });
 
 test("an installed hook from an older kit version is refreshed in place, keeping custom lines", () => {
@@ -186,7 +217,7 @@ test("an installed hook from an older kit version is refreshed in place, keeping
 
   const again = runHook(root);
   assert.equal(again.status, 0, again.stderr);
-  assert.match(again.stdout, /already installed \(pre-commit \+ commit-msg\)/);
+  assert.match(again.stdout, /already installed \(pre-commit \+ commit-msg \+ pre-push\)/);
 });
 
 test("mergePreCommitHook appends only the missing section and handles CRLF hooks", () => {

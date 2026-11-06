@@ -8,6 +8,16 @@ description: >-
 
 # Code Review — Implementation Audit
 
+## Process guard (mandatory first)
+
+Before reading the diff, run:
+
+```bash
+npm run hyperion:process-guard -- --check review
+```
+
+(from the kit root, or `node Hyperion/scripts/hyperion/process-guard.mjs --check review` when nested). Exit code **2** means `/implement` or `/execute` left a pending-sync marker without a BDD acceptance spec — **stop**. Tell the person to add scenarios under `.github/plans/specs/{card_id}/` (or re-run `/implement` so the retroactive spec is written). Do not review until the guard exits 0. Bypass only if they explicitly set `HYPERION_SKIP_PROCESS_GUARD=1`.
+
 ## Step 1 — Resolve project context (mandatory)
 
 1. Read `.github/project.yml` if it exists. Validate configured paths; treat stale or missing paths as hints and fall back to discovery.

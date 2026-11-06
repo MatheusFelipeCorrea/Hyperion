@@ -387,8 +387,9 @@ test("--fix --yes backs files up, untracks them with escaped excludes, and the b
 
   const stamps = readdirSync(join(dir, ".git", "hyperion-backup"));
   assert.equal(stamps.length, 1);
+  // macOS tmp is often /var/… while git/realpath resolve to /private/var/… — match the stamp, not the symlink prefix.
+  assert.match(fixed.stdout, new RegExp(`Backup of every untracked file: .*[/\\\\]hyperion-backup[/\\\\]${stamps[0].replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`));
   const backupDir = join(dir, ".git", "hyperion-backup", stamps[0]);
-  assert.ok(fixed.stdout.includes(`Backup of every untracked file: ${backupDir}`), fixed.stdout);
   assert.match(fixed.stdout, /git clean -X/);
   assert.match(fixed.stdout, /Copy-Item -Recurse -Force/);
 

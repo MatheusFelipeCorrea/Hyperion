@@ -339,7 +339,7 @@ Without `E2E_TARGET_REPO` / a token, each script fails fast with a clear error i
 # One-shot GitHub bootstrap (discover project → doctor → validate → dry-run → sync)
 npm run cards:init
 npm run cards:init -- --yes              # include real sync
-npm run cards:init -- --install-hook     # + pre-commit validate hook
+npm run cards:init -- --install-hook     # + pre-commit / commit-msg / stack-adaptive pre-push
 
 # Diagnose config + (when token exists) GitHub Project fields
 node scripts/cards-sync/doctor.mjs --interactive

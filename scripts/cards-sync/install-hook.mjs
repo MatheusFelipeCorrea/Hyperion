@@ -10,6 +10,7 @@ const RULES_MARKER = "# hyperion-check-rules";
 const ENV_MARKER = "# hyperion-refuse-env";
 const SPEC_MARKER = "# hyperion-warn-card-spec";
 const COMMIT_MSG_MARKER = "# hyperion-commit-msg";
+const PRE_PUSH_MARKER = "# hyperion-pre-push";
 
 const PRE_COMMIT_MARKERS = [CARDS_MARKER, RULES_MARKER, ENV_MARKER, SPEC_MARKER];
 
@@ -183,6 +184,37 @@ export function mergeCommitMsgHook(existing, hookBody) {
 }
 
 /**
+ * Stack-adaptive pre-push: delegates to pre-push-check.mjs (build/test by language).
+ */
+export function buildPrePushHookBody({ kitRootRel }) {
+  const script = kitRootRel
+    ? `${kitRootRel}/scripts/hyperion/pre-push-check.mjs`
+    : "scripts/hyperion/pre-push-check.mjs";
+  // if/else/fi so extractSection bounds the managed block (keeps trailing custom lines).
+  return `#!/bin/sh
+${PRE_PUSH_MARKER}
+if [ "\${SKIP_PREPUSH:-0}" = "1" ]; then
+  echo "[Hyperion] pre-push skipped (SKIP_PREPUSH=1). CI still validates."
+  exit 0
+else
+  node ${script} || exit 1
+fi
+`;
+}
+
+export function mergePrePushHook(existing, hookBody) {
+  const current = existing.replace(/\r\n/g, "\n").trim();
+  const full = hookBody.replace(/\r\n/g, "\n").trim();
+  const section = extractSection(full, PRE_PUSH_MARKER) || full;
+  if (!current) return full;
+  if (!current.includes(PRE_PUSH_MARKER)) {
+    return `${current}\n\n${section}`;
+  }
+  const prev = extractSection(current, PRE_PUSH_MARKER);
+  return (prev ? current.replace(prev, () => section) : `${current}\n\n${section}`).replace(/\s+$/, "");
+}
+
+/**
  * Resolve the real hooks directory via git itself — works for a normal
  * clone, a git worktree, and a submodule alike, where `.git` may be a
  * file (not a directory) pointing at the actual git dir elsewhere.
@@ -221,10 +253,12 @@ async function main() {
   }
   const preCommitPath = path.join(hooksDir, "pre-commit");
   const commitMsgPath = path.join(hooksDir, "commit-msg");
+  const prePushPath = path.join(hooksDir, "pre-push");
 
   const paths = resolveHyperionPaths(workspaceRoot);
   const preCommitBody = buildPreCommitHookBody(paths);
   const commitMsgBody = buildCommitMsgHookBody();
+  const prePushBody = buildPrePushHookBody(paths);
 
   let existingPre = "";
   try {
@@ -266,8 +300,27 @@ async function main() {
     await writeHook(commitMsgPath, mergedMsg);
   }
 
-  if (!preChanged && !msgChanged) {
-    console.log("[install-hook] Hyperion hooks already installed (pre-commit + commit-msg).");
+  let existingPush = "";
+  try {
+    existingPush = (await fs.readFile(prePushPath, "utf8")).replace(/\r\n/g, "\n");
+  } catch {
+    /* missing */
+  }
+
+  if (existingPush.trim() && !argYes && !existingPush.includes(PRE_PUSH_MARKER)) {
+    console.log("[install-hook] pre-push hook already exists with custom content.");
+    console.log("[install-hook] Re-run with --yes to append Hyperion stack-adaptive build/test check.");
+    process.exit(1);
+  }
+
+  const mergedPush = `${mergePrePushHook(existingPush, prePushBody)}\n`;
+  const pushChanged = mergedPush !== (existingPush.endsWith("\n") ? existingPush : existingPush ? `${existingPush}\n` : "");
+  if (pushChanged) {
+    await writeHook(prePushPath, mergedPush);
+  }
+
+  if (!preChanged && !msgChanged && !pushChanged) {
+    console.log("[install-hook] Hyperion hooks already installed (pre-commit + commit-msg + pre-push).");
     return;
   }
 
@@ -284,6 +337,13 @@ async function main() {
       existingMsg.includes(COMMIT_MSG_MARKER)
         ? "commit-msg updated (type(scope): subject)"
         : "commit-msg installed (type(scope): subject)"
+    );
+  }
+  if (pushChanged) {
+    parts.push(
+      existingPush.includes(PRE_PUSH_MARKER)
+        ? "pre-push updated (stack-adaptive build/test)"
+        : "pre-push installed (stack-adaptive build/test)"
     );
   }
   console.log(`[install-hook] ✅ ${parts.join("; ")}`);

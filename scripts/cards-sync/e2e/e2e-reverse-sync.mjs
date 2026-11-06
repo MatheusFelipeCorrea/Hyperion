@@ -312,7 +312,10 @@ async function main() {
       new RegExp(`categories:[\\s\\S]*?-\\s*${addedLabel}`).test(recreated) || recreated.includes(addedLabel),
       `recreated local card doesn't include the label added on the board ("${addedLabel}")`
     );
-    assert(recreated.includes(`card_id: ${taskCardId}`), "recreated local card lost its card_id");
+    assert(
+      recreated.includes(`card_id: ${taskCardId}`) || recreated.includes(`card_id: "${taskCardId}"`),
+      "recreated local card lost its card_id"
+    );
     log("  OK: recreated local card reflects the board's title and label edit");
 
     log("All assertions passed.");
