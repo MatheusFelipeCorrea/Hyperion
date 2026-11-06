@@ -50,7 +50,10 @@ Se você usa Cursor, Copilot ou Claude Code, **não precisa rodar npm**. Diga:
 | **`/migrate`** ou *"Adapta Hyperion a este repo"* | Repo legado → project.yml + memory + pipeline |
 | **`/refine`** ou *"Refina em cards"* | Gera cards estruturados |
 | **`/audit`** ou *"Auditoria completa"* | 6 dimensões de auditoria |
+| **`/fluency`** ou *"Fluência de IA"* | Scan de fluência + harness (duas notas /15) |
 | **`/review`** | Code review |
+| **`/smoke`** ou *"Sobe a app e testa a spec"* | Smoke da aplicação real; só reporta |
+| **`/pr`** | Abre o PR no idioma do repo (`locale`; multilíngue se `languages` tiver mais de um) |
 | **`/pr-review`** | Revisão de PR aberto (diff + testes) |
 | **`/deps`** | Saúde de dependências (audit + outdated) |
 | **`/implement`** | Plano de implementação de um card |
@@ -58,7 +61,7 @@ Se você usa Cursor, Copilot ou Claude Code, **não precisa rodar npm**. Diga:
 | **`/spec-review`** | Gate de spec/card antes de codar |
 | **`/audit-run`** | Auditoria orquestrada (6 dimensões) |
 | **`/release`** | Changelog, versão e tag |
-| **`/diagram`** ou *"Pacote completo de diagramas"* | 11 tipos UML em `.github/diagrams/` |
+| **`/diagram`** ou *"Pacote completo de diagramas"* | 12 tipos (UML + pipeline CI/CD) em `.github/diagrams/` |
 | **`/spec`** | Spec BDD + flowchart opcional por story |
 | **`/help`** ou *"Lista comandos Hyperion"* | Mostra atalhos |
 
@@ -131,7 +134,7 @@ Skill `plantuml-generator` — gera **fontes** `.puml` / `.mmd` (PNG é export m
 
 | Diga isto | Resultado |
 |-----------|-----------|
-| **`/diagram`** + *"Pacote completo"* | 11 diagramas na ordem recomendada (aprovação entre cada um) |
+| **`/diagram`** + *"Pacote completo"* | 12 diagramas na ordem recomendada (aprovação entre cada um) |
 | *"Diagrama de sequência do login"* | `Sequencia/sequencia-login.puml` |
 | *"Modelo ER do banco"* | `Modelo de Dados/modelo-dados.puml` |
 | *"Estados do pedido"* | `Estado/estado-pedido.puml` |

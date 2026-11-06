@@ -1,4 +1,4 @@
-﻿import test from "node:test";
+import test from "node:test";
 import assert from "node:assert/strict";
 import {
   pickBestGitHubProject,
@@ -22,6 +22,7 @@ import {
   parseCardIdFromRemoteDescription,
   assertCiProjectConfigured,
   readSyncBackendHint,
+  parseProjectYmlBackend,
   parseLabelsCatalogJson,
   normalizeLabelEntry,
   labelNamesFromCatalog,
@@ -38,6 +39,9 @@ import {
   LABELS_OVERLAY_FILENAME,
   STATUS_COLUMNS_OVERLAY_FILENAME,
   appendSyncEvent,
+  mapWithConcurrency,
+  patchCardFrontmatter,
+  frontmatterDiffers,
 } from "./lib.mjs";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -272,32 +276,68 @@ test("parseCardIdFromRemoteDescription uses SYNC_METADATA block", () => {
   assert.equal(parseCardIdFromRemoteDescription(desc), "PROJ-FEAT-014");
 });
 
-test("assertCiProjectConfigured requires projectNumber when env set", async () => {
-  const prev = process.env.CARDS_CI_REQUIRE_PROJECT;
-  process.env.CARDS_CI_REQUIRE_PROJECT = "true";
+/** Runs fn with env overrides (undefined = unset), restoring the previous values afterwards. */
+async function withEnv(overrides, fn) {
+  const prev = Object.fromEntries(Object.keys(overrides).map((key) => [key, process.env[key]]));
+  const apply = (values) => {
+    for (const [key, value] of Object.entries(values)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  };
+  apply(overrides);
   try {
-    const missing = await assertCiProjectConfigured("/nonexistent/projects-map.json", "org/repo");
-    assert.equal(missing.ok, false);
+    return await fn();
   } finally {
-    if (prev === undefined) delete process.env.CARDS_CI_REQUIRE_PROJECT;
-    else process.env.CARDS_CI_REQUIRE_PROJECT = prev;
+    apply(prev);
   }
+}
+
+test("assertCiProjectConfigured requires projectNumber when env set", async () => {
+  await withEnv(
+    { CARDS_CI_REQUIRE_PROJECT: "true", PROJECT_NUMBER: undefined, PROJECT_OWNER: undefined },
+    async () => {
+      const missing = await assertCiProjectConfigured("/nonexistent/projects-map.json", "org/repo");
+      assert.equal(missing.ok, false);
+    },
+  );
+});
+
+test("assertCiProjectConfigured accepts PROJECT_NUMBER from env (no committed projectNumber)", async () => {
+  await withEnv(
+    { CARDS_CI_REQUIRE_PROJECT: "true", PROJECT_NUMBER: "25", PROJECT_OWNER: undefined },
+    async () => {
+      const result = await assertCiProjectConfigured("/nonexistent/projects-map.json", "org/repo");
+      assert.equal(result.ok, true);
+      assert.equal(result.projectNumber, 25);
+      assert.equal(result.projectOwner, null);
+    },
+  );
+});
+
+test("assertCiProjectConfigured takes PROJECT_OWNER from env", async () => {
+  await withEnv(
+    { CARDS_CI_REQUIRE_PROJECT: "true", PROJECT_NUMBER: "25", PROJECT_OWNER: "some-org" },
+    async () => {
+      const result = await assertCiProjectConfigured("/nonexistent/projects-map.json", "org/repo");
+      assert.equal(result.ok, true);
+      assert.equal(result.projectOwner, "some-org");
+    },
+  );
 });
 
 test("assertCiProjectConfigured skips projectNumber for non-GitHub backend", async () => {
-  const prev = process.env.CARDS_CI_REQUIRE_PROJECT;
-  process.env.CARDS_CI_REQUIRE_PROJECT = "true";
-  try {
-    const result = await assertCiProjectConfigured("/nonexistent/projects-map.json", "org/repo", {
-      backend: "linear",
-    });
-    assert.equal(result.ok, true);
-    assert.equal(result.skipped, true);
-    assert.equal(result.reason, "not_github_backend");
-  } finally {
-    if (prev === undefined) delete process.env.CARDS_CI_REQUIRE_PROJECT;
-    else process.env.CARDS_CI_REQUIRE_PROJECT = prev;
-  }
+  await withEnv(
+    { CARDS_CI_REQUIRE_PROJECT: "true", PROJECT_NUMBER: undefined, PROJECT_OWNER: undefined },
+    async () => {
+      const result = await assertCiProjectConfigured("/nonexistent/projects-map.json", "org/repo", {
+        backend: "linear",
+      });
+      assert.equal(result.ok, true);
+      assert.equal(result.skipped, true);
+      assert.equal(result.reason, "not_github_backend");
+    },
+  );
 });
 
 test("readSyncBackendHint reads CARDS_SYNC_BACKEND env", async () => {
@@ -309,6 +349,21 @@ test("readSyncBackendHint reads CARDS_SYNC_BACKEND env", async () => {
     if (prev === undefined) delete process.env.CARDS_SYNC_BACKEND;
     else process.env.CARDS_SYNC_BACKEND = prev;
   }
+});
+
+test("parseProjectYmlBackend tolerates inline comments, quotes, trailing spaces and CRLF", () => {
+  for (const yml of [
+    "management:\n  backend: jira\n",
+    "management:\n  backend: jira # tracker\n",
+    "management:\n  backend: \"Jira\"   # tracker\n",
+    "management:\n  enabled: true\n  backend: 'jira'  \n",
+    "management:\r\n  backend: jira # tracker\r\n",
+    "management:\n  backend: jira",
+  ]) {
+    assert.equal(parseProjectYmlBackend(yml), "jira", JSON.stringify(yml));
+  }
+  assert.equal(parseProjectYmlBackend("project:\n  name: app\n"), null);
+  assert.equal(parseProjectYmlBackend("management:\n  backend:\n  url: x\n"), null);
 });
 
 test("parseLabelsCatalogJson accepts v1 string array", () => {
@@ -490,4 +545,58 @@ test("appendSyncEvent writes jsonl history", async () => {
   assert.equal(row.repository, "org/repo");
   assert.equal(row.cardCount, 2);
   rmSync(dir, { recursive: true, force: true });
+});
+
+test("mapWithConcurrency preserves result order and calls every item exactly once", async () => {
+  const items = [10, 20, 30, 40, 50, 60, 70];
+  const calls = [];
+  const results = await mapWithConcurrency(items, 3, async (n) => {
+    calls.push(n);
+    await new Promise((r) => setTimeout(r, n % 3)); // jitter, so completion order isn't input order
+    return n * 2;
+  });
+  assert.deepEqual(results, items.map((n) => n * 2));
+  assert.deepEqual([...calls].sort((a, b) => a - b), items);
+});
+
+test("mapWithConcurrency never runs more than `limit` workers at once", async () => {
+  const items = Array.from({ length: 12 }, (_, i) => i);
+  let inFlight = 0;
+  let maxInFlight = 0;
+  await mapWithConcurrency(items, 4, async (n) => {
+    inFlight++;
+    maxInFlight = Math.max(maxInFlight, inFlight);
+    await new Promise((r) => setTimeout(r, 2));
+    inFlight--;
+    return n;
+  });
+  assert.ok(maxInFlight <= 4, `expected max 4 concurrent, saw ${maxInFlight}`);
+  assert.ok(maxInFlight > 1, "expected genuine concurrency, not effectively serial");
+});
+
+test("mapWithConcurrency lets a per-item error propagate (caller decides how to handle it)", async () => {
+  const items = [1, 2, 3];
+  await assert.rejects(
+    () =>
+      mapWithConcurrency(items, 2, async (n) => {
+        if (n === 2) throw new Error("boom");
+        return n;
+      }),
+    /boom/
+  );
+});
+
+test("mapWithConcurrency handles limit larger than the item count and an empty list", async () => {
+  const results = await mapWithConcurrency([1, 2], 10, async (n) => n + 1);
+  assert.deepEqual(results, [2, 3]);
+  assert.deepEqual(await mapWithConcurrency([], 5, async (n) => n), []);
+});
+
+test("patchCardFrontmatter patches title only when provided; frontmatterDiffers ignores null title", () => {
+  const md = "---\ncard_id: APP-TASK-001\ntitle: Old title\nstatus: To Do\ntype: Task\n---\n\n# Old title\n";
+  assert.match(patchCardFrontmatter(md, { title: "New title" }), /title: "?New title"?/);
+  assert.match(patchCardFrontmatter(md, { title: null, status: "Done" }), /title: "?Old title"?/);
+  assert.equal(frontmatterDiffers(md, { title: "New title" }), true);
+  assert.equal(frontmatterDiffers(md, { title: null }), false);
+  assert.equal(frontmatterDiffers(md, { title: "Old title" }), false);
 });

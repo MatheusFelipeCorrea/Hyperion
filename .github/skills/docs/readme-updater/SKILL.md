@@ -17,7 +17,7 @@ Never create new README locations without user approval. Preserve existing forma
 ## Configuration Variables
 ${README_LOCATIONS="Auto-detect|Provided by user"} <!-- Where READMEs live -->
 ${UPDATE_SCOPE="All|Frontend only|Backend only"} <!-- Which READMEs to update -->
-${OUTPUT_LANGUAGE="pt-BR|en"} <!-- Language for README content -->
+Language: each README keeps its own language; new READMEs use `locale` from `.github/project.yml` (language-pair READMEs like `README.en.md` are updated together when `docs` is in `i18n.multilingual`).
 
 ## Generated Prompt
 

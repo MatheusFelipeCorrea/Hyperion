@@ -18,6 +18,10 @@
     "hyperion:pipeline-detect": "node scripts/hyperion/pipeline-detect.mjs",
     "hyperion:pipeline-plan": "node scripts/hyperion/pipeline-plan.mjs",
     "hyperion:pipeline-apply": "node scripts/hyperion/pipeline-apply.mjs",
+    "hyperion:pipeline-gates": "node scripts/hyperion/pipeline-gates.mjs",
+    "hyperion:pipeline-diagram": "node scripts/hyperion/pipeline-diagram.mjs",
+    "hyperion:detect-language": "node scripts/hyperion/detect-language.mjs",
+    "hyperion:coverage-gate": "node scripts/hyperion/coverage-gate.mjs",
     "hyperion:generate-rules": "node scripts/hyperion/generate-runtime-rules.mjs",
     "hyperion:check-rules": "node scripts/hyperion/generate-runtime-rules.mjs --check",
     "docs:check": "node scripts/hyperion/docs-check.mjs",
@@ -30,14 +34,21 @@
     "hyperion:phase-verify": "node scripts/hyperion/phase-verify.mjs",
     "hyperion:project-verify": "node scripts/hyperion/project-verify.mjs",
     "hyperion:distribution-purity-check": "node scripts/hyperion/distribution-purity-check.mjs",
+    "hyperion:adopt-check": "node scripts/hyperion/adopt-check.mjs",
+    "hyperion:telemetry": "node scripts/hyperion/telemetry.mjs",
     "hyperion:review-verify": "node scripts/hyperion/review-verify.mjs",
     "hyperion:spec-review-verify": "node scripts/hyperion/spec-review-verify.mjs",
+    "hyperion:process-guard": "node scripts/hyperion/process-guard.mjs",
+    "hyperion:pre-push-check": "node scripts/hyperion/pre-push-check.mjs",
     "hyperion:audit-verify": "node scripts/hyperion/audit-verify.mjs",
+    "hyperion:audit-diff": "node scripts/hyperion/audit-diff.mjs",
     "hyperion:plan-verify": "node scripts/hyperion/plan-verify.mjs",
     "hyperion:release-verify": "node scripts/hyperion/release-verify.mjs",
     "hyperion:init": "node scripts/hyperion/init.mjs",
     "hyperion:install-shims": "node scripts/hyperion/install-product-shims.mjs",
     "hyperion:upgrade": "node scripts/hyperion/upgrade.mjs",
+    "hyperion:create": "node scripts/hyperion/create-hyperion.mjs",
+    "hyperion:mcp-server": "node scripts/hyperion/mcp-server.mjs",
     "hyperion:cli": "node scripts/hyperion/cli.mjs",
     "hyperion:docker-build": "docker build -t hyperion-cli -f Dockerfile .",
     "hyperion:sbom": "npm sbom --sbom-format cyclonedx",
@@ -46,6 +57,7 @@
     "cards:sync": "node scripts/cards-sync/sync.mjs",
     "cards:dry-run": "node scripts/cards-sync/sync.mjs --dry-run",
     "cards:reverse": "node scripts/cards-sync/sync.mjs --reverse",
+    "cards:auto": "node scripts/cards-sync/sync.mjs --auto",
     "cards:ci-sync": "node scripts/cards-sync/ci-sync.mjs",
     "cards:pr-guard": "node scripts/cards-sync/pr-board-guard.mjs",
     "cards:pr-recheck": "node scripts/cards-sync/report-pr-guard-check.mjs",
@@ -54,10 +66,16 @@
     "cards:hook": "node scripts/cards-sync/install-hook.mjs",
     "cards:labels-reset": "node scripts/cards-sync/labels-reset.mjs",
     "cards:migrate-layout": "node scripts/cards-sync/migrate-layout.mjs",
-    "cards:test": "node --test scripts/cards-sync/*.test.mjs",
+    "cards:project-fields-apply": "node scripts/cards-sync/project-fields-apply.mjs",
+    "cards:metrics": "node scripts/cards-sync/metrics.mjs",
+    "cards:history": "node scripts/cards-sync/history.mjs",
+    "cards:notify": "node scripts/cards-sync/notify.mjs",
+    "cards:test": "node --test scripts/cards-sync/*.test.mjs scripts/cards-sync/backends/*.test.mjs",
     "hyperion:test": "node --test scripts/hyperion/*.test.mjs",
+    "kit:test": "node --test scripts/kit/*.test.mjs",
+    "kit:coverage": "node scripts/kit/coverage.mjs",
     "test": "npm run hyperion:test && npm run cards:test",
-    "test:coverage": "node --experimental-test-coverage --test-coverage-exclude=**/*.test.mjs --test scripts/hyperion/*.test.mjs scripts/cards-sync/*.test.mjs"
+    "test:coverage": "node --experimental-test-coverage --test-coverage-exclude=**/*.test.mjs --test scripts/hyperion/*.test.mjs scripts/cards-sync/*.test.mjs scripts/cards-sync/backends/*.test.mjs"
   },
   "engines": {
     "node": ">=20"
@@ -67,6 +85,6 @@
   },
   "dependencies": {
     "ajv": "^8.20.0",
-    "js-yaml": "^5.4.1"
+    "js-yaml": "^5.4.2"
   }
 }

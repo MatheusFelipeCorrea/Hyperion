@@ -7,8 +7,9 @@ This folder is **generated on demand** — it is empty in a fresh Hyperion clone
 | Trigger | Skill | Output pattern |
 |---------|-------|----------------|
 | `/diagram` · *"Gera diagramas"* · *"Pacote completo de diagramas"* | `plantuml-generator` | `{category}/*.puml`, optional `*.mmd` |
+| `npm run hyperion:pipeline-diagram -- --write` · `/pipeline` (offer after preview) | `pipeline-diagram.mjs` (deterministic) | `Pipeline/*.mmd` + `Pipeline/*.puml` + `Pipeline/README.md` |
 
-## Complete diagram set (11 types)
+## Complete diagram set (12 types)
 
 | # | Type | Folder | Example file |
 |---|------|--------|--------------|
@@ -22,7 +23,10 @@ This folder is **generated on demand** — it is empty in a fresh Hyperion clone
 | 8 | Sequence | `Sequencia/` | `sequencia-{operacao}.puml` |
 | 9 | Activity | `Atividade/` | `atividade-{processo}.puml` |
 | 10 | State | `Estado/` | `estado-{entidade}.puml` |
-| 11 | C4 L2 prompt | `Arquitetura/` | `prompt-arquitetura.md` |
+| 11 | Pipeline (CI/CD) | `Pipeline/` | `pipeline-gates.mmd`, `workflow-{name}.puml` |
+| 12 | C4 L2 prompt | `Arquitetura/` | `prompt-arquitetura.md` |
+
+The Pipeline diagrams come from a script, not the LLM: it parses `ci.gates` (as `pipeline-apply --refresh-gates` would render it) and every `.github/workflows/*.yml`. That gives a Triggers node, jobs connected by `needs`, and each job's run condition, matrix, services and gate steps. Colors: red = block, amber dashed = warn, purple = publish/deploy.
 
 Per-story flowcharts from `/spec` live separately in `.github/plans/specs/{story-id}/blueprint.mermaid`.
 

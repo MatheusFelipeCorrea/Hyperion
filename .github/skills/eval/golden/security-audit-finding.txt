@@ -1,0 +1,9 @@
+### SEC-1-01: Command injection via unsanitized filename in upload handler
+
+- **Attack vector:** A user-supplied filename is concatenated directly into a shell command string passed to `exec()`, allowing shell metacharacters to break out of the intended argument and execute arbitrary commands.
+- **Evidence:** scripts/api/upload.js:42
+- **Severity:** Critical
+- **Exploitability:** Trivial — any authenticated (or, if the endpoint is public, unauthenticated) user who can upload a file controls the filename, e.g. `x; rm -rf /`.
+- **Impact:** Full remote code execution on the server running the upload handler, including data destruction and lateral movement.
+- **Confidence:** High — evidence is a direct string-concatenation-into-exec() pattern, not inferred.
+- **Mitigation:** Never build shell commands from user input. Use `execFile`/`spawn` with an argument array instead of a shell string, or a library call that doesn't invoke a shell at all. If a shell is unavoidable, validate the filename against a strict allowlist pattern before use.

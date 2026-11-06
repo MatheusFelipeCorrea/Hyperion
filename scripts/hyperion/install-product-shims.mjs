@@ -73,10 +73,13 @@ async function main() {
   } else {
     const raw = await fs.readFile(projectYml, "utf8");
     if (!/^\s*kit\s*:/m.test(raw)) {
-      const next = raw.replace(/^version:\s*(\d+)\s*$/m, `version: $1\n\nkit:\n  root: ${kitName}\n`);
-      if (force || next !== raw) {
+      let next = raw.replace(/^version:\s*(\d+)\s*$/m, `version: $1\n\nkit:\n  root: ${kitName}\n`);
+      if (next === raw && force) next = `kit:\n  root: ${kitName}\n\n${raw}`;
+      if (next !== raw) {
         await fs.writeFile(projectYml, next, "utf8");
         ok("Added kit.root to existing .github/project.yml");
+      } else {
+        warn("project.yml has no version: line — kit.root not added (re-run with --force to prepend it)");
       }
     } else {
       warn("project.yml already has kit: — leave as-is");
@@ -92,6 +95,7 @@ This product uses the Hyperion kit in \`./${kitName}/\`.
 - Agents: \`${kitName}/.github/agents/\`
 - Cards: \`${kitName}/.github/cards/\`
 - Product contract: \`.github/project.yml\` (\`kit.root: ${kitName}\`)
+- Language: written artifacts follow \`locale\` / \`languages\` in \`.github/project.yml\` (see the Language section of \`${kitName}/CLAUDE.md\`)
 
 Prefer chat commands (\`/setup\`, \`/refine\`, \`/sync\`, …). Do not scatter kit files into the product root.
 `;
@@ -113,6 +117,7 @@ Before planning or coding with Hyperion commands:
 2. Open skills under \`${kitName}/.github/skills/**/SKILL.md\`.
 3. Write cards under \`${kitName}/.github/cards/\` (nested by parent card_id).
 4. Do not copy kit files into the product root — keep artifacts inside \`${kitName}/\`.
+5. Write cards, PRs and docs in \`locale\` (plus \`languages\` extras); code, branches and commit types stay in English.
 
 Full command map: \`${kitName}/CLAUDE.md\` and \`${kitName}/.github/commands.yml\`.
 `;
@@ -122,6 +127,17 @@ Full command map: \`${kitName}/CLAUDE.md\` and \`${kitName}/.github/commands.yml
     cursorShim,
     "Cursor rules shim"
   );
+
+  const editorconfigSrc = path.join(nestedKit, ".editorconfig");
+  const editorconfigDst = path.join(workspaceRoot, ".editorconfig");
+  if (await pathExists(editorconfigSrc)) {
+    if ((await pathExists(editorconfigDst)) && !force) {
+      warn("Skip existing .editorconfig");
+    } else {
+      await fs.copyFile(editorconfigSrc, editorconfigDst);
+      ok("Wrote .editorconfig at product root");
+    }
+  }
 
   const paths = resolveHyperionPaths(workspaceRoot);
   ok(`Resolver layout=${paths.layout} cardsPrefix=${paths.cardsPrefix}`);

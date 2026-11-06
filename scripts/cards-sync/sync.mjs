@@ -1,19 +1,19 @@
-﻿import fs from "node:fs/promises";
+﻿import "./load-env.mjs";
+import fs from "node:fs/promises";
 import { execSync } from "node:child_process";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
+import readline from "node:readline/promises";
 import {
   parseOnlyFilter,
   expandCardIdsWithParents,
   filterEdgesForCards,
   filterKitSampleCards,
-  isKitSampleCardId,
   isKitSampleRemoteArtifact,
   listCardsMarkdownFiles,
   discoverGitHubProjectNumber,
   resolveRepoConfig,
-  shouldIncludeKitSamples,
   writeSyncSummary,
   parseCardIdFromIssueBody,
   parseSourceFileFromIssueBody,
@@ -54,8 +54,23 @@ import {
   resolveHyperionStatusFromRemote,
   canonicalizeLinearState,
   frontmatterUpdatesFromConvertedMarkdown,
+  mapWithConcurrency,
+  resolveCardRelativePath,
+  resolveSourceFileCandidates,
 } from "./lib.mjs";
+import {
+  buildReconcilePlan,
+  composeSnapshotCards,
+  composeTombstones,
+  snapshotStateChanged,
+  detectDuplicateIssues,
+  duplicateCommentBody,
+  DUPLICATE_MARKER,
+  renderReconcileReport,
+} from "./reconcile.mjs";
+import { keyVariants, languagesFor, resolveLanguages, t as i18nT } from "../hyperion/i18n.mjs";
 import { resolveHyperionPaths } from "../hyperion/paths.mjs";
+import { ciFail } from "../hyperion/ci-annotate.mjs";
 import {
   runForwardSyncJira,
   runReverseSyncJira,
@@ -86,6 +101,7 @@ const projectYmlPath = hyperionPaths.projectYmlPath;
 const argDryRun = process.argv.includes("--dry-run");
 const argReverse = process.argv.includes("--reverse");
 const argForward = process.argv.includes("--forward");
+const argAuto = process.argv.includes("--auto");
 const envDryRun = String(process.env.DRY_RUN || "false").toLowerCase() === "true";
 export const dryRun = argDryRun || envDryRun;
 const directionEnv = String(process.env.SYNC_DIRECTION || "").toLowerCase();
@@ -93,9 +109,13 @@ const syncDirection = argReverse
   ? "reverse"
   : argForward
     ? "forward"
-    : directionEnv === "reverse"
-      ? "reverse"
-      : "forward";
+    : argAuto || directionEnv === "auto"
+      ? "auto"
+      : directionEnv === "reverse"
+        ? "reverse"
+        : "forward";
+const snapshotStatePath = path.join(hyperionPaths.plansCardsDir, "last-state.json");
+const reconcileReportPath = path.join(hyperionPaths.plansCardsDir, "last-reconcile.md");
 
 // ---------------------------------------------------------------------------
 // Auto-detect repository from git remote
@@ -130,6 +150,9 @@ const [repoOwner, repoName] = repositorySlug.split("/");
 
 const token =
   process.env.PROJECT_SYNC_TOKEN || process.env.GITHUB_TOKEN || detectTokenFromGhCli();
+// Auto mode writes issues with the Actions token so its own edits never re-trigger
+// the workflow (GITHUB_TOKEN events are not delivered); Project writes keep `token`.
+const issueToken = syncDirection === "auto" ? process.env.GITHUB_TOKEN || token : token;
 const tokenSource = process.env.PROJECT_SYNC_TOKEN
   ? "PROJECT_SYNC_TOKEN"
   : process.env.GITHUB_TOKEN
@@ -140,6 +163,12 @@ const tokenSource = process.env.PROJECT_SYNC_TOKEN
 
 let createMissingLabels =
   String(process.env.CREATE_MISSING_LABELS || "true").toLowerCase() === "true";
+
+// How many cards to process in flight at once, per sync phase (create/update
+// issue, body-link enrichment, Project add+fields). Sequential (1) was the
+// only option before; this stays conservative by default to avoid tripping
+// GitHub's secondary rate limits on a large board's first sync.
+const syncConcurrency = Math.max(1, Number(process.env.CARDS_SYNC_CONCURRENCY) || 4);
 
 export function log(message) {
   console.log(`[cards-sync] ${message}`);
@@ -155,7 +184,7 @@ function warnIfGhCliFallback() {
 }
 
 function readManagementHintsFromProjectYml(content) {
-  const blockMatch = content.match(/^\s*management\s*:\s*\n([\s\S]*?)(?:^\S|\Z)/m);
+  const blockMatch = content.match(/^\s*management\s*:\s*\n([\s\S]*?)(?:^\S|(?![\s\S]))/m);
   if (!blockMatch) return {};
 
   const block = blockMatch[1];
@@ -318,15 +347,31 @@ function enrichBodySubIssues(body, issueByCardId, owner, name) {
     .join("\n");
 }
 
+/** Optional leading emoji on a section heading, including variation selectors, skin tones and ZWJ sequences. */
+const HEADING_EMOJI = String.raw`(?:\p{Extended_Pictographic}[\p{Emoji_Modifier}\uFE0E\uFE0F]*(?:\u200D\p{Extended_Pictographic}[\p{Emoji_Modifier}\uFE0E\uFE0F]*)*\s*)?`;
+
+const escapeRegExp = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+let parentHeadingRe = null;
+/** `## Parent` heading in any catalog language (e.g. `## 👆 Card pai`), matched as the whole title. */
+function parentHeadingPattern() {
+  if (!parentHeadingRe) {
+    const titles = keyVariants("sync.footer.parent", { root: workspaceRoot }).map(escapeRegExp);
+    parentHeadingRe = new RegExp(String.raw`^##\s+${HEADING_EMOJI}(?:${titles.join("|")})\s*$`, "iu");
+  }
+  return parentHeadingRe;
+}
+
 function enrichBodyWithParentSection(body, card, issueByCardId, owner, name) {
   if (!card.parent || !issueByCardId?.has(card.parent)) return body;
 
-  if (/^##\s+.*\b[Pp]arent\b/i.test(body)) {
-    const lines = splitBodyLines(body);
+  const lines = splitBodyLines(body);
+  const parentHeading = parentHeadingPattern();
+  if (lines.some((line) => parentHeading.test(line))) {
     let inSection = false;
     return lines
       .map((line) => {
-        if (/^##\s+.*\b[Pp]arent\b/i.test(line)) {
+        if (parentHeading.test(line)) {
           inSection = true;
           return line;
         }
@@ -343,12 +388,12 @@ function enrichBodyWithParentSection(body, card, issueByCardId, owner, name) {
   }
 
   const parentLink = formatCardReference(card.parent, issueByCardId, owner, name);
-  const block = `## 👆 Parent\n\n- ${parentLink}\n\n`;
+  const block = `## 👆 ${cardText("sync.footer.parent")}\n\n- ${parentLink}\n\n`;
   const subMatch = body.match(/\n##\s+.*[Ss]ub-issues/i);
   if (subMatch?.index !== undefined) {
     return `${body.slice(0, subMatch.index)}\n${block}${body.slice(subMatch.index + 1)}`;
   }
-  const resumoMatch = body.match(/\n##\s+Resumo/i);
+  const resumoMatch = body.match(new RegExp(String.raw`\n##\s+${HEADING_EMOJI}(?:Resumo|Summary|Resumen)`, "iu"));
   if (resumoMatch?.index !== undefined) {
     return `${body.slice(0, resumoMatch.index)}\n${block}${body.slice(resumoMatch.index + 1)}`;
   }
@@ -368,7 +413,28 @@ const DISPLAY_SECTION_REPLACEMENTS = [
   [/^###\s+Concluído\s*$/i, "### ✅ Concluído"],
   [/^###\s+PENDENTE\s*$/i, "### ⏳ Pendente"],
   [/^###\s+Pendente\s*$/i, "### ⏳ Pendente"],
+  [/^##\s+Summary\s*$/i, "## 📋 Summary"],
+  [/^##\s+Description\s*$/i, "## 📝 Description"],
+  [/^##\s+Acceptance Criteria\s*$/i, "## ✅ Acceptance Criteria"],
+  [/^##\s+Implementation\s*$/i, "## 🛠️ Implementation"],
+  [/^##\s+Business Rules\s*$/i, "## 📐 Business Rules"],
+  [/^###\s+Done\s*$/i, "### ✅ Done"],
+  [/^###\s+Pending\s*$/i, "### ⏳ Pending"],
+  [/^##\s+Resumen\s*$/i, "## 📋 Resumen"],
+  [/^##\s+Descripción\s*$/i, "## 📝 Descripción"],
+  [/^##\s+Criterios de Aceptación\s*$/i, "## ✅ Criterios de Aceptación"],
+  [/^##\s+Implementación\s*$/i, "## 🛠️ Implementación"],
+  [/^##\s+Reglas de Negocio\s*$/i, "## 📐 Reglas de Negocio"],
+  [/^###\s+Completado\s*$/i, "### ✅ Completado"],
+  [/^###\s+Pendiente\s*$/i, "### ⏳ Pendiente"],
 ];
+
+let cardLanguage = null;
+/** Fixed sync text (issue footer) in the primary repo language — cards are single-language. */
+function cardText(key) {
+  cardLanguage ??= resolveLanguages(workspaceRoot).primary;
+  return i18nT(key, {}, cardLanguage, { root: workspaceRoot });
+}
 
 function lineHasDisplayEmoji(line) {
   return /[\u{1F300}-\u{1FAFF}]/u.test(line);
@@ -401,14 +467,14 @@ function buildIssueBody(card, linkContext = null) {
   const lines = [body, "", "---"];
 
   if (linkContext) {
-    lines.push("", "> **🔄 Hyperion sync**", ">");
-    lines.push(`> - **Card:** \`${card.cardId}\``);
+    lines.push("", `> **🔄 ${cardText("sync.footer.title")}**`, ">");
+    lines.push(`> - **${cardText("sync.footer.card")}:** \`${card.cardId}\``);
     if (card.parent) {
       lines.push(
-        `> - **Parent:** ${formatCardReference(card.parent, linkContext.issueByCardId, linkContext.owner, linkContext.name)}`
+        `> - **${cardText("sync.footer.parent")}:** ${formatCardReference(card.parent, linkContext.issueByCardId, linkContext.owner, linkContext.name)}`
       );
     }
-    lines.push(`> - **Source:** \`${card.relativeFile}\``);
+    lines.push(`> - **${cardText("sync.footer.source")}:** \`${card.relativeFile}\``);
     lines.push("");
   }
 
@@ -429,23 +495,65 @@ function buildIssueBody(card, linkContext = null) {
 // GitHub GraphQL
 // ---------------------------------------------------------------------------
 
-async function graphql(query, variables = {}) {
-  const response = await fetch("https://api.github.com/graphql", {
+/**
+ * POST with retry on GitHub's rate limiting. Every GraphQL call in this
+ * file — queries and mutations (createIssue/updateIssue included) — goes
+ * through this one function, so this is the single place a systematic
+ * backoff belongs; before this, a single 429/secondary-rate-limit response
+ * on any call (createIssue/updateIssue had no try/catch of their own)
+ * threw immediately and aborted the whole concurrent mapWithConcurrency
+ * batch it was part of.
+ *
+ * Only retries responses that actually look like rate limiting (a
+ * `Retry-After` header, or an error message mentioning "rate limit" —
+ * GitHub's real wording for both primary and secondary limits) — any other
+ * error (auth failure, validation error, bad query) still throws on the
+ * first attempt, unchanged from before.
+ *
+ * Exported + parameterized (fetchFn, sleepFn) so it's unit-testable without
+ * a real network call or a real multi-second wait.
+ */
+export async function githubGraphqlWithRetry(
+  fetchFn,
+  url,
+  requestInit,
+  { maxAttempts = 4, sleepFn = (ms) => new Promise((resolve) => setTimeout(resolve, ms)) } = {}
+) {
+  for (let attempt = 1; ; attempt++) {
+    const response = await fetchFn(url, requestInit);
+    const payload = await response.json();
+
+    const retryAfterHeader = response.headers?.get?.("retry-after");
+    const errorMessages = Array.isArray(payload?.errors)
+      ? payload.errors.map((e) => String(e?.message || e?.type || ""))
+      : [];
+    const looksRateLimited = Boolean(retryAfterHeader) || errorMessages.some((m) => /rate limit/i.test(m));
+
+    if (response.ok && !payload.errors) {
+      return payload.data;
+    }
+
+    if (looksRateLimited && attempt < maxAttempts) {
+      const waitMs = retryAfterHeader ? Number(retryAfterHeader) * 1000 : 2 ** (attempt - 1) * 1000;
+      await sleepFn(waitMs);
+      continue;
+    }
+
+    const details = JSON.stringify(payload.errors || payload, null, 2);
+    throw new Error(`GraphQL failed: ${details}`);
+  }
+}
+
+async function graphql(query, variables = {}, authToken = token) {
+  return githubGraphqlWithRetry(fetch, "https://api.github.com/graphql", {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${token}`,
+      Authorization: `Bearer ${authToken}`,
       "Content-Type": "application/json",
       "User-Agent": "cards-sync-script",
     },
     body: JSON.stringify({ query, variables }),
   });
-
-  const payload = await response.json();
-  if (!response.ok || payload.errors) {
-    const details = JSON.stringify(payload.errors || payload, null, 2);
-    throw new Error(`GraphQL failed: ${details}`);
-  }
-  return payload.data;
 }
 
 async function getRepositoryNodeId(owner, name) {
@@ -456,8 +564,20 @@ async function getRepositoryNodeId(owner, name) {
   return data.repository.id;
 }
 
+function isBotLogin(login) {
+  const value = String(login || "").toLowerCase();
+  return value.endsWith("[bot]") || value === "dependabot" || value === "github-actions";
+}
+
+/**
+ * CARD_ID → canonical issue (open first, then lowest number).
+ * The returned Map also carries `duplicates` (every CARD_ID with 2+ issues)
+ * and `orphans` (open, human-authored issues without CARD_ID) for reconcile.
+ */
 async function loadIssueMapByCardId(owner, name) {
   const map = new Map();
+  const grouped = new Map();
+  const orphans = [];
   let endCursor = null;
   let hasNextPage = true;
   let skippedSamples = 0;
@@ -470,6 +590,7 @@ async function loadIssueMapByCardId(owner, name) {
             pageInfo { hasNextPage endCursor }
             nodes {
               id number title url body updatedAt state
+              author { login }
               labels(first: 30) { nodes { name } }
             }
           }
@@ -482,7 +603,12 @@ async function loadIssueMapByCardId(owner, name) {
       if (!issue?.id) continue;
       const cardId = parseCardIdFromIssueBody(issue.body);
       const sourceFile = parseSourceFileFromIssueBody(issue.body);
-      if (!cardId) continue;
+      if (!cardId) {
+        if (String(issue.state || "").toUpperCase() === "OPEN" && !isBotLogin(issue.author?.login)) {
+          orphans.push({ number: issue.number, title: issue.title, url: issue.url });
+        }
+        continue;
+      }
       if (isKitSampleRemoteArtifact({ cardId, sourceFile })) {
         skippedSamples += 1;
         continue;
@@ -490,6 +616,8 @@ async function loadIssueMapByCardId(owner, name) {
       const labels = (issue.labels?.nodes || []).map((l) => l.name).filter(Boolean);
       const enriched = { ...issue, labels };
       map.set(cardId, pickCanonicalIssueForCardId(map.get(cardId), enriched));
+      if (!grouped.has(cardId)) grouped.set(cardId, []);
+      grouped.get(cardId).push(enriched);
     }
 
     hasNextPage = Boolean(data.repository?.issues?.pageInfo?.hasNextPage);
@@ -502,19 +630,24 @@ async function loadIssueMapByCardId(owner, name) {
     );
   }
 
+  map.duplicates = detectDuplicateIssues(grouped);
+  map.orphans = orphans;
   return map;
 }
 
-async function searchIssueByCardId(owner, name, cardId, issueMapCache = null) {
-  if (isKitSampleCardId(cardId) && !shouldIncludeKitSamples()) return null;
-  const map = issueMapCache || (await loadIssueMapByCardId(owner, name));
-  return map.get(cardId) || null;
+async function addIssueComment(issueId, body) {
+  await graphql(
+    `mutation($id: ID!, $body: String!) { addComment(input: { subjectId: $id, body: $body }) { comment { id } } }`,
+    { id: issueId, body },
+    issueToken
+  );
 }
 
 async function createIssue(repositoryId, title, body) {
   const data = await graphql(
     `mutation($repositoryId: ID!, $title: String!, $body: String!) { createIssue(input: { repositoryId: $repositoryId, title: $title, body: $body }) { issue { id number title url } } }`,
-    { repositoryId, title, body }
+    { repositoryId, title, body },
+    issueToken
   );
   return data.createIssue.issue;
 }
@@ -522,7 +655,8 @@ async function createIssue(repositoryId, title, body) {
 async function updateIssue(issueId, title, body) {
   const data = await graphql(
     `mutation($issueId: ID!, $title: String!, $body: String!) { updateIssue(input: { id: $issueId, title: $title, body: $body }) { issue { id number title url } } }`,
-    { issueId, title, body }
+    { issueId, title, body },
+    issueToken
   );
   return data.updateIssue.issue;
 }
@@ -530,7 +664,8 @@ async function updateIssue(issueId, title, body) {
 async function linkAsSubIssue(parentIssueId, childIssueId) {
   await graphql(
     `mutation($issueId: ID!, $subIssueId: ID!) { addSubIssue(input: { issueId: $issueId, subIssueId: $subIssueId }) { issue { id } } }`,
-    { issueId: parentIssueId, subIssueId: childIssueId }
+    { issueId: parentIssueId, subIssueId: childIssueId },
+    issueToken
   );
 }
 
@@ -1178,6 +1313,23 @@ const REQUIRED_FIELDS = [
   { key: "dueDate", defaultName: "Due Date", kind: "date" },
 ];
 
+/**
+ * Writes an auto-created Project into the projects-map.json entry whose projectNumber is in
+ * effect for `slug` (its repositories entry when that sets projectNumber, else default — the
+ * entry doctor resets), so a repositories entry left at 0 can't shadow the new number.
+ * @returns the entry written, e.g. `default` or `repositories["owner/repo"]`
+ */
+export async function saveAutoCreatedProject(file, slug, { projectNumber, projectOwner }) {
+  const configObj = JSON.parse(await fs.readFile(file, "utf8"));
+  const repoEntry = configObj.repositories?.[slug];
+  const inRepoEntry = Object.hasOwn(repoEntry || {}, "projectNumber");
+  const target = inRepoEntry ? repoEntry : configObj.default || (configObj.default = {});
+  target.projectNumber = projectNumber;
+  if (!target.projectOwner) target.projectOwner = projectOwner;
+  await fs.writeFile(file, JSON.stringify(configObj, null, 2) + "\n", "utf8");
+  return inRepoEntry ? `repositories["${slug}"]` : "default";
+}
+
 async function autoCreateProject(owner, repoConfig) {
   log("Project not found. Auto-creating...");
 
@@ -1232,13 +1384,8 @@ async function autoCreateProject(owner, repoConfig) {
 
   // Auto-save projectNumber back to config
   try {
-    const rawConfig = await fs.readFile(configPath, "utf8");
-    const configObj = JSON.parse(rawConfig);
-    const target = configObj.default || (configObj.default = {});
-    target.projectNumber = created.number;
-    if (!target.projectOwner) target.projectOwner = owner;
-    await fs.writeFile(configPath, JSON.stringify(configObj, null, 2) + "\n", "utf8");
-    log(`  projects-map.json updated: projectNumber=${created.number}, projectOwner=${owner}`);
+    const entry = await saveAutoCreatedProject(configPath, repositorySlug, { projectNumber: created.number, projectOwner: owner });
+    log(`  projects-map.json updated: ${entry}.projectNumber=${created.number}, projectOwner=${owner}`);
   } catch (e) {
     log(`  Could not auto-save projectNumber to config: ${e.message}`);
     log(`  Manually set "projectNumber": ${created.number} in projects-map.json`);
@@ -1433,7 +1580,7 @@ async function detectProjectLocale() {
 // Dry-run table output
 // ---------------------------------------------------------------------------
 
-export function printDryRunTable(cards, edges) {
+export function printDryRunTable(cards, edges, existedByCardId = new Map()) {
   log("");
   log("=== DRY-RUN REPORT ===");
   log("");
@@ -1446,7 +1593,7 @@ export function printDryRunTable(cards, edges) {
   for (const card of cards) {
     const id = card.cardId.padEnd(22);
     const type = (card.type || "Story").padEnd(8);
-    const action = "CREATE ".padEnd(6);
+    const action = (existedByCardId.get(card.cardId) ? "UPDATE" : "CREATE").padEnd(6);
     const parent = (card.parent || "—").padEnd(19);
     const cats = (card.categories || []).join(", ").slice(0, 23).padEnd(23);
     log(`| ${id} | ${type} | ${action} | ${parent} | ${cats} |`);
@@ -1630,10 +1777,12 @@ async function runForwardSync() {
   const issueByCardId = new Map();
   const issueExistedByCardId = new Map();
   const actions = [];
+  const failedCardIds = new Set();
+  const failedIssueIds = new Set();
   const preloadedIssueMap = token ? await loadIssueMapByCardId(repoOwner, repoName) : new Map();
   const repositoryId = dryRun ? null : await getRepositoryNodeId(repoOwner, repoName);
 
-  for (const card of cardsToSync) {
+  await mapWithConcurrency(cardsToSync, syncConcurrency, async (card) => {
     const issueTitle = buildIssueTitle(card);
     const issueBody = buildIssueBody(card);
 
@@ -1643,12 +1792,21 @@ async function runForwardSync() {
       actions.push({ action: existing ? "UPDATE" : "CREATE", cardId: card.cardId, title: issueTitle });
       issueByCardId.set(card.cardId, existing || { id: `DRY-${card.cardId}`, number: 0 });
       issueExistedByCardId.set(card.cardId, Boolean(existing));
-      continue;
+      return;
     }
 
-    const issue = existing
-      ? await updateIssue(existing.id, issueTitle, issueBody)
-      : await createIssue(repositoryId, issueTitle, issueBody);
+    let issue;
+    try {
+      issue = existing
+        ? await updateIssue(existing.id, issueTitle, issueBody)
+        : await createIssue(repositoryId, issueTitle, issueBody);
+    } catch (e) {
+      failedCardIds.add(card.cardId);
+      failedIssueIds.add(card.cardId);
+      actions.push({ action: "ISSUE_SYNC_FAILED", cardId: card.cardId, reason: e.message });
+      log(`ISSUE_SYNC_FAILED ${card.cardId}: ${e.message}`);
+      return;
+    }
 
     issueByCardId.set(card.cardId, issue);
     issueExistedByCardId.set(card.cardId, Boolean(existing));
@@ -1667,7 +1825,7 @@ async function runForwardSync() {
         actions.push({ action: "LABELS_FAILED", cardId: card.cardId, reason: e.message });
       }
     }
-  }
+  });
 
   if (!dryRun && issueByCardId.size) {
     try {
@@ -1680,9 +1838,9 @@ async function runForwardSync() {
     }
 
     const linkContext = { issueByCardId, owner: repoOwner, name: repoName };
-    for (const card of cardsToSync) {
+    await mapWithConcurrency(cardsToSync, syncConcurrency, async (card) => {
       const issue = issueByCardId.get(card.cardId);
-      if (!issue?.id) continue;
+      if (!issue?.id) return;
       try {
         const enrichedBody = buildIssueBody(card, linkContext);
         await updateIssue(issue.id, buildIssueTitle(card), enrichedBody);
@@ -1690,7 +1848,7 @@ async function runForwardSync() {
       } catch (e) {
         actions.push({ action: "BODY_ENRICH_FAILED", cardId: card.cardId, reason: e.message });
       }
-    }
+    });
   }
 
   // Link sub-issues
@@ -1763,9 +1921,9 @@ async function runForwardSync() {
     const fParent = resolveProjectField(project, "parent", fieldMap);
     const fDueDate = resolveProjectField(project, "dueDate", fieldMap);
 
-    for (const card of cardsToSync) {
+    await mapWithConcurrency(cardsToSync, syncConcurrency, async (card) => {
       const issue = issueByCardId.get(card.cardId);
-      if (!issue) continue;
+      if (!issue) return;
 
       let itemId;
       try {
@@ -1775,8 +1933,9 @@ async function runForwardSync() {
           actions.push({ action: "ADDED_TO_PROJECT", cardId: card.cardId });
         }
       } catch (e) {
+        failedCardIds.add(card.cardId);
         actions.push({ action: "PROJECT_ADD_FAILED", cardId: card.cardId, reason: e.message });
-        continue;
+        return;
       }
 
       try {
@@ -1804,14 +1963,15 @@ async function runForwardSync() {
         );
         await updateProjectField(project.id, itemId, fDueDate, card.dueDate);
       } catch (e) {
+        failedCardIds.add(card.cardId);
         actions.push({ action: "FIELD_UPDATE_FAILED", cardId: card.cardId, reason: e.message });
       }
-    }
+    });
   }
 
   // Print summary
   if (dryRun) {
-    printDryRunTable(cardsToSync, edges);
+    printDryRunTable(cardsToSync, edges, issueExistedByCardId);
   } else {
     log("");
     log("=== SYNC COMPLETE ===");
@@ -1835,6 +1995,14 @@ async function runForwardSync() {
       log(`Could not write sync summary: ${error.message}`);
     }
   }
+
+  if (failedIssueIds.size && syncDirection !== "auto") {
+    log(`${failedIssueIds.size} issue(s) failed to create/update: ${[...failedIssueIds].join(", ")}`);
+    ciFail(workspaceRoot, "cards.fail.items", { count: failedIssueIds.size, ids: [...failedIssueIds].join(", ") });
+    process.exitCode = 1;
+  }
+
+  return { failedCardIds: [...failedCardIds], actions };
 }
 
 // ---------------------------------------------------------------------------
@@ -2098,7 +2266,6 @@ async function runReverseSyncGitHub(repoConfig) {
 
   let written = 0;
   let skipped = 0;
-  let skippedSamples = 0;
   let unchanged = 0;
 
   for (const issue of issues) {
@@ -2109,12 +2276,6 @@ async function runReverseSyncGitHub(repoConfig) {
     const cardId = syncMeta?.meta?.CARD_ID || parseCardIdFromIssueBody(issue.body);
 
     if (!sourceFile) continue;
-
-    if (isKitSampleRemoteArtifact({ cardId, sourceFile })) {
-      skippedSamples += 1;
-      log(`Skipping kit sample issue #${issue.number} (${cardId || sourceFile})`);
-      continue;
-    }
 
     const projectFields = projectFieldsByIssueNumber.get(issue.number) || {};
     const remoteUpdates = buildRemoteFrontmatterUpdates(projectFields, issue, repoConfig);
@@ -2136,19 +2297,11 @@ async function runReverseSyncGitHub(repoConfig) {
       logLabel: ` (issue #${issue.number})`,
     });
 
-    if (result.kind === "skipped_sample") {
-      skippedSamples += 1;
-      log(`Skipping kit sample issue #${issue.number} (${cardId || sourceFile})`);
-      continue;
-    }
     if (result.kind === "unchanged") unchanged += 1;
     else if (result.kind === "skipped") skipped += 1;
     else written += countReverseWrite(result);
   }
 
-  if (skippedSamples > 0) {
-    log(`Skipped ${skippedSamples} kit sample issue(s) on reverse sync.`);
-  }
   if (unchanged > 0) {
     log(`Unchanged: ${unchanged} card(s) (frontmatter already matches board).`);
   }
@@ -2187,12 +2340,427 @@ async function runReverseSync() {
 }
 
 // ---------------------------------------------------------------------------
+// Auto reconcile (Markdown <-> GitHub, field ownership + snapshot ancestor)
+// ---------------------------------------------------------------------------
+
+function gitLines(args) {
+  try {
+    return execSync(`git -c core.quotePath=false ${args}`, { cwd: workspaceRoot, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], maxBuffer: 64 * 1024 * 1024 })
+      .split(/\r?\n/)
+      .filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Last commit time per card file, files with local edits, and files deleted in
+ * history — one git call each instead of one per card.
+ */
+export function readGitCardHistory(cardsDirRel) {
+  const dir = JSON.stringify(cardsDirRel);
+  const committed = new Map();
+  let when = null;
+  for (const line of gitLines(`log --relative --format=__%cI --name-only -- ${dir}`)) {
+    if (line.startsWith("__")) when = line.slice(2);
+    else if (when && !committed.has(line)) committed.set(line, when);
+  }
+  const dirty = new Set([
+    ...gitLines(`diff --name-only --relative HEAD -- ${dir}`),
+    ...gitLines(`ls-files --others --exclude-standard -- ${dir}`),
+  ]);
+  const deleted = new Set(gitLines(`log --relative --diff-filter=D --format= --name-only -- ${dir}`));
+  return { committed, dirty, deleted };
+}
+
+function comparableTitle(card) {
+  return String(card.title || "").replace(/^\[[^\]]+\]\s*/, "").trim() || card.cardId;
+}
+
+async function loadLocalSyncCards(history) {
+  const files = await listMarkdownFiles(cardsRoot);
+  const cards = [];
+  for (const file of files) {
+    const relative = path.relative(workspaceRoot, file).replace(/\\/g, "/");
+    const card = parseCardFile(await fs.readFile(file, "utf8"), relative);
+    if (!card) continue;
+    card.title = comparableTitle(card);
+    const committedAt = history?.committed.get(relative);
+    if (committedAt && !history.dirty.has(relative)) {
+      card.updatedAt = committedAt;
+    } else {
+      try {
+        card.updatedAt = (await fs.stat(file)).mtime.toISOString();
+      } catch {
+        card.updatedAt = null;
+      }
+    }
+    cards.push(card);
+  }
+  return applyKitSampleFilter(cards, null);
+}
+
+async function loadSnapshotState() {
+  try {
+    return JSON.parse(await fs.readFile(snapshotStatePath, "utf8"));
+  } catch {
+    return null;
+  }
+}
+
+export function remoteViewFromIssue(issue, board = {}, repoConfig = {}) {
+  const meta = parseSyncMetadataFromDescription(issue.body || "")?.meta || {};
+  const parsedTitle = parseIssueSummaryTypeTitle(issue.title);
+  const fromBoard = buildRemoteFrontmatterUpdates(board, { labels: [] }, repoConfig);
+  const pick = (boardValue, metaValue) => (boardValue !== undefined && boardValue !== null ? boardValue : metaValue || null);
+  return {
+    title: parsedTitle.title || issue.title,
+    status: pick(fromBoard.status, canonicalizeRemoteOption("status", meta.STATUS, repoConfig) ?? meta.STATUS),
+    type: pick(fromBoard.type, meta.TYPE || parsedTitle.type),
+    priority: pick(fromBoard.priority, meta.PRIORITY),
+    sprint: pick(fromBoard.sprint, meta.SPRINT),
+    storyPoints: pick(fromBoard.story_points, meta.STORY_POINTS),
+    reporter: pick(fromBoard.reporter, meta.REPORTER),
+    parent: pick(fromBoard.parent, meta.PARENT_CARD_ID),
+    dueDate: pick(fromBoard.due_date, meta.DUE_DATE),
+    state: issue.state || null,
+    issueNumber: issue.number,
+    sourceFile: meta.SOURCE_FILE?.trim() || parseSourceFileFromIssueBody(issue.body) || null,
+    updatedAt: issue.updatedAt || null,
+    issue,
+  };
+}
+
+function frontmatterUpdatesFromMerge(local, merged) {
+  const updates = {};
+  const set = (key, field, value) => {
+    if (String(local[field] ?? "") !== String(merged[field] ?? "")) updates[key] = value;
+  };
+  set("title", "title", merged.title);
+  set("status", "status", merged.status ?? null);
+  set("type", "type", merged.type ?? null);
+  set("priority", "priority", merged.priority ?? null);
+  set("sprint", "sprint", merged.sprint ?? null);
+  set(
+    "story_points",
+    "storyPoints",
+    merged.storyPoints === null || merged.storyPoints === undefined || merged.storyPoints === "" ? null : Number(merged.storyPoints)
+  );
+  set("reporter", "reporter", merged.reporter ?? null);
+  set("parent", "parent", merged.parent ?? null);
+  set("due_date", "dueDate", merged.dueDate ?? null);
+  return updates;
+}
+
+async function createLocalCardFromRemote(cardId, remote, repoConfig) {
+  const issue = remote.issue || {};
+  const remoteUpdates = buildRemoteFrontmatterUpdates({}, issue, repoConfig);
+  for (const [key, field] of [
+    ["status", "status"],
+    ["type", "type"],
+    ["priority", "priority"],
+    ["sprint", "sprint"],
+    ["reporter", "reporter"],
+    ["parent", "parent"],
+    ["due_date", "dueDate"],
+  ]) {
+    if (remote[field] != null) remoteUpdates[key] = remote[field];
+  }
+  if (remote.storyPoints != null && remote.storyPoints !== "") remoteUpdates.story_points = Number(remote.storyPoints);
+
+  const converted = remoteIssueToCardMarkdown({
+    title: issue.title,
+    description: issue.body || "",
+    labels: issue.labels,
+    statusOverride: remote.status,
+  });
+  if (converted) {
+    return applyReverseCardFileUpdate({
+      sourceFile: converted.sourceFile,
+      cardId,
+      remoteUpdates,
+      converted,
+      logLabel: ` (issue #${remote.issueNumber}, created from board)`,
+    });
+  }
+
+  const relative = resolveCardRelativePath({ type: remote.type, cardId, parent: remote.parent, cardsPrefix });
+  const markdown = buildCardMarkdownFromMeta(
+    { card_id: cardId, title: remote.title || cardId, ...remoteUpdates },
+    `# ${remote.title || cardId}\n`
+  );
+  if (dryRun) {
+    log(`Would create: ${relative} (issue #${remote.issueNumber}, created from board)`);
+    return { kind: "dry_run_create" };
+  }
+  await fs.mkdir(path.dirname(path.join(workspaceRoot, relative)), { recursive: true });
+  await fs.writeFile(path.join(workspaceRoot, relative), markdown, "utf8");
+  log(`Created: ${relative} (issue #${remote.issueNumber}, created from board)`);
+  return { kind: "created", path: relative };
+}
+
+async function commentDuplicates(duplicates, { commented, locale, languages }) {
+  for (const dupe of duplicates) {
+    for (const extra of dupe.extraIssues || []) {
+      const key = `${dupe.cardId}:#${extra.number}`;
+      if (!extra.id || commented.has(key)) continue;
+      if (dryRun) {
+        log(`Would comment duplicate #${extra.number} → canonical #${dupe.keep}`);
+        continue;
+      }
+      try {
+        await addIssueComment(extra.id, duplicateCommentBody({ cardId: dupe.cardId, keep: dupe.keep, locale, languages, root: workspaceRoot }));
+        commented.add(key);
+        log(`Commented duplicate #${extra.number} → canonical #${dupe.keep} (${DUPLICATE_MARKER})`);
+      } catch (error) {
+        log(`Could not comment duplicate #${extra.number}: ${error.message}`);
+      }
+    }
+  }
+}
+
+function previewValue(value) {
+  const text = String(value ?? "");
+  return text.length > 80 ? `${text.slice(0, 77)}...` : text;
+}
+
+async function runAutoSync() {
+  const config = await readConfig();
+  const repoConfig = resolveRepoConfig(config, repositorySlug);
+  const management = await resolveManagementConfig(repoConfig);
+  const backend = String(management.backend || "github").toLowerCase();
+  if (backend !== "github") {
+    log(`Auto reconcile supports the GitHub backend only (backend: ${backend}) — running forward sync.`);
+    return runForwardSync();
+  }
+
+  log("Direction: auto (reconcile markdown <-> GitHub Issues/Project)");
+  log(`Dry-run: ${dryRun ? "yes" : "no"}`);
+  if (!dryRun) {
+    if (!repoOwner || repoOwner === "unknown") throw new Error("GITHUB_REPOSITORY not set.");
+    if (!token) throw new Error("Token missing.");
+  }
+  warnIfGhCliFallback();
+
+  const tokenWarning =
+    process.env.GITHUB_ACTIONS && !process.env.PROJECT_SYNC_TOKEN
+      ? "PROJECT_SYNC_TOKEN missing — org/user Project updates usually fail with GITHUB_TOKEN"
+      : null;
+  if (tokenWarning) log(`WARN: ${tokenWarning}`);
+
+  const snapshot = await loadSnapshotState();
+  const history = readGitCardHistory(path.relative(workspaceRoot, cardsRoot).replace(/\\/g, "/") || ".");
+  const localCards = await loadLocalSyncCards(history);
+  const issueByCardId = token ? await loadIssueMapByCardId(repoOwner, repoName) : new Map();
+  const duplicates = issueByCardId.duplicates || [];
+  const orphans = issueByCardId.orphans || [];
+
+  const commented = new Set(snapshot?.commentedDuplicates || []);
+  const langSettings = resolveLanguages(workspaceRoot);
+  const locale = repoConfig.locale || (await detectProjectLocale()) || langSettings.primary;
+  const commentLanguages = repoConfig.locale ? [locale] : languagesFor(langSettings, "comments");
+  if (duplicates.length) {
+    log(`${duplicates.length} CARD_ID(s) with duplicate issues — canonical kept, extras commented once, never deleted.`);
+    if (token) await commentDuplicates(duplicates, { commented, locale, languages: commentLanguages });
+  }
+  if (orphans.length) log(`${orphans.length} open issue(s) without CARD_ID (listed in last-reconcile.md, not imported).`);
+
+  let projectFields = new Map();
+  const projectOwner = process.env.PROJECT_OWNER || repoConfig.projectOwner || repoOwner;
+  const projectNumber = Number(process.env.PROJECT_NUMBER || "0") || Number(repoConfig.projectNumber || "0");
+  if (token && projectNumber > 0) {
+    const loaded = await loadProjectFieldValuesByIssueNumber(projectOwner, projectNumber, repoConfig);
+    projectFields = loaded.byIssueNumber;
+    if (!loaded.project) log(`Project #${projectNumber} not found — board fields fall back to issue metadata.`);
+  } else if (token) {
+    log("No projectNumber configured — status/sprint come from issue metadata only.");
+  }
+
+  const remotes = new Map();
+  for (const [cardId, issue] of issueByCardId) {
+    remotes.set(cardId, remoteViewFromIssue(issue, projectFields.get(issue.number) || {}, repoConfig));
+  }
+
+  const isDeletedInGit = (_cardId, remote) =>
+    resolveSourceFileCandidates(remote.sourceFile, { kitRootRel: hyperionPaths.kitRootRel }).some((p) => history.deleted.has(p));
+  const plan = buildReconcilePlan({ localCards, remotes, snapshot, isDeletedInGit });
+  log(`Plan ${Object.entries(plan.counts).map(([k, v]) => `${k}=${v}`).join(" ") || "empty"}`);
+  if (!snapshot) {
+    log("No last-state.json yet — board status/sprint only flow back when the issue is newer than the card's last commit.");
+  }
+
+  const forwardIds = [];
+  const conflictRows = [];
+  const deletedLocally = [];
+  const remoteOnlyClosed = [];
+
+  for (const item of plan.items) {
+    const row = { cardId: item.cardId, issueNumber: item.remote?.issueNumber, title: item.remote?.title };
+    if (item.action === "skip") continue;
+    if (item.action === "forward") {
+      forwardIds.push(item.cardId);
+      continue;
+    }
+    if (item.action === "deleted_locally") {
+      deletedLocally.push(row);
+      continue;
+    }
+    if (item.action === "remote_only_closed") {
+      remoteOnlyClosed.push(row);
+      continue;
+    }
+    if (item.action === "reverse_create") {
+      await createLocalCardFromRemote(item.cardId, item.remote, repoConfig);
+      continue;
+    }
+
+    for (const conflict of item.merge.conflicts) {
+      const c = {
+        cardId: item.cardId,
+        field: conflict.field,
+        local: previewValue(conflict.local),
+        remote: previewValue(conflict.remote),
+        kept: previewValue(conflict.kept),
+        winner: conflict.winner,
+      };
+      conflictRows.push(c);
+      log(`CONFLICT ${c.cardId}.${c.field}: git=${c.local} board=${c.remote} kept=${c.kept} (${c.winner})`);
+    }
+
+    const local = await readLocalCardFromSourceFile(item.local.relativeFile, {
+      workspaceRoot,
+      kitRootRel: hyperionPaths.kitRootRel,
+    });
+    const updates = frontmatterUpdatesFromMerge(item.local, item.merge.next);
+    if (local && Object.keys(updates).length && frontmatterDiffers(local.content, updates)) {
+      const patched = patchCardFrontmatter(local.content, updates);
+      if (patched && !dryRun) {
+        await fs.writeFile(local.absolutePath, patched, "utf8");
+        log(`Reconciled ${local.relativeFile} (${item.action}: ${Object.keys(updates).join(", ")})`);
+      } else if (patched) {
+        log(`Would reconcile ${local.relativeFile} (${item.action}: ${Object.keys(updates).join(", ")})`);
+      }
+    }
+    if (item.action === "merge") forwardIds.push(item.cardId);
+  }
+
+  let failedCardIds = [];
+  if (forwardIds.length) {
+    process.env.CARDS_SYNC_ONLY = forwardIds.join(",");
+    try {
+      failedCardIds = (await runForwardSync())?.failedCardIds || [];
+    } catch (error) {
+      failedCardIds = [...forwardIds];
+      log(`Forward aborted: ${error.message}`);
+    } finally {
+      delete process.env.CARDS_SYNC_ONLY;
+    }
+  } else {
+    log("No forward push needed.");
+  }
+  if (failedCardIds.length) {
+    log(`Forward incomplete for ${failedCardIds.length} card(s); snapshot keeps their previous state so they retry.`);
+  }
+
+  const refreshed = await loadLocalSyncCards(null);
+  const refreshedIds = refreshed.map((c) => c.cardId);
+  const payload = {
+    when: new Date().toISOString(),
+    failedCardIds,
+    commentedDuplicates: [...commented].sort(),
+    tombstones: composeTombstones(snapshot, deletedLocally.map((r) => r.cardId), refreshedIds),
+    cards: composeSnapshotCards(refreshed, snapshot, failedCardIds),
+  };
+  const report = renderReconcileReport({
+    when: payload.when,
+    counts: plan.counts,
+    duplicates,
+    conflicts: conflictRows,
+    orphans,
+    failedCardIds,
+    deletedLocally,
+    remoteOnlyClosed,
+    tokenWarning,
+    lang: locale,
+    root: workspaceRoot,
+  });
+
+  if (!snapshotStateChanged(snapshot, payload)) {
+    log(`Snapshot unchanged — ${path.relative(workspaceRoot, snapshotStatePath)} not rewritten.`);
+  } else if (dryRun) {
+    log(`Dry-run: would write ${path.relative(workspaceRoot, snapshotStatePath)} and ${path.relative(workspaceRoot, reconcileReportPath)}`);
+  } else {
+    await fs.mkdir(path.dirname(snapshotStatePath), { recursive: true });
+    await fs.writeFile(snapshotStatePath, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
+    await fs.writeFile(reconcileReportPath, report, "utf8");
+    log(`Wrote ${path.relative(workspaceRoot, snapshotStatePath)} and ${path.relative(workspaceRoot, reconcileReportPath)}`);
+  }
+  if (conflictRows.length) {
+    log(`${conflictRows.length} field conflict(s); owner applied (board = status/sprint, git = the rest).`);
+  }
+  if (deletedLocally.length) {
+    log(`${deletedLocally.length} card(s) deleted in git still have issues — not recreated (close them on the board).`);
+  }
+  return { plan, failedCardIds };
+}
+
+// ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
 
+/**
+ * Whether to interrupt a live (non-dry-run) sync with a confirmation prompt
+ * before writing anything. Only fires for a human at an interactive
+ * terminal — CI (ci-sync.mjs, hyperion-sync-cards.yml) has no TTY, so this
+ * is always false there regardless of dry-run state, and watch.mjs's live
+ * mode passes CARDS_SYNC_YES itself (the user already opted in once, at
+ * the watcher level, by setting CARDS_WATCH_LIVE).
+ */
+export function shouldPromptBeforeLiveSync({
+  dryRun: isDryRun,
+  isTTY,
+  argv = process.argv,
+  env = process.env,
+} = {}) {
+  if (isDryRun) return false;
+  if (!isTTY) return false;
+  if (argv.includes("--yes")) return false;
+  if (String(env.CARDS_SYNC_YES || "").toLowerCase() === "true") return false;
+  return true;
+}
+
+async function confirmLiveSync() {
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  // On stdin EOF the interface closes and a pending question() may never settle — answer "no".
+  const closed = new Promise((resolve) => rl.once("close", () => resolve(null)));
+  try {
+    const prompt = `[cards-sync] This will write to your LIVE board (no --dry-run). Type "yes" to continue: `;
+    const answer = await Promise.race([rl.question(prompt).catch(() => null), closed]);
+    if (answer === null) {
+      console.log("");
+      log('No answer (stdin closed) — treating it as "no".');
+      return false;
+    }
+    return answer.trim().toLowerCase() === "yes";
+  } finally {
+    rl.close();
+  }
+}
+
 async function main() {
+  if (shouldPromptBeforeLiveSync({ dryRun, isTTY: process.stdin.isTTY })) {
+    const confirmed = await confirmLiveSync();
+    if (!confirmed) {
+      log("Aborted — nothing written. Pass --yes (or CARDS_SYNC_YES=true) to skip this prompt.");
+      process.exitCode = 1;
+      return;
+    }
+  }
+
   if (syncDirection === "reverse") {
     await runReverseSync();
+  } else if (syncDirection === "auto") {
+    await runAutoSync();
   } else {
     await runForwardSync();
   }
@@ -2212,9 +2780,11 @@ if (isDirectRun) {
       // show the actionable message only, keep the stack for --verbose.
       console.error(`[cards-sync] ${message}`);
       if (process.argv.includes("--verbose")) console.error(error);
+      ciFail(workspaceRoot, "cards.fail.config", { message });
     } else {
       console.error("[cards-sync] FATAL ERROR");
       console.error(error);
+      ciFail(workspaceRoot, "cards.fail.unexpected", { script: "cards-sync", error: message });
     }
     process.exit(1);
   });
@@ -2256,4 +2826,12 @@ export {
   canonicalizeLinearState,
   inverseStatusMap,
   getLabelId,
+  getProject,
+  getFieldByName,
+  addSingleSelectField,
+  addTextField,
+  addNumberField,
+  addDateField,
+  addIterationField,
+  REQUIRED_FIELDS,
 };

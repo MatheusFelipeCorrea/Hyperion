@@ -1,14 +1,18 @@
-import { describe, it } from "node:test";
+import { after, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
+  existsSync,
   mkdtempSync,
   mkdirSync,
   writeFileSync,
   readFileSync,
   rmSync,
 } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
+import { cleanupTmp, gitCommitAll } from "./test-support/cli-harness.mjs";
+import { fileURLToPath } from "node:url";
+import { spawnSync } from "node:child_process";
 import {
   buildUpgradePlan,
   applyUpgradePlan,
@@ -17,8 +21,27 @@ import {
   isPreserved,
   summarizePlan,
   recordUpgradeChangelog,
+  healMissingDocsPathsInProjectYml,
+  resolveProductRootForUpgrade,
+  MANAGED_FILES,
+  UPGRADE_BACKUP_DIR,
+  KIT_ONLY_WORKFLOWS,
+  detectLeakedKitWorkflows,
+  formatLeakedKitWorkflowsHelp,
+  formatWorkflowRefreshHelp,
 } from "./upgrade-lib.mjs";
+import {
+  HYPERION_WORKFLOWS,
+  renderSyncCardsWorkflow,
+  renderPrBoardGuardWorkflow,
+  renderPrRecheckWorkflow,
+} from "./pipeline-lib.mjs";
 import { sameCommit, resolveOrigin, DEFAULT_ORIGIN } from "./upgrade-fetch.mjs";
+
+after(cleanupTmp);
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const kitRepoRoot = join(__dirname, "..", "..");
 
 function makeKit(root) {
   mkdirSync(join(root, "scripts", "hyperion"), { recursive: true });
@@ -133,7 +156,7 @@ describe("upgrade-lib", () => {
       const byRel = Object.fromEntries(plan.map((p) => [p.rel, p]));
       assert.equal(byRel["scripts/hyperion/doctor.mjs"].action, "update");
       assert.equal(byRel[".github/skills/setup/x/SKILL.md"].action, "add");
-      assert.equal(byRel[".github/workflows/hyperion-validate.yml"].action, "add");
+      assert.ok(!byRel[".github/workflows/hyperion-validate.yml"], "kit's own CI must never reach a product");
       assert.ok(!byRel[".github/workflows/product.yml"]);
       assert.equal(byRel["package.json"].action, "update");
       assert.equal(byRel[".gitignore"].action, "update");
@@ -143,6 +166,68 @@ describe("upgrade-lib", () => {
     } finally {
       rmSync(kit, { recursive: true, force: true });
       rmSync(client, { recursive: true, force: true });
+    }
+  });
+
+  it("nulls missing docs.* paths in project.yml (legacy main example) without inventing folders", () => {
+    const root = mkdtempSync(join(tmpdir(), "heal-docs-"));
+    try {
+      mkdirSync(join(root, ".github", "diagrams"), { recursive: true });
+      const before = [
+        "docs:",
+        "  requirements: null",
+        "  blueprints: .github/docs",
+        "  diagrams: .github/diagrams",
+        "",
+        "name: Acme",
+        "",
+      ].join("\n");
+      const { text, healed } = healMissingDocsPathsInProjectYml(before, root);
+      assert.deepEqual(healed, [{ key: "blueprints", was: ".github/docs" }]);
+      assert.match(text, /blueprints: null/);
+      assert.match(text, /diagrams: \.github\/diagrams/);
+      assert.match(text, /name: Acme/);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("resolveProductRootForUpgrade prefers nested product with kit.root", () => {
+    const product = mkdtempSync(join(tmpdir(), "prod-"));
+    const kitDir = join(product, "Hyperion");
+    mkdirSync(join(product, ".github"), { recursive: true });
+    mkdirSync(kitDir, { recursive: true });
+    writeFileSync(join(product, ".github", "project.yml"), "kit:\n  root: Hyperion\nname: App\n");
+    try {
+      assert.equal(resolveProductRootForUpgrade(kitDir), product);
+    } finally {
+      rmSync(product, { recursive: true, force: true });
+    }
+  });
+
+  it("applyUpgradePlan heals nested product project.yml docs.blueprints from legacy main", async () => {
+    const product = mkdtempSync(join(tmpdir(), "prod-heal-"));
+    const kit = mkdtempSync(join(tmpdir(), "kit-heal-"));
+    const nested = join(product, "Hyperion");
+    try {
+      makeKit(kit);
+      mkdirSync(join(product, ".github", "workflows"), { recursive: true });
+      mkdirSync(join(nested, "scripts", "hyperion"), { recursive: true });
+      writeFileSync(
+        join(product, ".github", "project.yml"),
+        "kit:\n  root: Hyperion\ndocs:\n  blueprints: .github/docs\n  diagrams: null\nname: App\n"
+      );
+      writeFileSync(join(product, "package.json"), '{ "name": "app" }\n');
+      writeFileSync(join(nested, "package.json"), '{ "name": "app-hyperion" }\n');
+      writeFileSync(join(nested, "scripts", "hyperion", "doctor.mjs"), "export const v = 1;\n");
+      const plan = await buildUpgradePlan(kit, nested);
+      const { healedDocs } = await applyUpgradePlan(kit, nested, plan, { yes: true });
+      assert.ok(healedDocs.some((h) => h.key === "blueprints" && h.was === ".github/docs"));
+      assert.match(readFileSync(join(product, ".github", "project.yml"), "utf8"), /blueprints: null/);
+      assert.match(readFileSync(join(product, ".github", "project.yml"), "utf8"), /kit:\n  root: Hyperion/);
+    } finally {
+      rmSync(product, { recursive: true, force: true });
+      rmSync(kit, { recursive: true, force: true });
     }
   });
 
@@ -157,10 +242,7 @@ describe("upgrade-lib", () => {
       assert.equal(readFileSync(join(client, ".github", "project.yml"), "utf8"), "name: client\n");
       assert.equal(readFileSync(join(client, ".github", "memory", "PROJECT.md"), "utf8"), "# mem\n");
       assert.match(readFileSync(join(client, "scripts", "hyperion", "doctor.mjs"), "utf8"), /v = 2/);
-      assert.match(
-        readFileSync(join(client, ".github", "workflows", "hyperion-validate.yml"), "utf8"),
-        /hv2/
-      );
+      assert.ok(!existsSync(join(client, ".github", "workflows", "hyperion-validate.yml")));
       assert.match(
         readFileSync(join(client, ".github", "workflows", "product.yml"), "utf8"),
         /keep-me/
@@ -179,6 +261,359 @@ describe("upgrade-lib", () => {
     } finally {
       rmSync(kit, { recursive: true, force: true });
       rmSync(client, { recursive: true, force: true });
+    }
+  });
+
+  it("backs up a locally-modified managed file before overwriting it, and never backs up a brand-new add", async () => {
+    const kit = mkdtempSync(join(tmpdir(), "kit-"));
+    const client = mkdtempSync(join(tmpdir(), "client-"));
+    try {
+      makeKit(kit);
+      makeClient(client);
+      // makeClient already ships doctor.mjs with different content than
+      // makeKit's ("v = 1" vs "v = 2") — the real-world "adopter modified a
+      // shipped file" scenario this backup exists to protect.
+      const plan = await buildUpgradePlan(kit, client);
+      const { backedUp } = await applyUpgradePlan(kit, client, plan, { yes: true });
+
+      const doctorBackup = backedUp.find((b) => b.rel === "scripts/hyperion/doctor.mjs");
+      assert.ok(doctorBackup, "the modified doctor.mjs must be recorded as backed up");
+      assert.equal(
+        readFileSync(join(client, doctorBackup.backup), "utf8"),
+        "export const v = 1;\n",
+        "the backup must hold the client's PRE-overwrite content, not the kit's"
+      );
+      assert.equal(
+        readFileSync(join(client, "scripts", "hyperion", "doctor.mjs"), "utf8"),
+        "export const v = 2;\n",
+        "the live file still gets the kit's new content — this is backup, not preserve"
+      );
+      assert.ok(
+        doctorBackup.backup.startsWith(`${UPGRADE_BACKUP_DIR}/`),
+        "backup path must live under the gitignored backup dir"
+      );
+
+      // .github/skills/setup/x/SKILL.md is a first-time "add" for this
+      // client (doesn't exist yet) — nothing to lose, so no backup entry.
+      const skillBackup = backedUp.find((b) => b.rel === ".github/skills/setup/x/SKILL.md");
+      assert.equal(skillBackup, undefined, "a first-time add must never be backed up");
+    } finally {
+      rmSync(kit, { recursive: true, force: true });
+      rmSync(client, { recursive: true, force: true });
+    }
+  });
+
+  it("never backs up or touches a custom file the adopter added under a managed dir", async () => {
+    const kit = mkdtempSync(join(tmpdir(), "kit-"));
+    const client = mkdtempSync(join(tmpdir(), "client-"));
+    try {
+      makeKit(kit);
+      makeClient(client);
+      mkdirSync(join(client, ".github", "skills", "custom", "my-skill"), { recursive: true });
+      writeFileSync(
+        join(client, ".github", "skills", "custom", "my-skill", "SKILL.md"),
+        "# our own custom skill\n"
+      );
+
+      const plan = await buildUpgradePlan(kit, client);
+      assert.ok(
+        !plan.some((p) => p.rel === ".github/skills/custom/my-skill/SKILL.md"),
+        "a skill that doesn't exist in the kit's own tree must never appear in the plan"
+      );
+
+      const { backedUp } = await applyUpgradePlan(kit, client, plan, { yes: true });
+      assert.ok(!backedUp.some((b) => b.rel.includes("custom/my-skill")));
+      assert.equal(
+        readFileSync(join(client, ".github", "skills", "custom", "my-skill", "SKILL.md"), "utf8"),
+        "# our own custom skill\n",
+        "the adopter's own skill file must survive the upgrade untouched"
+      );
+    } finally {
+      rmSync(kit, { recursive: true, force: true });
+      rmSync(client, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("upgrade-lib edge cases", () => {
+  function tmp(prefix) {
+    return mkdtempSync(join(tmpdir(), prefix));
+  }
+
+  it("mergePackageJson only replaces a Hyperion-style test script and merges bin", () => {
+    const kit = { scripts: { test: "npm run hyperion:test" }, bin: { hyperion: "./cli.mjs" }, type: "module" };
+    assert.equal(mergePackageJson({ scripts: { test: "jest" } }, kit).scripts.test, "jest");
+    assert.equal(mergePackageJson({ scripts: { test: "npm run cards:test" } }, kit).scripts.test, "npm run hyperion:test");
+    const fresh = mergePackageJson({ bin: { app: "./app.js" } }, kit);
+    assert.equal(fresh.scripts.test, "npm run hyperion:test");
+    assert.deepEqual(fresh.bin, { app: "./app.js", hyperion: "./cli.mjs" });
+    assert.equal(fresh.type, "module");
+    assert.equal(mergePackageJson({ type: "commonjs", engines: { node: ">=18" } }, { engines: { node: ">=20" }, type: "module" }).type, "commonjs");
+  });
+
+  it("plans extra .cursor/rules files and a missing client package.json, never client-owned files", async () => {
+    const kit = tmp("kit-");
+    const client = tmp("client-");
+    try {
+      mkdirSync(join(kit, ".cursor", "rules"), { recursive: true });
+      mkdirSync(join(kit, ".github", "memory"), { recursive: true });
+      writeFileSync(join(kit, ".cursor", "rules", "extra.mdc"), "x\n");
+      writeFileSync(join(kit, ".cursor", "rules", "notes.md"), "x\n");
+      writeFileSync(join(kit, ".cursor", "rules", "ignored.txt"), "x\n");
+      writeFileSync(join(kit, ".github", "project.yml"), "name: kit\n");
+      writeFileSync(join(kit, ".github", "memory", "PROJECT.md"), "# kit\n");
+      writeFileSync(join(kit, "package.json"), JSON.stringify({ scripts: { "hyperion:doctor": "d" } }));
+      const plan = await buildUpgradePlan(kit, client);
+      const byRel = Object.fromEntries(plan.map((p) => [p.rel, p]));
+      assert.equal(byRel[".cursor/rules/extra.mdc"].action, "add");
+      assert.equal(byRel[".cursor/rules/notes.md"].action, "add");
+      assert.ok(!byRel[".cursor/rules/ignored.txt"]);
+      assert.ok(!byRel[".github/project.yml"]);
+      assert.ok(!byRel[".github/memory/PROJECT.md"]);
+      assert.deepEqual(byRel["package.json"], { rel: "package.json", action: "add", reason: "merge-scripts" });
+      assert.equal(summarizePlan(plan).preserve, 0);
+    } finally {
+      rmSync(kit, { recursive: true, force: true });
+      rmSync(client, { recursive: true, force: true });
+    }
+  });
+
+  it("no managed file is client-owned (buildUpgradePlan relies on it to never overwrite one)", () => {
+    // MANAGED_DIRS entries are filtered with isPreserved(); single files, workflows and rules are not.
+    for (const rel of [...MANAGED_FILES, ".github/workflows/hyperion-x.yml", ".cursor/rules/x.mdc"]) {
+      assert.equal(isPreserved(rel), false, rel);
+    }
+  });
+
+  it("applyUpgradePlan is a no-op without yes, creates package.json and pins the kit's git HEAD", async () => {
+    const kit = tmp("kit-");
+    const client = tmp("client-");
+    try {
+      mkdirSync(join(kit, "scripts", "hyperion"), { recursive: true });
+      writeFileSync(join(kit, "scripts", "hyperion", "doctor.mjs"), "v\n");
+      writeFileSync(join(kit, "package.json"), JSON.stringify({ description: "kit", scripts: { "hyperion:doctor": "d" } }));
+      const head = gitCommitAll(kit, "kit");
+
+      const plan = await buildUpgradePlan(kit, client);
+      assert.deepEqual(await applyUpgradePlan(kit, client, plan), { applied: [], backedUp: [] });
+      const { applied } = await applyUpgradePlan(kit, client, plan, { yes: true });
+      assert.ok(applied.includes("package.json"));
+      const pkg = JSON.parse(readFileSync(join(client, "package.json"), "utf8"));
+      assert.equal(pkg.private, true);
+      assert.equal(pkg.scripts["hyperion:doctor"], "d");
+      const meta = JSON.parse(readFileSync(join(client, ".github", "hyperion-kit.json"), "utf8"));
+      assert.equal(meta.commit, head);
+      assert.equal(meta.kit_description, "kit");
+    } finally {
+      rmSync(kit, { recursive: true, force: true });
+      rmSync(client, { recursive: true, force: true });
+    }
+  });
+
+  it("applyUpgradePlan without a kit package.json still records remote metadata", async () => {
+    const kit = tmp("kit-");
+    const client = tmp("client-");
+    try {
+      mkdirSync(join(kit, "scripts", "hyperion"), { recursive: true });
+      writeFileSync(join(kit, "scripts", "hyperion", "doctor.mjs"), "v\n");
+      const plan = await buildUpgradePlan(kit, client);
+      await applyUpgradePlan(kit, client, plan, {
+        yes: true,
+        remoteMeta: { repo: "acme/kit", ref: "main", commit: "abcdef1234567890" },
+        sourceLabel: "github.com/acme/kit@main",
+      });
+      const meta = JSON.parse(readFileSync(join(client, ".github", "hyperion-kit.json"), "utf8"));
+      assert.equal(meta.repo, "acme/kit");
+      assert.equal(meta.ref, "main");
+      assert.equal(meta.source, "github.com/acme/kit@main");
+      assert.equal(meta.kit_description, undefined);
+      assert.match(readFileSync(join(client, "CHANGELOG.md"), "utf8"), /\(abcdef123456\)/);
+    } finally {
+      rmSync(kit, { recursive: true, force: true });
+      rmSync(client, { recursive: true, force: true });
+    }
+  });
+
+  it("recordUpgradeChangelog injects under an existing [Unreleased] heading once", async () => {
+    const client = tmp("client-");
+    try {
+      writeFileSync(join(client, "CHANGELOG.md"), "# Changelog\n\n## [Unreleased]\n\n## [1.0.0]\n- first\n");
+      const meta = { upgraded_at: "2026-01-02T00:00:00.000Z" };
+      await recordUpgradeChangelog(client, meta, 3);
+      await recordUpgradeChangelog(client, meta, 3);
+      const text = readFileSync(join(client, "CHANGELOG.md"), "utf8");
+      assert.equal(
+        text,
+        "# Changelog\n\n## [Unreleased]\n\n### Changed\n- Hyperion kit upgrade 2026-01-02 — 3 paths updated\n\n## [1.0.0]\n- first\n"
+      );
+      await recordUpgradeChangelog(client, {}, 1);
+      assert.match(readFileSync(join(client, "CHANGELOG.md"), "utf8"), /- Hyperion kit upgrade \d{4}-\d{2}-\d{2} — 1 paths updated/);
+    } finally {
+      rmSync(client, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("leaked kit workflows", () => {
+  const kitWorkflow = (name) => readFileSync(join(kitRepoRoot, ".github", "workflows", name), "utf8");
+  const writeWorkflows = (root, files, { pin = true } = {}) => {
+    mkdirSync(join(root, ".github", "workflows"), { recursive: true });
+    for (const [name, text] of Object.entries(files)) {
+      writeFileSync(join(root, ".github", "workflows", name), text);
+    }
+    if (pin) writeFileSync(join(root, ".github", "hyperion-kit.json"), '{ "kit_name": "hyperion" }\n');
+  };
+  const allKitOnly = () =>
+    Object.fromEntries(KIT_ONLY_WORKFLOWS.map((wf) => [wf.file, kitWorkflow(wf.file)]));
+
+  it("reports nothing without the upgrade pin (the kit's own checkout)", async () => {
+    const kitLike = mkdtempSync(join(tmpdir(), "kit-"));
+    try {
+      writeWorkflows(kitLike, allKitOnly(), { pin: false });
+      assert.deepEqual(await detectLeakedKitWorkflows(kitLike), []);
+      assert.deepEqual(await detectLeakedKitWorkflows(kitRepoRoot), []);
+    } finally {
+      rmSync(kitLike, { recursive: true, force: true });
+    }
+  });
+
+  it("flags every kit-only workflow as this kit ships it", async () => {
+    const client = mkdtempSync(join(tmpdir(), "client-"));
+    try {
+      writeWorkflows(client, allKitOnly());
+      const found = await detectLeakedKitWorkflows(client);
+      assert.deepEqual(
+        found.map((f) => f.rel).sort(),
+        KIT_ONLY_WORKFLOWS.map((wf) => `.github/workflows/${wf.file}`).sort()
+      );
+      assert.ok(found.every((f) => f.why));
+    } finally {
+      rmSync(client, { recursive: true, force: true });
+    }
+  });
+
+  it("leaves product workflows rendered by /pipeline alone", async () => {
+    const client = mkdtempSync(join(tmpdir(), "client-"));
+    try {
+      const template = (name) =>
+        readFileSync(join(__dirname, "templates", "workflows", name), "utf8");
+      writeWorkflows(client, {
+        [HYPERION_WORKFLOWS.syncCards]: renderSyncCardsWorkflow(),
+        [HYPERION_WORKFLOWS.cardsPrGuard]: renderPrBoardGuardWorkflow(),
+        [HYPERION_WORKFLOWS.cardsPrRecheck]: renderPrRecheckWorkflow(),
+        [HYPERION_WORKFLOWS.validate]: template(HYPERION_WORKFLOWS.validate),
+        [HYPERION_WORKFLOWS.security]: kitWorkflow(HYPERION_WORKFLOWS.security),
+        [HYPERION_WORKFLOWS.productCi]: template(HYPERION_WORKFLOWS.productCi),
+        "product.yml": "name: product\n",
+      });
+      assert.deepEqual(await detectLeakedKitWorkflows(client), []);
+    } finally {
+      rmSync(client, { recursive: true, force: true });
+    }
+  });
+
+  it("formatLeakedKitWorkflowsHelp says which files to delete, then pipeline-apply --yes", () => {
+    assert.deepEqual(formatLeakedKitWorkflowsHelp([]), []);
+    const lines = formatLeakedKitWorkflowsHelp([
+      { rel: ".github/workflows/hyperion-validate.yml", why: "a" },
+      { rel: ".github/workflows/hyperion-e2e-cards.yml", why: "b" },
+    ]);
+    const text = lines.join("\n");
+    assert.match(text, /hyperion-validate\.yml — a/);
+    assert.ok(
+      lines.includes("  git rm .github/workflows/hyperion-validate.yml .github/workflows/hyperion-e2e-cards.yml")
+    );
+    assert.ok(lines.includes("  npm run hyperion:pipeline-apply -- --yes"));
+    assert.ok(
+      text.indexOf("git rm") < text.indexOf("pipeline-apply -- --yes"),
+      "delete first, then regenerate"
+    );
+  });
+
+  it("formatWorkflowRefreshHelp names exactly the files pipeline-apply --refresh-sync rewrites", () => {
+    const source = readFileSync(join(__dirname, "pipeline-apply.mjs"), "utf8");
+    const block = source.slice(source.indexOf("const REFRESH_TARGETS = ["));
+    const targets = block.slice(0, block.indexOf("\n];"));
+    const keys = [...new Set([...targets.matchAll(/HYPERION_WORKFLOWS\.(\w+)/g)].map((m) => m[1]))];
+    assert.deepEqual(keys.sort(), ["cardsPrGuard", "cardsPrRecheck", "syncCards"]);
+
+    const lines = formatWorkflowRefreshHelp();
+    const refreshSync = lines.find((l) => l.includes("--refresh-sync"));
+    for (const key of keys) assert.ok(refreshSync.includes(HYPERION_WORKFLOWS[key]), key);
+    assert.match(refreshSync, /GitLab\/Azure/);
+    for (const key of ["security", "validate", "productCi"]) {
+      assert.ok(!refreshSync.includes(HYPERION_WORKFLOWS[key]), `${key} is not a --refresh-sync target`);
+    }
+    assert.match(lines.find((l) => l.includes("--refresh-gates")), /hyperion-product-ci\.yml/);
+    const notRefreshed = lines.find((l) => l.startsWith("Neither"));
+    assert.match(notRefreshed, /hyperion-security\.yml/);
+    assert.match(notRefreshed, /hyperion-validate\.yml/);
+  });
+
+  it("hyperion:upgrade prints the leaked files on a dry-run and the refresh help after applying", () => {
+    const kit = mkdtempSync(join(tmpdir(), "kit-"));
+    const client = mkdtempSync(join(tmpdir(), "client-"));
+    try {
+      makeKit(kit);
+      makeClient(client);
+      writeWorkflows(client, { "hyperion-docker-publish.yml": kitWorkflow("hyperion-docker-publish.yml") });
+      const run = (...extra) =>
+        spawnSync(process.execPath, [join(__dirname, "upgrade.mjs"), "--from", kit, ...extra], {
+          cwd: client,
+          encoding: "utf8",
+        });
+
+      const dry = run();
+      assert.equal(dry.status, 0, dry.stderr);
+      assert.match(dry.stdout, /git rm \.github\/workflows\/hyperion-docker-publish\.yml/);
+      assert.match(dry.stdout, /npm run hyperion:pipeline-apply -- --yes/);
+      assert.ok(existsSync(join(client, ".github", "workflows", "hyperion-docker-publish.yml")), "never deletes on its own");
+
+      const applied = run("--yes");
+      assert.equal(applied.status, 0, applied.stderr);
+      assert.match(applied.stdout, /--refresh-sync --yes .*hyperion-cards-pr-recheck\.yml/);
+      assert.match(applied.stdout, /Neither refreshes hyperion-security\.yml or hyperion-validate\.yml/);
+    } finally {
+      rmSync(kit, { recursive: true, force: true });
+      rmSync(client, { recursive: true, force: true });
+    }
+  });
+
+  it("hyperion:doctor warns about leaked kit workflows without changing its exit code", () => {
+    const clean = mkdtempSync(join(tmpdir(), "client-"));
+    const leaked = mkdtempSync(join(tmpdir(), "client-"));
+    try {
+      for (const dir of [clean, leaked]) makeClient(dir);
+      writeWorkflows(clean, {});
+      writeWorkflows(leaked, {
+        [HYPERION_WORKFLOWS.validate]: kitWorkflow(HYPERION_WORKFLOWS.validate),
+        "hyperion-e2e-cards.yml": kitWorkflow("hyperion-e2e-cards.yml"),
+      });
+      const doctor = (cwd) =>
+        spawnSync(process.execPath, [join(__dirname, "doctor.mjs"), "--skip-cards"], {
+          cwd,
+          encoding: "utf8",
+        });
+
+      const before = doctor(clean);
+      const after = doctor(leaked);
+      assert.equal(after.status, before.status, "a warning, never a failure");
+      assert.doesNotMatch(before.stdout, /kit's own CI/);
+
+      const lines = after.stdout.split(/\r?\n/);
+      const head = lines.find((l) => l.includes("kit's own CI, copied by an earlier hyperion:upgrade"));
+      assert.ok(head, after.stdout);
+      assert.match(head, /⚠️/);
+      assert.ok(
+        lines.some((l) =>
+          l.endsWith("git rm .github/workflows/hyperion-validate.yml .github/workflows/hyperion-e2e-cards.yml")
+        ),
+        after.stdout
+      );
+      assert.ok(lines.some((l) => l.endsWith("npm run hyperion:pipeline-apply -- --yes")), after.stdout);
+    } finally {
+      rmSync(clean, { recursive: true, force: true });
+      rmSync(leaked, { recursive: true, force: true });
     }
   });
 });

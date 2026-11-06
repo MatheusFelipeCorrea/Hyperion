@@ -43,7 +43,10 @@ With Cursor, Copilot, or Claude Code, **you do not need npm**. Say:
 | **`/migrate`** or *"Adapt Hyperion to this repo"* | Legacy repo → project.yml + memory |
 | **`/refine`** or *"Refine into cards"* | Structured cards |
 | **`/audit`** or *"Full repo audit"* | Six audit dimensions |
+| **`/fluency`** or *"AI fluency scan"* | Fluency + harness scan (two scores out of 15) |
 | **`/review`** | Code review |
+| **`/smoke`** or *"Boot the app and exercise the spec"* | Real-app smoke; report only |
+| **`/pr`** | Open a PR in the repo language (`locale`; multilingual when `languages` has more than one) |
 | **`/pr-review`** | Open PR review (diff + tests) |
 | **`/deps`** | Dependency health (audit + outdated) |
 | **`/implement`** | Implementation plan for a card |
@@ -124,7 +127,7 @@ Skill `plantuml-generator` — writes `.puml` / `.mmd` sources (PNG export is ma
 
 | Say this | Result |
 |----------|--------|
-| **`/diagram`** + *"Complete package"* | 11 diagrams in recommended order (approval between each) |
+| **`/diagram`** + *"Complete package"* | 12 diagrams in recommended order (approval between each) |
 | *"Sequence diagram for login"* | `Sequencia/sequencia-login.puml` |
 | *"ER model for the database"* | `Modelo de Dados/modelo-dados.puml` |
 | *"Order state machine"* | `Estado/estado-pedido.puml` |

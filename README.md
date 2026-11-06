@@ -7,7 +7,7 @@
   <a href="https://github.com/MatheusFelipeCorrea/Hyperion"><img src="https://img.shields.io/badge/repo-Hyperion-2563EB?style=for-the-badge&labelColor=0B1220&logo=github" alt="GitHub"></a>
   <a href="https://github.com/MatheusFelipeCorrea/Hyperion/actions/workflows/hyperion-validate.yml"><img src="https://img.shields.io/github/actions/workflow/status/MatheusFelipeCorrea/Hyperion/hyperion-validate.yml?branch=main&style=for-the-badge&label=validate&labelColor=0B1220" alt="Kit validation"></a>
   <img src="https://img.shields.io/badge/agents-8-F5D76E?style=for-the-badge&labelColor=0B1220" alt="8 agents">
-  <img src="https://img.shields.io/badge/skills-30-F5D76E?style=for-the-badge&labelColor=0B1220" alt="30 skills">
+  <img src="https://img.shields.io/badge/skills-37-F5D76E?style=for-the-badge&labelColor=0B1220" alt="37 skills">
 </p>
 
 <p align="center">
@@ -21,8 +21,10 @@
   <a href="./GETTING-STARTED.md"><img src="https://img.shields.io/badge/▶_Começar-GETTING--STARTED-F5D76E?style=for-the-badge&labelColor=0B1220" alt="Começar"></a>
   <a href="./.github/docs/reference/catalogo-skills.md"><img src="https://img.shields.io/badge/📚_Skills-catálogo-2563EB?style=for-the-badge&labelColor=0B1220" alt="Skills"></a>
   <a href="./.github/docs/reference/comandos-rapidos.md"><img src="https://img.shields.io/badge/💬_Comandos-lista-2563EB?style=for-the-badge&labelColor=0B1220" alt="Comandos"></a>
-  <a href="./.github/docs/onboarding/learning-path-en.md"><img src="https://img.shields.io/badge/English-guide-94A3B8?style=for-the-badge&labelColor=0B1220" alt="English"></a>
+  <a href="./README.en.md"><img src="https://img.shields.io/badge/English-README-94A3B8?style=for-the-badge&labelColor=0B1220" alt="English"></a>
 </p>
+
+**Português** · **English:** [README.en.md](./README.en.md)
 
 ---
 
@@ -62,7 +64,7 @@ Cinco áreas. Cada uma tem comandos no chat e skills por trás.
 |---|------|------------------|------------------|
 | 🧭 | **Bootstrap** | Ligar o kit, saúde, CI, board | `/setup` · `/migrate` · `/doctor` · `/pipeline` · `/sync` |
 | 📋 | **Planejamento** | Ideia → cards → spec | `/explore` · `/refine` · `/spec` · `/spec-review` |
-| ⚡ | **Entrega** | Plano, código, PR | `/implement` · `/execute` · `/pr-review` · `/test-plan` |
+| ⚡ | **Entrega** | Plano, código, PR | `/implement` · `/execute` · `/pr` · `/pr-review` · `/test-plan` |
 | 🔍 | **Qualidade** | Auditar produto / código / ops | `/audit` · `/security` · `/architecture` · `/deps` |
 | 📚 | **Docs & release** | Diagramas, ADR, changelog, tag | `/diagram` · `/adr` · `/changelog` · `/release` |
 
@@ -82,9 +84,9 @@ Trilha completa: [fluxo-completo.md](./.github/docs/meta/fluxo-completo.md) · E
 **Agent** = fluxo longo (`.agent.md`) com pausas para você aprovar.
 
 <img src="https://img.shields.io/badge/setup-8_skills-2563EB?style=flat-square&labelColor=0B1220" alt="setup">
-<img src="https://img.shields.io/badge/planning-6_skills-2563EB?style=flat-square&labelColor=0B1220" alt="planning">
-<img src="https://img.shields.io/badge/quality-9+_skills-2563EB?style=flat-square&labelColor=0B1220" alt="quality">
-<img src="https://img.shields.io/badge/docs-5_skills-2563EB?style=flat-square&labelColor=0B1220" alt="docs">
+<img src="https://img.shields.io/badge/planning-8_skills-2563EB?style=flat-square&labelColor=0B1220" alt="planning">
+<img src="https://img.shields.io/badge/quality-13_skills-2563EB?style=flat-square&labelColor=0B1220" alt="quality">
+<img src="https://img.shields.io/badge/docs-6_skills-2563EB?style=flat-square&labelColor=0B1220" alt="docs">
 <img src="https://img.shields.io/badge/agents-8-F5D76E?style=flat-square&labelColor=0B1220" alt="agents">
 
 ### 🧭 Bootstrap / setup
@@ -109,6 +111,7 @@ Trilha completa: [fluxo-completo.md](./.github/docs/meta/fluxo-completo.md) · E
 | acceptance-spec | `/spec` | Spec Given/When/Then |
 | project-architect | `/architect` | Blueprint greenfield |
 | refactor-guide | `/refactor` | Plano de refactor seguro |
+| api-contract-guide | `/api-contract` | Versionamento de API, breaking changes |
 | sprint-retro | `/retro` | Retrospectiva |
 
 ### ⚡ Entrega (agents + skills)
@@ -119,6 +122,7 @@ Trilha completa: [fluxo-completo.md](./.github/docs/meta/fluxo-completo.md) · E
 | implementation-executor *(agent)* | `/execute` | Código + testes da fase |
 | pr-reviewer *(agent)* | `/pr-review` | Revisa PR aberto |
 | testing-strategy | `/test-plan` | Estratégia de testes |
+| feature-flag-manager | `/feature-flags` | Ciclo de vida de flag: rollout, kill switch, remoção |
 | spec-review *(agent)* | `/spec-review` | Gate de spec antes de codar |
 
 ### 🔍 Qualidade
@@ -130,6 +134,10 @@ Trilha completa: [fluxo-completo.md](./.github/docs/meta/fluxo-completo.md) · E
 | security / architecture / devops / po / ux / code-review | `/security` · `/architecture` · … | Dimensão única |
 | dependency-health | `/deps` | Dependências desatualizadas / risco |
 | tech-debt-tracker | `/tech-debt` | Inventário de dívida |
+| eng-metrics | `/eng-metrics` | Snapshot DORA (deploy, lead time, MTTR) |
+| ai-fluency | `/fluency` | Fluência de IA + harness (duas notas /15) |
+| smoke | `/smoke` | Sobe a app e exercita a spec; só reporta |
+| compliance-audit | `/compliance` | Sinais técnicos LGPD/GDPR |
 
 ### 📚 Docs & release
 
@@ -139,6 +147,7 @@ Trilha completa: [fluxo-completo.md](./.github/docs/meta/fluxo-completo.md) · E
 | adr-generator | `/adr` | Architecture Decision Record |
 | changelog-generator | `/changelog` | CHANGELOG |
 | readme-updater | `/readme` | Atualiza README(s) |
+| pr-writer | `/pr` | Abre PR no idioma do repo (multilíngue se configurado) |
 | release *(agent)* | `/release` | Changelog + versão + tag |
 
 📄 **Lista completa (quando · output · link do SKILL):** [catalogo-skills.md](./.github/docs/reference/catalogo-skills.md)
@@ -170,6 +179,7 @@ Se o `/` não aparecer no Cursor, diga a frase: *“Configura o Hyperion neste r
 |----------|---------|
 | Subir cards pro board | `/sync` |
 | Spec antes de codar | `/spec` · `/spec-review` |
+| Abrir PR | `/pr` |
 | Revisar PR | `/pr-review` |
 | Auditoria | `/audit` (rápida) ou `/audit-run` (com gates) |
 | Dependências / release | `/deps` · `/release` |
@@ -189,9 +199,11 @@ git clone https://github.com/MatheusFelipeCorrea/Hyperion.git
 |---|--------|------|
 | 1 | **Obter** | Clone ou ZIP → pasta **`Hyperion`** |
 | 2 | **Colar** | Coloque a pasta **inteira** em `seu-produto/Hyperion/` |
-| 3 | **Instalar** | Dentro de `Hyperion/`: `npm install` (ajv + js-yaml — únicas dependências do kit) |
+| 3 | **Instalar** | Tem Node ≥ 20? Dentro de `Hyperion/`: `npm install` (ajv + js-yaml — únicas dependências do kit). **Sem Node no produto?** Pule este passo — o wrapper `./bin/hyperion` roda via Docker automaticamente em qualquer comando dos passos seguintes. Ver [node-and-docker.md](./.github/docs/meta/node-and-docker.md) |
 | 4 | **Shims** | Na raiz do produto: `npm run hyperion:init --prefix Hyperion -- --adopt` |
 | 5 | **Usar** | Chat no **produto**: `/setup` ou `/migrate` |
+
+🌐 **Idioma:** o `/setup` pergunta o idioma do repo (`locale: pt-BR`, `en`, `es`…). Com `languages: [pt-BR, en]` os PRs, comentários e releases saem nas duas línguas. Código, branches e o tipo do commit continuam em inglês — ver [language-policy.md](./.github/docs/meta/language-policy.md).
 
 <details>
 <summary><strong>📦 Detalhes (pasta Hyperion + o que fica na raiz)</strong></summary>
@@ -253,7 +265,9 @@ npm run hyperion:sync
 
 ## Contribuir
 
-Melhorias no **repositório Hyperion**: [CONTRIBUTING.md](./CONTRIBUTING.md) · [Code of Conduct](./CODE_OF_CONDUCT.md) · [Security](./SECURITY.md) · [Support](./SUPPORT.md) · [Changelog](./CHANGELOG.md)
+Melhorias no **repositório Hyperion**: [CONTRIBUTING.md](./CONTRIBUTING.md) · [Code of Conduct](./CODE_OF_CONDUCT.md) · [Security](./SECURITY.md) · [Support](./SUPPORT.md) · [Changelog](./CHANGELOG.md) · [Roadmap](./ROADMAP.md)
+
+`main` é protegida — PRs entram por `dev`, nunca direto. Fluxo completo (`dev` → `qa` → `main`) na seção [Fluxo de branches](./CONTRIBUTING.md#fluxo-de-branches) do CONTRIBUTING.md.
 
 Issues boas para começar: filtre por [`good first issue`](https://github.com/MatheusFelipeCorrea/Hyperion/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22).
 

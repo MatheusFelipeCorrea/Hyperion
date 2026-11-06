@@ -15,11 +15,16 @@
  */
 import process from "node:process";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { pathExists, fail, log, ok, warn } from "./lib.mjs";
 import {
-  applyUpgradePlan,
-  buildUpgradePlan,
-  summarizePlan,
+  applyUpgradePlan as applyUpgradePlanLocal,
+  buildUpgradePlan as buildUpgradePlanLocal,
+  detectLeakedKitWorkflows,
+  formatLeakedKitWorkflowsHelp,
+  formatWorkflowRefreshHelp,
+  summarizePlan as summarizePlanLocal,
+  UPGRADE_BACKUP_DIR,
 } from "./upgrade-lib.mjs";
 import {
   cleanupTemp,
@@ -29,6 +34,28 @@ import {
   resolveOrigin,
   sameCommit,
 } from "./upgrade-fetch.mjs";
+
+/**
+ * Prefer plan/apply (and migrations like docs.* heal) from the kit being
+ * installed — Node binds static imports at process start, so an old local
+ * upgrade.mjs would otherwise skip heals that only exist in --from / tip.
+ */
+async function loadPlanApi(kitRoot) {
+  const candidate = path.join(kitRoot, "scripts", "hyperion", "upgrade-lib.mjs");
+  if (!(await pathExists(candidate))) {
+    return {
+      buildUpgradePlan: buildUpgradePlanLocal,
+      applyUpgradePlan: applyUpgradePlanLocal,
+      summarizePlan: summarizePlanLocal,
+    };
+  }
+  const mod = await import(pathToFileURL(candidate).href);
+  return {
+    buildUpgradePlan: mod.buildUpgradePlan || buildUpgradePlanLocal,
+    applyUpgradePlan: mod.applyUpgradePlan || applyUpgradePlanLocal,
+    summarizePlan: mod.summarizePlan || summarizePlanLocal,
+  };
+}
 
 function parseArgs(argv) {
   let from = process.env.HYPERION_KIT_ROOT || "";
@@ -66,7 +93,18 @@ function printHelp() {
   log("", "Origin file: .github/hyperion-origin.json");
   log("", "Pin file:    .github/hyperion-kit.json (written after --yes)");
   log("", "");
-  log("", "Preserved: project.yml, memory/, cards/, plans/, .env");
+  log("", "Preserved: project.yml, memory/, cards/, plans/, .env, .github/workflows/");
+  log("", "Heal: docs.* paths in project.yml that do not exist are set to null (legacy main example).");
+  log("", `A managed file you've locally modified is backed up to ${UPGRADE_BACKUP_DIR}/ before being overwritten.`);
+}
+
+async function reportLeakedKitWorkflows(targetRoot) {
+  const help = formatLeakedKitWorkflowsHelp(await detectLeakedKitWorkflows(targetRoot));
+  if (!help.length) return;
+  log("", "");
+  warn(help[0]);
+  for (const line of help.slice(1)) log("", line);
+  log("", "");
 }
 
 async function main() {
@@ -112,6 +150,7 @@ async function main() {
       const local = await readLocalKitMeta(targetRoot);
       if (local?.commit && sameCommit(local.commit, tip.sha)) {
         ok(`Already up to date (pinned ${String(local.commit).slice(0, 12)})`);
+        await reportLeakedKitWorkflows(targetRoot);
         if (args.check) process.exit(0);
         process.exit(0);
       }
@@ -142,8 +181,9 @@ async function main() {
     log("", args.yes ? "Mode: APPLY (--yes)" : "Mode: DRY-RUN (pass --yes to apply)");
     log("", "");
 
-    const items = await buildUpgradePlan(kitRoot, targetRoot);
-    const counts = summarizePlan(items);
+    const planApi = await loadPlanApi(kitRoot);
+    const items = await planApi.buildUpgradePlan(kitRoot, targetRoot);
+    const counts = planApi.summarizePlan(items);
     const show = items.filter((i) => i.action === "add" || i.action === "update");
     const capped = show.slice(0, 40);
     for (const i of capped) {
@@ -160,6 +200,8 @@ async function main() {
       `Plan: +${counts.add} add · ~${counts.update} update · =${counts.unchanged} same · ⊘${counts.preserve} preserve`
     );
 
+    await reportLeakedKitWorkflows(targetRoot);
+
     if (!args.yes) {
       warn("Dry-run only. Re-run with --yes to fetch/apply (remote) or apply (--from).");
       ok("hyperion:upgrade dry-run complete");
@@ -169,13 +211,26 @@ async function main() {
       return;
     }
 
-    const applied = await applyUpgradePlan(kitRoot, targetRoot, items, {
+    const { applied, backedUp, healedDocs = [] } = await planApi.applyUpgradePlan(kitRoot, targetRoot, items, {
       yes: true,
       remoteMeta,
       sourceLabel,
     });
     ok(`Applied ${applied.length} paths`);
+    if (backedUp.length) {
+      warn(
+        `${backedUp.length} locally-modified file(s) were overwritten — your previous version is saved under ${UPGRADE_BACKUP_DIR}/ (gitignored, safe to diff/restore/delete):`
+      );
+      for (const b of backedUp) log("", `  ${b.rel}  →  ${b.backup}`);
+    }
+    if (healedDocs.length) {
+      warn(
+        `Nulled ${healedDocs.length} docs.* path(s) in project.yml that do not exist on disk (legacy example from older main). Re-set them after you create the folders:`
+      );
+      for (const h of healedDocs) log("", `  docs.${h.key}: ${h.was} → null`);
+    }
     log("", "Next: npm run hyperion:doctor");
+    for (const line of formatWorkflowRefreshHelp()) log("", line);
     ok("hyperion:upgrade complete");
   } finally {
     cleanupTemp(tempParent);

@@ -9,6 +9,8 @@ import {
   workspaceRoot,
 } from "./lib.mjs";
 import { detectPipeline, buildPipelinePlan, auditHyperionPipelineFiles } from "./pipeline-lib.mjs";
+import { ciError, ciErrorList } from "./ci-annotate.mjs";
+import { detectLeakedKitWorkflows, formatLeakedKitWorkflowsHelp } from "./upgrade-lib.mjs";
 
 const argYes = process.argv.includes("--yes");
 const argSkipCards = process.argv.includes("--skip-cards");
@@ -25,6 +27,7 @@ async function main() {
   log("", `Repository: ${health.repo || "not detected"}`);
   log("", `GitHub token: ${health.token ? "available" : "missing"}`);
   log("", `project.yml: ${health.hasProjectYml ? "present" : "missing"}`);
+  log("", health.languageSummary);
   log("", `memory/PROJECT.md: ${health.memoryFilled ? "filled" : "template/empty"}`);
   log("", `CI policy: ${detection.config.policy} · stack: ${detection.stack} · product CI: ${detection.hasProductCi ? "yes" : "no"}`);
   log("", "");
@@ -47,6 +50,12 @@ async function main() {
     }
   }
 
+  const leakedHelp = formatLeakedKitWorkflowsHelp(await detectLeakedKitWorkflows(workspaceRoot));
+  if (leakedHelp.length) {
+    warn(leakedHelp[0]);
+    for (const line of leakedHelp.slice(1)) log("", line);
+  }
+
   if (health.issues.length === 0 && health.warnings.length === 0) {
     ok("Kit structure looks good.");
   }
@@ -56,26 +65,25 @@ async function main() {
     log("", "");
     log("", "Running cards-sync doctor...");
     const cards = await runNodeScriptAsync("doctor.mjs", argYes ? ["--yes"] : []);
-    const cardsOutputOk =
-      cards.stdout.includes("Doctor finished.") &&
-      !cards.stdout.includes("Missing required Project fields");
     cardsWarningCount = (cards.stdout.match(/\[doctor\] ⚠️/g) || []).length;
     if (cards.code !== 0) {
-      if (process.platform === "win32" && cardsOutputOk) {
-        warn("cards-sync doctor: Windows Node cleanup quirk — output OK, continuing.");
-      } else {
-        fail("cards-sync doctor reported issues.");
-        process.exit(cards.code);
-      }
+      fail(`cards-sync doctor reported issues (exit ${cards.code}).`);
+      ciError("The cards-sync doctor found problems (see its output above). Reproduce: npm run cards:doctor", { title: "Hyperion doctor" });
+      process.exit(cards.code);
     }
   }
 
-  const totalWarnings = health.warnings.length + cardsWarningCount;
+  const totalWarnings = health.warnings.length + cardsWarningCount + (leakedHelp.length ? 1 : 0);
 
   log("", "");
   if (health.issues.length > 0) {
     fail(`Doctor finished with ${health.issues.length} blocking issue(s).`);
     log("", "Fix blockers, then re-run: npm run hyperion:doctor");
+    ciErrorList(
+      "Hyperion doctor",
+      health.issues,
+      `${health.issues.length} blocking issue(s) in the Hyperion setup (listed above). Fix them, then re-run: npm run hyperion:doctor`
+    );
     process.exit(1);
   }
 
@@ -90,5 +98,6 @@ async function main() {
 
 main().catch((error) => {
   fail(`FATAL: ${error.message}`);
+  ciError(`${error.message} — likely a Hyperion bug; open an issue with the log.`, { title: "Hyperion doctor crashed" });
   process.exit(1);
 });

@@ -12,6 +12,8 @@
 import { readFileSync, existsSync, readdirSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { rootArg } from "./cli-args.mjs";
+import { recordEvent } from "./telemetry-lib.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const root = join(__dirname, "../..");
@@ -25,15 +27,15 @@ function argValue(flag) {
 function usage() {
   console.log(`Usage:
   npm run hyperion:plan-verify -- --plan <path-to-plan.md>
-  npm run hyperion:plan-verify -- --latest
+  npm run hyperion:plan-verify -- --latest [--root <repo-root>]
 
 Checks the plan has frontmatter (goal, card_id, status), at least one "### Phase"
 section, and a Verification section (## 7. Verification or ## Verification).
 `);
 }
 
-function findLatestPlan() {
-  const dir = join(root, ".github/plans/implementations");
+function findLatestPlan(repoRoot) {
+  const dir = join(repoRoot, ".github/plans/implementations");
   if (!existsSync(dir)) return null;
   const files = readdirSync(dir)
     .filter((f) => f.endsWith(".md") && !f.startsWith("."))
@@ -60,9 +62,10 @@ function main() {
     process.exit(0);
   }
 
+  const repoRoot = rootArg(root);
   let planPath = argValue("--plan");
   if (process.argv.includes("--latest") || !planPath) {
-    if (!planPath) planPath = findLatestPlan();
+    if (!planPath) planPath = findLatestPlan(repoRoot);
   }
   if (!planPath) {
     console.error("No plan specified and none found under .github/plans/implementations/");
@@ -124,6 +127,7 @@ function main() {
     console.error(`\nplan-verify FAILED (${failed})`);
     process.exit(1);
   }
+  recordEvent(repoRoot, "agent-gate", "plan-verify");
   console.log("plan-verify OK");
 }
 

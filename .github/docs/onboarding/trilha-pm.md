@@ -2,6 +2,8 @@
 
 **Persona:** PM, PO ou analista de negócios — precisa de cards, board e visibilidade **sem** mergulhar em CI ou scripts.
 
+**English:** [pm-track-en.md](./pm-track-en.md)
+
 | Passo | Comando / ação | Tempo |
 |-------|----------------|-------|
 | 1 | Leia [GETTING-STARTED.md](../../../GETTING-STARTED.md) — glossário + visão | 10 min |

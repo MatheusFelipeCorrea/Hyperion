@@ -3,9 +3,11 @@
  * Client repo stays cwd; --from points at a newer kit checkout.
  */
 import fs from "node:fs/promises";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
 import { spawnSync } from "node:child_process";
+import { HYPERION_WORKFLOWS, NO_AUTO_REFRESH_MARKER, WORKFLOWS_DIR } from "./pipeline-lib.mjs";
 
 /** Directories overwritten from the kit (recursive). */
 export const MANAGED_DIRS = [
@@ -24,7 +26,6 @@ export const MANAGED_FILES = [
   ".github/project.schema.json",
   ".github/project.example.yml",
   ".github/STRUCTURE.md",
-  ".github/dependabot.yml",
   ".github/hyperion-origin.json",
   ".github/copilot-instructions.md",
   ".github/mcp/servers.example.json",
@@ -55,6 +56,7 @@ export const PRESERVE_PREFIXES = [
   ".github/stories/",
   ".github/tasks/",
   ".github/_examples/",
+  ".github/audits/results/",
 ];
 
 const KIT_SCRIPT_PREFIXES = ["hyperion:", "cards:", "docs:", "skills:"];
@@ -67,15 +69,6 @@ export function isPreserved(rel) {
   const n = normalizeRel(rel);
   if (PRESERVE_PATHS.has(n)) return true;
   return PRESERVE_PREFIXES.some((pre) => n === pre.slice(0, -1) || n.startsWith(pre));
-}
-
-export function isHyperionWorkflow(rel) {
-  const n = normalizeRel(rel);
-  return (
-    n.startsWith(".github/workflows/") &&
-    path.posix.basename(n).startsWith("hyperion-") &&
-    (n.endsWith(".yml") || n.endsWith(".yaml"))
-  );
 }
 
 async function pathExists(p) {
@@ -126,10 +119,8 @@ export async function collectManagedRels(kitRoot) {
     if (await pathExists(abs)) rels.add(normalizeRel(file));
   }
 
-  const wfDir = path.join(kitRoot, ".github", "workflows");
-  for (const rel of await walkFiles(wfDir, ".github/workflows")) {
-    if (isHyperionWorkflow(rel)) rels.add(rel);
-  }
+  // No .github/workflows here: those are the kit's own CI. Product workflows are
+  // rendered from scripts/hyperion/templates/workflows by /pipeline (pipeline-apply).
 
   // Any extra .cursor/rules/*.mdc from kit (not only hyperion.mdc)
   const cursorRules = path.join(kitRoot, ".cursor", "rules");
@@ -154,10 +145,6 @@ export async function buildUpgradePlan(kitRoot, targetRoot) {
   const items = [];
 
   for (const rel of managed) {
-    if (isPreserved(rel)) {
-      items.push({ rel, action: "preserve", reason: "client-owned" });
-      continue;
-    }
     const from = path.join(kitRoot, ...rel.split("/"));
     const to = path.join(targetRoot, ...rel.split("/"));
     const destExists = await pathExists(to);
@@ -260,6 +247,27 @@ export function mergeGitignore(targetContent, kitContent) {
   return `${base ? `${base}\n\n` : ""}${GITIGNORE_MARKER_START}\n${kitBlock}\n${GITIGNORE_MARKER_END}\n`;
 }
 
+/** Where an "update" action's pre-overwrite copy is stashed — never committed (see .gitignore). */
+export const UPGRADE_BACKUP_DIR = ".hyperion-upgrade-backup";
+
+/**
+ * `collectManagedRels` only lists paths that exist in the KIT's own tree, so
+ * a brand-new file an adopter adds under a managed dir (e.g. a custom skill
+ * folder) is never touched. But an EXISTING kit file the adopter has locally
+ * modified (e.g. edited a shipped SKILL.md) shows up as action "update" and
+ * would otherwise be silently overwritten with the kit's stock version,
+ * losing that edit with no trace. Stash the pre-overwrite content here first
+ * so an overwritten customization is recoverable, not destroyed.
+ */
+async function backupBeforeOverwrite(targetRoot, rel, runStamp) {
+  const to = path.join(targetRoot, ...rel.split("/"));
+  if (!(await pathExists(to))) return null;
+  const backupPath = path.join(targetRoot, UPGRADE_BACKUP_DIR, runStamp, ...rel.split("/"));
+  await fs.mkdir(path.dirname(backupPath), { recursive: true });
+  await fs.copyFile(to, backupPath);
+  return path.posix.join(UPGRADE_BACKUP_DIR, runStamp, rel);
+}
+
 export async function applyUpgradePlan(
   kitRoot,
   targetRoot,
@@ -267,10 +275,18 @@ export async function applyUpgradePlan(
   { yes = false, remoteMeta = null, sourceLabel = null } = {}
 ) {
   const applied = [];
-  if (!yes) return applied;
+  const backedUp = [];
+  if (!yes) return { applied, backedUp };
+
+  const runStamp = new Date().toISOString().replace(/[:.]/g, "-");
 
   for (const item of items) {
     if (item.action !== "add" && item.action !== "update") continue;
+
+    if (item.action === "update") {
+      const backupRel = await backupBeforeOverwrite(targetRoot, item.rel, runStamp);
+      if (backupRel) backedUp.push({ rel: item.rel, backup: backupRel });
+    }
 
     if (item.rel === "package.json") {
       const kit = JSON.parse(await fs.readFile(path.join(kitRoot, "package.json"), "utf8"));
@@ -337,7 +353,83 @@ export async function applyUpgradePlan(
 
   await recordUpgradeChangelog(targetRoot, meta, applied.length);
 
-  return applied;
+  // Legacy heal: main once shipped project.example.yml with docs.* paths that
+  // do not exist until the product creates them. project.yml is preserved
+  // byte-for-byte from kit copy, but missing declared paths fail project-verify.
+  // Null them so adopters who downloaded from that main stay green after upgrade.
+  const healedDocs = await healProductDocsPaths(targetRoot);
+
+  return { applied, backedUp, healedDocs };
+}
+
+/**
+ * Product root that owns `.github/project.yml` for a kit upgrade target.
+ * Nested: <product>/Hyperion → <product>. Flat: kit root is the product.
+ */
+export function resolveProductRootForUpgrade(kitTargetRoot) {
+  const kitName = path.basename(path.resolve(kitTargetRoot));
+  const parent = path.dirname(path.resolve(kitTargetRoot));
+  const parentYml = path.join(parent, ".github", "project.yml");
+  if (existsSync(parentYml)) {
+    try {
+      const text = readFileSync(parentYml, "utf8");
+      const rootMatch = text.match(/^\s+root\s*:\s*["']?([^\s#"']+)/m);
+      if (rootMatch && rootMatch[1] === kitName) return parent;
+      // Nested adopt often has kit.root set; also accept kit: with matching folder on disk.
+      if (/^\s*kit\s*:/m.test(text)) return parent;
+    } catch {
+      /* fall through */
+    }
+  }
+  if (existsSync(path.join(kitTargetRoot, ".github", "project.yml"))) return kitTargetRoot;
+  return null;
+}
+
+/**
+ * Null `docs.*` entries whose paths are missing on disk (legacy main example).
+ * @returns {{ text: string, healed: { key: string, was: string }[] }}
+ */
+export function healMissingDocsPathsInProjectYml(text, productRoot, pathExists = existsSync) {
+  const lines = String(text || "").split(/\r?\n/);
+  let inDocs = false;
+  const healed = [];
+  const out = lines.map((line) => {
+    if (/^docs:\s*$/.test(line)) {
+      inDocs = true;
+      return line;
+    }
+    if (/^[a-zA-Z_]/.test(line)) inDocs = false;
+    if (!inDocs) return line;
+    const m = line.match(/^(\s{2})(\w+):\s*(.+)$/);
+    if (!m) return line;
+    let raw = m[3].trim();
+    const hash = raw.indexOf(" #");
+    if (hash >= 0) raw = raw.slice(0, hash).trim();
+    const unquoted = raw.replace(/^["']|["']$/g, "");
+    if (!unquoted || unquoted === "null" || unquoted === "~") return line;
+    const abs = path.join(productRoot, unquoted);
+    if (pathExists(abs)) return line;
+    healed.push({ key: m[2], was: unquoted });
+    return `${m[1]}${m[2]}: null`;
+  });
+  return { text: out.join("\n"), healed };
+}
+
+/** Apply docs-path heal to the product project.yml for this kit target (if any). */
+export async function healProductDocsPaths(kitTargetRoot) {
+  const productRoot = resolveProductRootForUpgrade(kitTargetRoot);
+  if (!productRoot) return [];
+  const ymlPath = path.join(productRoot, ".github", "project.yml");
+  let text;
+  try {
+    text = await fs.readFile(ymlPath, "utf8");
+  } catch {
+    return [];
+  }
+  const { text: next, healed } = healMissingDocsPathsInProjectYml(text, productRoot);
+  if (!healed.length) return [];
+  await fs.writeFile(ymlPath, next.endsWith("\n") ? next : `${next}\n`, "utf8");
+  return healed.map((h) => ({ ...h, file: path.relative(kitTargetRoot, ymlPath).replace(/\\/g, "/") }));
 }
 
 /**
@@ -372,6 +464,92 @@ export async function recordUpgradeChangelog(targetRoot, meta, pathCount) {
     `${header}\n\n## [Unreleased]\n\n### Changed\n${line}\n`,
     "utf8"
   );
+}
+
+const REQUIRE_PROJECT_OFF_RE = /CARDS_CI_REQUIRE_PROJECT:\s*["']?false/;
+
+/**
+ * The kit's own CI workflows, which hyperion:upgrade used to copy into products.
+ * `isKitCopy` tells the kit's copy apart from a product file of the same name
+ * rendered by /pipeline (templates never carry these fingerprints).
+ */
+export const KIT_ONLY_WORKFLOWS = [
+  {
+    file: HYPERION_WORKFLOWS.validate,
+    why: "the kit's CI: names kit-purity.yml and runs on dev/qa; the product template does not",
+    isKitCopy: (text) => text.includes("kit-purity.yml"),
+  },
+  {
+    file: HYPERION_WORKFLOWS.syncCards,
+    why: `the kit's dispatch-only copy: never syncs on push, and --refresh-sync skips it when it carries ${NO_AUTO_REFRESH_MARKER}`,
+    isKitCopy: (text) => text.includes("This repo's own copy is workflow_dispatch-only"),
+  },
+  {
+    file: HYPERION_WORKFLOWS.cardsPrGuard,
+    why: "the kit's copy: CARDS_CI_REQUIRE_PROJECT is false, so the board guard passes without a linked GitHub Project",
+    isKitCopy: (text) => REQUIRE_PROJECT_OFF_RE.test(text),
+  },
+  {
+    file: HYPERION_WORKFLOWS.cardsPrRecheck,
+    why: "the kit's copy: CARDS_CI_REQUIRE_PROJECT is false, so the recheck passes without a linked GitHub Project",
+    isKitCopy: (text) => REQUIRE_PROJECT_OFF_RE.test(text),
+  },
+  {
+    file: "hyperion-docker-publish.yml",
+    why: "publishes the kit's own hyperion-cli image; no product template exists",
+    isKitCopy: () => true,
+  },
+  {
+    file: "hyperion-e2e-cards.yml",
+    why: "the kit's opt-in end-to-end test against a disposable GitHub repo; no product template exists",
+    isKitCopy: () => true,
+  },
+];
+
+/**
+ * Kit-only workflows a previous hyperion:upgrade copied into targetRoot.
+ * Only repos with the .github/hyperion-kit.json pin (written by every applied
+ * upgrade) qualify, so the kit's own checkout never reports its own CI.
+ * @returns {Promise<{ rel: string, why: string }[]>}
+ */
+export async function detectLeakedKitWorkflows(targetRoot) {
+  if (!(await pathExists(path.join(targetRoot, ".github", "hyperion-kit.json")))) return [];
+  const found = [];
+  for (const wf of KIT_ONLY_WORKFLOWS) {
+    const rel = `${WORKFLOWS_DIR}/${wf.file}`;
+    let text;
+    try {
+      text = await fs.readFile(path.join(targetRoot, ...rel.split("/")), "utf8");
+    } catch {
+      continue;
+    }
+    if (wf.isKitCopy(text)) found.push({ rel, why: wf.why });
+  }
+  return found;
+}
+
+/** Remediation lines for detectLeakedKitWorkflows results (empty when nothing leaked). */
+export function formatLeakedKitWorkflowsHelp(found) {
+  if (!found.length) return [];
+  return [
+    `${found.length} workflow(s) in .github/workflows/ are the kit's own CI, copied by an earlier hyperion:upgrade:`,
+    ...found.map((f) => `  - ${f.rel} — ${f.why}`),
+    "Delete them, then regenerate the workflows your project.yml (ci.hyperion) asks for from the templates:",
+    `  git rm ${found.map((f) => f.rel).join(" ")}`,
+    "  npm run hyperion:pipeline-apply -- --yes",
+    "pipeline-apply --yes only writes missing files, so nothing else is overwritten. The Docker publish and e2e workflows are kit-only and are not regenerated.",
+  ];
+}
+
+/** What pipeline-apply's refresh flags rewrite. Must match REFRESH_TARGETS and --refresh-gates in pipeline-apply.mjs. */
+export function formatWorkflowRefreshHelp() {
+  const wf = (key) => HYPERION_WORKFLOWS[key];
+  return [
+    "Upgrade never touches .github/workflows/. To bring existing workflows up to the new templates:",
+    `  npm run hyperion:pipeline-apply -- --refresh-sync --yes   # rewrites ${wf("syncCards")}, ${wf("cardsPrGuard")}, ${wf("cardsPrRecheck")} (and the GitLab/Azure snippets) when outdated; ${wf("syncCards")} with ${NO_AUTO_REFRESH_MARKER} is left alone`,
+    `  npm run hyperion:pipeline-apply -- --refresh-gates --yes  # re-renders ${wf("productCi")} when ci.gates changed (unless it has ${NO_AUTO_REFRESH_MARKER})`,
+    `Neither refreshes ${wf("security")} or ${wf("validate")}: to update one, delete it and run npm run hyperion:pipeline-apply -- --yes.`,
+  ];
 }
 
 export function summarizePlan(items) {

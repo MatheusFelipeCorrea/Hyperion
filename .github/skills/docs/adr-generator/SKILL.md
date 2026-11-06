@@ -118,5 +118,5 @@ If this decision replaces a previous one:
 - Keep ADRs concise. The decision should fit in one sentence.
 - Include "Options Considered" — this prevents revisiting the same discussion.
 - Date is mandatory — decisions have temporal context.
-- Match the user's language.
+- Write the ADR in the primary `locale` from `.github/project.yml` (headings included); keep the `ADR-{NNN}` id and status values (Accepted, Proposed…) in English.
 - If the decision is small/tactical, suggest adding it to DECISIONS.md instead of a full ADR.

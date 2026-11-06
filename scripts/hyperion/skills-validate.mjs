@@ -2,13 +2,16 @@
 /**
  * Validate all SKILL.md files under .github/skills/
  * Run: npm run skills:validate
+ *      npm run skills:validate -- --root <kit-root>
  */
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { ciErrorList } from "./ci-annotate.mjs";
+import { rootArg } from "./cli-args.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const root = join(__dirname, "../..");
+const root = rootArg(join(__dirname, "../.."));
 const skillsRoot = join(root, ".github/skills");
 
 const OPS_SKILLS = new Set(["hyperion-ops"]);
@@ -49,6 +52,8 @@ function parseFrontmatter(text) {
 }
 
 const OUTPUT_RE = /^## Output(\b|\s|\()/m;
+/** Fixed language choices (`${OUTPUT_LANGUAGE="pt-BR|en"}`) — skills must read locale/languages from project.yml. */
+const FIXED_LANGUAGE_RE = /\$\{[A-Z_]*LANG[A-Z_]*\s*=|\b(?:pt-BR|en|es)\|(?:pt-BR|en|es)\b/;
 
 function walkSkillFiles(dir, files = []) {
   for (const name of readdirSync(dir)) {
@@ -88,6 +93,12 @@ for (const file of files) {
   if (!OPS_SKILLS.has(fm.name) && !OUTPUT_RE.test(text)) {
     errors.push(`${rel}: missing "## Output" section`);
   }
+  const fixedLang = text.match(FIXED_LANGUAGE_RE);
+  if (fixedLang) {
+    errors.push(
+      `${rel}: fixed language choice "${fixedLang[0]}" — use \`locale\` / \`languages\` from project.yml (see .github/docs/meta/language-policy-en.md)`
+    );
+  }
   if (fm.name) {
     const prev = names.get(fm.name);
     if (prev) {
@@ -101,6 +112,11 @@ for (const file of files) {
 if (errors.length) {
   console.error("skills:validate failed:\n");
   for (const err of errors) console.error(`  - ${err}`);
+  ciErrorList(
+    "Invalid skill",
+    errors,
+    `${errors.length} problem(s) in .github/skills/**/SKILL.md. Every skill needs frontmatter with name (equal to its folder) and description, plus a "## Output" section. Reproduce: npm run skills:validate`
+  );
   process.exit(1);
 }
 

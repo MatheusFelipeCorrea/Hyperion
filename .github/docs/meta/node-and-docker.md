@@ -7,7 +7,7 @@ Os scripts Hyperion (`doctor`, `sync`, `upgrade`, `*-verify`…) são o diferenc
 | **Node.js ≥ 20** (preferido) | `npm run hyperion:doctor` ou `node scripts/hyperion/cli.mjs doctor` ou `./bin/hyperion doctor` |
 | **Sem Node, com Docker** | `./bin/hyperion doctor` (builda `hyperion-cli` na 1ª vez) |
 
-**English:** same table — native Node preferred; Docker image wraps Node and mounts your repo.
+**English:** [node-and-docker-en.md](./node-and-docker-en.md)
 
 ---
 

@@ -12,6 +12,8 @@ export const AGENTS_MARKER_START = "<!-- HYPERION:AGENTS:START -->";
 export const AGENTS_MARKER_END = "<!-- HYPERION:AGENTS:END -->";
 export const SKILLS_MARKER_START = "<!-- HYPERION:SKILLS:START -->";
 export const SKILLS_MARKER_END = "<!-- HYPERION:SKILLS:END -->";
+export const LANGUAGE_MARKER_START = "<!-- HYPERION:LANGUAGE:START -->";
+export const LANGUAGE_MARKER_END = "<!-- HYPERION:LANGUAGE:END -->";
 
 const SKILL_CATEGORIES = ["planning", "setup", "quality", "docs"];
 
@@ -81,8 +83,8 @@ export function parseCommandsYaml(text) {
   return { commands, npmShortcuts };
 }
 
-export function loadCommands() {
-  const yaml = readFileSync(commandsPath, "utf8");
+export function loadCommands(root = repoRoot) {
+  const yaml = readFileSync(join(root, ".github/commands.yml"), "utf8");
   return parseCommandsYaml(yaml);
 }
 
@@ -188,9 +190,6 @@ function copilotNeed(cmd) {
 function copilotAction(cmd) {
   if (!cmd.skill && cmd.npm) return `\`npm run ${cmd.npm}\``;
   if (cmd.type === "agent") return `\`${cmd.skill}\` agent`;
-  if (cmd.skill === "hyperion-ops" && cmd.npm) {
-    return `\`hyperion-ops\` — runs \`npm run ${cmd.npm}\``;
-  }
   return `\`${cmd.skill}\` — or user says \`${cmd.phrase}\``;
 }
 
@@ -278,6 +277,23 @@ export function buildAgentsSection(root = repoRoot) {
   return lines.join("\n");
 }
 
+/** Same text in every runtime target: the language contract for written artifacts. */
+export function buildLanguageSection() {
+  return [
+    "Read `locale` (primary language) and `languages` (primary first) from `.github/project.yml`. No `locale` → ask the team language(s) via `/setup` before writing artifacts; until then use `en`.",
+    "",
+    "| What | Language |",
+    "|------|----------|",
+    "| Chat replies | The person's language |",
+    "| Cards, specs, plans, ADRs, memory, audits, reports | Primary (`locale`) |",
+    "| PR title/body, PR/review comments, release notes | Primary; when `languages` has more than one and the surface is in `i18n.multilingual` (default `pr`, `comments`, `release`), add one `<details><summary>Language name</summary>` block per extra language |",
+    "| Commit messages | Conventional type/scope in English + subject in the primary language (`feat(auth): adiciona login com Google`) |",
+    "| Code, identifiers, branches, CARD_ID, paths, CLI flags, CI job/step names | Always English |",
+    "",
+    "Fixed script messages (CI comments, board guard, coverage) come from `scripts/hyperion/i18n/<tag>.json` (+ `.github/i18n/<tag>.json` override) — never hand-translate them. Policy: `.github/docs/meta/language-policy-en.md`.",
+  ].join("\n");
+}
+
 export function replaceMarkedSection(content, rows, start = MARKER_START, end = MARKER_END) {
   const block = `${start}\n${rows.join("\n")}\n${end}`;
   const pattern = new RegExp(
@@ -343,20 +359,24 @@ log("", "Claude Code: CLAUDE.md · Cursor: .cursor/rules/hyperion.mdc");
 `;
 }
 
-export const RUNTIME_TARGETS = [
-  {
-    path: join(repoRoot, "CLAUDE.md"),
-    buildRows: (commands, skillIndex) => buildClaudeRows(commands, skillIndex),
-    syncCatalog: true,
-  },
-  {
-    path: join(repoRoot, ".cursor/rules/hyperion.mdc"),
-    buildRows: (commands) => buildCursorRows(commands),
-    syncCatalog: true,
-  },
-  {
-    path: join(repoRoot, ".github/copilot-instructions.md"),
-    buildRows: (commands) => buildCopilotRows(commands),
-    syncCatalog: true,
-  },
-];
+export function runtimeTargets(root = repoRoot) {
+  return [
+    {
+      path: join(root, "CLAUDE.md"),
+      buildRows: (commands, skillIndex) => buildClaudeRows(commands, skillIndex),
+      syncCatalog: true,
+    },
+    {
+      path: join(root, ".cursor/rules/hyperion.mdc"),
+      buildRows: (commands) => buildCursorRows(commands),
+      syncCatalog: true,
+    },
+    {
+      path: join(root, ".github/copilot-instructions.md"),
+      buildRows: (commands) => buildCopilotRows(commands),
+      syncCatalog: true,
+    },
+  ];
+}
+
+export const RUNTIME_TARGETS = runtimeTargets();
