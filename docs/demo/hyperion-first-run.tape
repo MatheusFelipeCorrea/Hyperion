@@ -1,39 +1,38 @@
 # Hyperion first-run CLI demo (Charm VHS).
-# Generate GIF: docker run --rm -v ${PWD}/docs/demo:/vhs ghcr.io/charmbracelet/vhs hyperion-first-run.tape
-# Requires Docker. Output: docs/demo/hyperion-first-run.gif
+# From repo root:
+#   docker run --rm -v "${PWD}:/work" -w /work ghcr.io/charmbracelet/vhs docs/demo/hyperion-first-run.tape
+# Output: docs/demo/hyperion-first-run.gif
 
-Output hyperion-first-run.gif
-Set FontSize 16
-Set Width 1100
-Set Height 620
-Set Padding 16
+Output docs/demo/hyperion-first-run.gif
+Set FontSize 15
+Set Width 1080
+Set Height 640
+Set Padding 14
 Set Theme "Catppuccin Mocha"
-Set TypingSpeed 35ms
-Set Shell powershell
+Set TypingSpeed 28ms
+Set Shell "bash"
 
 Hide
-Type "clear"
+Type `clear`
 Enter
 Show
 
-Type "# Hyperion — first-run (doctor → language → gates → process-guard)"
+Type `# Hyperion first-run — doctor → language → gates → process-guard`
 Enter
-Type "npm run hyperion:doctor"
-Enter
-Sleep 4s
+Sleep 800ms
 
-Type "npm run hyperion:detect-language -- --no-gh"
+Type `npm run hyperion:detect-language -- --no-gh`
 Enter
-Sleep 2s
+Sleep 2500ms
 
-Type "npm run hyperion:pipeline-gates -- --json 2>$null | Select-Object -First 20"
+Type `npm run hyperion:process-guard -- --status`
 Enter
-Sleep 3s
+Sleep 2000ms
 
-Type "npm run hyperion:process-guard -- --status"
+Type `npm run hyperion:pipeline-gates -- --json | head -n 24`
 Enter
-Sleep 2s
+Sleep 3500ms
 
-Type "# Next: /setup or hyperion:create, then /pipeline --refresh-gates"
+Type `# Next: /setup or npm run hyperion:create, then /pipeline --refresh-gates`
 Enter
-Sleep 2s
+Sleep 1800ms

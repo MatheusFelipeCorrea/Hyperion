@@ -25,6 +25,14 @@ function makeProductFixture() {
 }
 
 describe("install-product-shims", () => {
+  it("--help prints usage and exits 0 (docker smoke calls this)", () => {
+    const script = join(__dirname, "install-product-shims.mjs");
+    const r = spawnSync(process.execPath, [script, "--help"], { encoding: "utf8" });
+    assert.equal(r.status, 0, r.stderr || r.stdout);
+    assert.match(r.stdout, /Usage:/);
+    assert.match(r.stdout, /install-product-shims/);
+  });
+
   it("writes shims at the product root when run with cwd = product root", () => {
     const { productDir, kitDir } = makeProductFixture();
     try {
