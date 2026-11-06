@@ -191,12 +191,6 @@ Se o `/` não aparecer no Cursor, diga a frase: *“Configura o Hyperion neste r
 
 ## Quickstart
 
-<p align="center">
-  <img src="./docs/demo/hyperion-first-run.gif" alt="Hyperion CLI first-run: detect-language, process-guard, pipeline-gates" width="900">
-</p>
-
-<p align="center"><em>First-run no terminal · <a href="./docs/demo/">como regenerar o GIF</a></em></p>
-
 ```bash
 git clone https://github.com/MatheusFelipeCorrea/Hyperion.git
 ```
