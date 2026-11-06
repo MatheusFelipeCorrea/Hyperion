@@ -1,5 +1,9 @@
-﻿import test from "node:test";
+﻿import test, { after } from "node:test";
 import assert from "node:assert/strict";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import {
   parseFrontmatter,
   parseCardFile,
@@ -26,13 +30,20 @@ import {
   resolveGitLabStatusAction,
   jiraRequest,
   graphql,
+  githubGraphqlWithRetry,
   patchCardFrontmatter,
   buildRemoteFrontmatterUpdates,
   resolveHyperionStatusFromRemote,
   canonicalizeLinearState,
   getLabelId,
+  shouldPromptBeforeLiveSync,
+  DEFAULT_STATUS_OPTIONS,
+  saveAutoCreatedProject,
 } from "./sync.mjs";
 import { pickCanonicalIssueForCardId } from "./lib.mjs";
+import { cleanupTempDirs, commitAll, initRepo, makeTempDir, runNode, scriptPath, writeFile } from "./test-support/ci-fixture.mjs";
+
+after(cleanupTempDirs);
 
 test("parseFrontmatter reads scalar and array values", () => {
   const content = `---
@@ -348,6 +359,100 @@ test("graphql sends headers and returns payload.data (mocked fetch)", async () =
   }
 });
 
+function fakeResponse({ ok, status = 200, json, retryAfter = null }) {
+  return {
+    ok,
+    status,
+    statusText: ok ? "OK" : "Error",
+    headers: { get: (name) => (name.toLowerCase() === "retry-after" ? retryAfter : null) },
+    json: async () => json,
+  };
+}
+
+function stubSleep() {
+  const waits = [];
+  const sleepFn = async (ms) => {
+    waits.push(ms);
+  };
+  sleepFn.waits = waits;
+  return sleepFn;
+}
+
+test("githubGraphqlWithRetry returns data on the first try when the response is clean", async () => {
+  const fetchFn = async () => fakeResponse({ ok: true, json: { data: { ok: true } } });
+  const data = await githubGraphqlWithRetry(fetchFn, "https://api.github.com/graphql", {});
+  assert.deepEqual(data, { ok: true });
+});
+
+test("githubGraphqlWithRetry retries on a secondary-rate-limit response (Retry-After header) and succeeds", async () => {
+  let calls = 0;
+  const fetchFn = async () => {
+    calls += 1;
+    if (calls === 1) {
+      return fakeResponse({
+        ok: false,
+        status: 403,
+        retryAfter: "1",
+        json: { message: "You have exceeded a secondary rate limit" },
+      });
+    }
+    return fakeResponse({ ok: true, json: { data: { ok: true } } });
+  };
+  const sleepFn = stubSleep();
+
+  const data = await githubGraphqlWithRetry(fetchFn, "url", {}, { sleepFn });
+
+  assert.equal(calls, 2);
+  assert.deepEqual(data, { ok: true });
+  assert.deepEqual(sleepFn.waits, [1000], "must wait exactly what Retry-After said, not the exponential default");
+});
+
+test("githubGraphqlWithRetry retries on a rate-limit error message with exponential backoff when there's no Retry-After header", async () => {
+  let calls = 0;
+  const fetchFn = async () => {
+    calls += 1;
+    if (calls < 3) {
+      return fakeResponse({ ok: true, json: { errors: [{ type: "RATE_LIMITED", message: "API rate limit exceeded" }] } });
+    }
+    return fakeResponse({ ok: true, json: { data: { ok: true } } });
+  };
+  const sleepFn = stubSleep();
+
+  const data = await githubGraphqlWithRetry(fetchFn, "url", {}, { sleepFn });
+
+  assert.equal(calls, 3);
+  assert.deepEqual(data, { ok: true });
+  assert.deepEqual(sleepFn.waits, [1000, 2000], "backoff must double each attempt: 2^0s, 2^1s");
+});
+
+test("githubGraphqlWithRetry gives up and throws after maxAttempts of persistent rate limiting", async () => {
+  let calls = 0;
+  const fetchFn = async () => {
+    calls += 1;
+    return fakeResponse({ ok: false, status: 403, retryAfter: "1", json: { message: "secondary rate limit" } });
+  };
+  const sleepFn = stubSleep();
+
+  await assert.rejects(
+    () => githubGraphqlWithRetry(fetchFn, "url", {}, { maxAttempts: 3, sleepFn }),
+    /GraphQL failed/
+  );
+  assert.equal(calls, 3, "must attempt exactly maxAttempts times, not more");
+});
+
+test("githubGraphqlWithRetry does NOT retry a non-rate-limit error — fails immediately like before", async () => {
+  let calls = 0;
+  const fetchFn = async () => {
+    calls += 1;
+    return fakeResponse({ ok: true, json: { errors: [{ message: "Field 'foo' doesn't exist on type 'Query'" }] } });
+  };
+  const sleepFn = stubSleep();
+
+  await assert.rejects(() => githubGraphqlWithRetry(fetchFn, "url", {}, { sleepFn }), /GraphQL failed/);
+  assert.equal(calls, 1, "a non-rate-limit error must not be retried at all");
+  assert.deepEqual(sleepFn.waits, []);
+});
+
 test("getLabelId creates a missing label", async () => {
   const originalFetch = global.fetch;
   try {
@@ -634,7 +739,111 @@ test("resolveHyperionStatusFromRemote maps via status_map inverse", () => {
   assert.equal(resolveHyperionStatusFromRemote("Todo", statusMap, {}), "Backlog");
 });
 
+test("reverse sync keeps the default status column names when no option map is configured", () => {
+  for (const status of DEFAULT_STATUS_OPTIONS) {
+    assert.equal(buildRemoteFrontmatterUpdates({ status }, {}, {}).status, status, "GitHub Project reverse path");
+    assert.equal(resolveHyperionStatusFromRemote(status, {}, {}), status, "Jira/GitLab/Azure/Linear reverse path");
+  }
+  assert.equal(canonicalizeRemoteOption("status", "em progresso", {}), "In Progress");
+  assert.equal(resolveHyperionStatusFromRemote("Em Revisão", undefined, {}), "In Revision");
+});
+
+test("every built-in status alias reverse-syncs to an allowed default column", () => {
+  const aliases = ["backlog", "To do", "Todo", "A fazer", "in progress", "em progresso", "in tests", "em testes", "in revision", "em revisao", "done", "feito", "concluído", "refinamento funcional", "refinamento técnico"];
+  for (const alias of aliases) {
+    assert.ok(DEFAULT_STATUS_OPTIONS.includes(resolveHyperionStatusFromRemote(alias, {}, {})), alias);
+  }
+  assert.equal(canonicalizeRemoteOption("status", "Todo", {}), "Backlog");
+  assert.deepEqual(buildOptionCandidates("status", "Backlog", {}), ["Backlog", "to do", "todo", "a fazer"], "exact Backlog is still tried first");
+});
+
+test("shouldPromptBeforeLiveSync only fires for an interactive, unattended, non-dry-run invocation", () => {
+  // dry-run: never prompt, no matter how the rest looks
+  assert.equal(
+    shouldPromptBeforeLiveSync({ dryRun: true, isTTY: true, argv: [], env: {} }),
+    false
+  );
+  // no TTY (CI, or piped): never prompt — this is what keeps ci-sync.mjs
+  // and hyperion-sync-cards.yml's production push-triggered sync silent
+  assert.equal(
+    shouldPromptBeforeLiveSync({ dryRun: false, isTTY: false, argv: [], env: {} }),
+    false
+  );
+  // --yes explicitly opts out
+  assert.equal(
+    shouldPromptBeforeLiveSync({ dryRun: false, isTTY: true, argv: ["--yes"], env: {} }),
+    false
+  );
+  // CARDS_SYNC_YES=true explicitly opts out — this is what watch.mjs's
+  // live mode sets, so an already-confirmed watcher never re-prompts
+  assert.equal(
+    shouldPromptBeforeLiveSync({ dryRun: false, isTTY: true, argv: [], env: { CARDS_SYNC_YES: "true" } }),
+    false
+  );
+  // the actual risky case: real write, human at a terminal, no opt-out — prompt
+  assert.equal(
+    shouldPromptBeforeLiveSync({ dryRun: false, isTTY: true, argv: [], env: {} }),
+    true
+  );
+});
+
 test("canonicalizeLinearState aliases resolveHyperionStatusFromRemote", () => {
   const statusMap = { Done: "Completed" };
   assert.equal(canonicalizeLinearState("Completed", statusMap, {}), "Done");
+});
+
+test("readGitCardHistory keeps non-ASCII card paths unquoted (committed, dirty, deleted)", () => {
+  const ws = initRepo(makeTempDir("hyperion-sync-git-history-"));
+  const dir = ".github/cards/stories";
+  writeFile(ws, `${dir}/Ação-1.md`, "a\n");
+  writeFile(ws, `${dir}/Café-2.md`, "b\n");
+  commitAll(ws, "cards");
+  rmSync(join(ws, dir, "Café-2.md"));
+  commitAll(ws, "remove");
+  writeFile(ws, `${dir}/Ação-1.md`, "edited\n");
+  writeFile(ws, `${dir}/Nação-3.md`, "new\n");
+  const probe = writeFile(
+    ws,
+    "probe.mjs",
+    `import { readGitCardHistory } from ${JSON.stringify(pathToFileURL(scriptPath("sync.mjs")).href)};
+const h = readGitCardHistory(".github/cards");
+console.log(JSON.stringify({ committed: [...h.committed.keys()].sort(), dirty: [...h.dirty].sort(), deleted: [...h.deleted] }));
+`
+  );
+
+  const r = runNode(probe, [], { cwd: ws });
+  assert.equal(r.status, 0, r.output);
+  assert.deepEqual(JSON.parse(r.stdout), {
+    committed: [`${dir}/Ação-1.md`, `${dir}/Café-2.md`],
+    dirty: [`${dir}/Ação-1.md`, `${dir}/Nação-3.md`],
+    deleted: [`${dir}/Café-2.md`],
+  });
+});
+
+test("saveAutoCreatedProject writes the projects-map.json entry whose projectNumber is in effect", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "hyperion-sync-save-"));
+  const file = join(dir, "projects-map.json");
+  const save = async (config) => {
+    writeFileSync(file, JSON.stringify(config));
+    const entry = await saveAutoCreatedProject(file, "acme/app", { projectNumber: 12, projectOwner: "acme" });
+    return { entry, saved: JSON.parse(readFileSync(file, "utf8")) };
+  };
+  try {
+    // A repositories entry left at 0 (e.g. by doctor) overrides default — saving to default would leave it shadowed.
+    const repo = await save({ default: { projectNumber: 7, projectOwner: "other" }, repositories: { "acme/app": { projectNumber: 0, locale: "en" } } });
+    assert.equal(repo.entry, 'repositories["acme/app"]');
+    assert.deepEqual(repo.saved.repositories["acme/app"], { projectNumber: 12, locale: "en", projectOwner: "acme" });
+    assert.deepEqual(repo.saved.default, { projectNumber: 7, projectOwner: "other" });
+
+    const fallback = await save({ default: { projectNumber: 0, projectOwner: "octo" }, repositories: { "acme/app": { locale: "en" }, "acme/other": { projectNumber: 0 } } });
+    assert.equal(fallback.entry, "default");
+    assert.deepEqual(fallback.saved.default, { projectNumber: 12, projectOwner: "octo" }, "an existing projectOwner is kept");
+    assert.deepEqual(fallback.saved.repositories, { "acme/app": { locale: "en" }, "acme/other": { projectNumber: 0 } });
+
+    const bare = await save({});
+    assert.equal(bare.entry, "default");
+    assert.deepEqual(bare.saved, { default: { projectNumber: 12, projectOwner: "acme" } });
+  } finally {
+    rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  }
 });

@@ -7,6 +7,8 @@
 import { readFileSync, existsSync, readdirSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { rootArg } from "./cli-args.mjs";
+import { recordEvent } from "./telemetry-lib.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const root = join(__dirname, "../..");
@@ -20,14 +22,14 @@ function argValue(flag) {
 function usage() {
   console.log(`Usage:
   npm run hyperion:phase-verify -- --plan <path-to-plan.md> [--phase N]
-  npm run hyperion:phase-verify -- --latest
+  npm run hyperion:phase-verify -- --latest [--root <repo-root>]
 
 Checks that each completed phase (or --phase N) has a Verification block with tests_result: PASS.
 `);
 }
 
-function findLatestPlan() {
-  const dir = join(root, ".github/plans/implementations");
+function findLatestPlan(repoRoot) {
+  const dir = join(repoRoot, ".github/plans/implementations");
   if (!existsSync(dir)) return null;
   const files = readdirSync(dir)
     .filter((f) => f.endsWith(".md") && !f.startsWith("."))
@@ -71,9 +73,10 @@ function main() {
     process.exit(0);
   }
 
+  const repoRoot = rootArg(root);
   let planPath = argValue("--plan");
   if (process.argv.includes("--latest") || !planPath) {
-    if (!planPath) planPath = findLatestPlan();
+    if (!planPath) planPath = findLatestPlan(repoRoot);
   }
   if (!planPath) {
     console.error("No plan specified and none found under .github/plans/implementations/");
@@ -123,7 +126,6 @@ function main() {
       console.error("- tested_at: ISO-8601");
       process.exit(1);
     }
-    targets = blocks;
   }
 
   let failed = 0;
@@ -141,6 +143,7 @@ function main() {
     console.error(`\nphase-verify FAILED (${failed})`);
     process.exit(1);
   }
+  recordEvent(repoRoot, "agent-gate", "phase-verify", { phases: targets.length });
   console.log(`phase-verify OK (${targets.length} phase(s))`);
 }
 

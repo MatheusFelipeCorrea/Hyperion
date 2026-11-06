@@ -7,6 +7,9 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { keyVariants } from "./i18n.mjs";
+import { rootArg } from "./cli-args.mjs";
+import { recordEvent } from "./telemetry-lib.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const root = join(__dirname, "../..");
@@ -20,14 +23,15 @@ function argValue(flag) {
 function usage() {
   console.log(`Usage:
   npm run hyperion:review-verify -- --review <path.md>
-  npm run hyperion:review-verify -- --latest
+  npm run hyperion:review-verify -- --latest [--root <repo-root>]
 
-Requires frontmatter/body: verdict, ## Summary, tests_ran (yes|no|skipped).
+Requires frontmatter/body: verdict, ## Summary, ## Findings, tests_ran (yes|no|skipped).
+Headings may be in the repo language (## Resumo / ## Achados, ## Resumen / ## Hallazgos…).
 `);
 }
 
-function findLatestReview() {
-  const dir = join(root, ".github/plans/reviews");
+function findLatestReview(repoRoot) {
+  const dir = join(repoRoot, ".github/plans/reviews");
   if (!existsSync(dir)) return null;
   const files = readdirSync(dir)
     .filter((f) => f.endsWith(".md") && !f.startsWith("."))
@@ -48,15 +52,24 @@ function parseFrontmatter(text) {
   return out;
 }
 
+const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/** `## Summary` in any catalog language (Resumo, Resumen…). */
+function hasHeading(text, key) {
+  const names = keyVariants(key, { root }).map(escapeRe).join("|");
+  return new RegExp(`^##\\s+(?:[\\p{Extended_Pictographic}\\u{FE0F}\\u{200D}]+\\s*)?(${names})(?![\\p{L}\\p{N}])`, "imu").test(text);
+}
+
 function main() {
   if (process.argv.includes("--help") || process.argv.includes("-h")) {
     usage();
     process.exit(0);
   }
 
+  const repoRoot = rootArg(root);
   let reviewPath = argValue("--review");
   if (process.argv.includes("--latest") || !reviewPath) {
-    if (!reviewPath) reviewPath = findLatestReview();
+    if (!reviewPath) reviewPath = findLatestReview(repoRoot);
   }
   if (!reviewPath) {
     console.error("No review specified and none under .github/plans/reviews/");
@@ -85,18 +98,16 @@ function main() {
     console.log(`OK verdict: ${verdict}`);
   }
 
-  if (!/^##\s+Summary\b/m.test(text)) {
-    console.error("FAIL: missing ## Summary");
-    failed++;
-  } else {
-    console.log("OK ## Summary");
-  }
-
-  if (!/^##\s+Findings\b/im.test(text)) {
-    console.error("FAIL: missing ## Findings");
-    failed++;
-  } else {
-    console.log("OK ## Findings");
+  for (const [key, label] of [
+    ["review.summary", "Summary"],
+    ["review.findings", "Findings"],
+  ]) {
+    if (!hasHeading(text, key)) {
+      console.error(`FAIL: missing ## ${label} (or ${keyVariants(key, { root }).filter((v) => v !== label).join(" / ")})`);
+      failed++;
+    } else {
+      console.log(`OK ## ${label}`);
+    }
   }
 
   const testsRan =
@@ -113,7 +124,7 @@ function main() {
     console.log(`OK tests_ran: ${testsRan}`);
   }
 
-  if (!/^##\s+Test output\b/im.test(text) && String(testsRan).toLowerCase() === "yes") {
+  if (!hasHeading(text, "review.testOutput") && String(testsRan).toLowerCase() === "yes") {
     console.warn("WARN: tests_ran=yes but no ## Test output section");
   }
 
@@ -121,6 +132,7 @@ function main() {
     console.error(`\nreview-verify FAILED (${failed})`);
     process.exit(1);
   }
+  recordEvent(repoRoot, "agent-gate", "review-verify");
   console.log("review-verify OK");
 }
 

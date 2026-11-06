@@ -13,13 +13,14 @@ Works in any coding agent runtime (Cursor, Copilot, Claude Code, etc.). Prefer t
 
 ## Bootstrap (always first)
 
+0. **Process guard.** Run `npm run hyperion:process-guard -- --check implement` (or `node Hyperion/scripts/hyperion/process-guard.mjs --check implement` when nested). If it reports no BDD spec, that is allowed — a pending-sync marker is set and you **must** generate `.github/plans/specs/{card_id}/` with Scenario/Cenário before handing off to `/review` or `/smoke`. Prefer `/spec` first when the person has no acceptance criteria yet.
 1. **Read `.github/project.yml` if it exists.** Validate every configured path before using it; stale or missing paths fall back to discovery. Use valid config for stack hints, layout roots, docs paths, locale, and output dirs (`outputs.implementations`, `outputs.cards`, `docs.*`). **Do not rediscover the whole repo when project.yml is healthy** — only fill gaps.
 2. **If absent**, discover — never invent paths:
    - Layout: monorepo roots, `apps/`, `packages/`, `src/`, `backend/`, `frontend/`, etc.
    - Manifests: `package.json`, `pyproject.toml`, `Cargo.toml`, `go.mod`, `pom.xml`, etc.
    - Docs: README(s), common documentation directories, `.github/docs/`, ADRs, CONTRIBUTING
    - Conventions: lint/test configs, existing naming and layer patterns in code
-3. **Locale**: use `locale` / `OUTPUT_LANGUAGE` from config; else match the card/user language.
+3. **Locale**: write the plan in the primary `locale` from `.github/project.yml`; without one, match the card language.
 4. **Output plans** to config `outputs.implementations`, else `.github/plans/implementations/`.
 5. **Blueprints** (Architecture, Exemplars, Folder Structure, agent instructions) under `.github/docs/` or `.github/copilot-instructions.md` are **optional**. If missing, use discovered docs and existing code patterns — do not block.
 

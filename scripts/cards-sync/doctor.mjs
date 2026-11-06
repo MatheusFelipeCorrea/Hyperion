@@ -1,4 +1,5 @@
-﻿import fs from "node:fs/promises";
+﻿import "./load-env.mjs";
+import fs from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
 import { execSync, spawnSync } from "node:child_process";
@@ -10,8 +11,10 @@ import {
   discoverGitHubProjectNumber,
   LABELS_OVERLAY_FILENAME,
   STATUS_COLUMNS_OVERLAY_FILENAME,
+  parseProjectYmlBackend,
   resolveOverlayFilePath,
 } from "./lib.mjs";
+import { findLegacyMcpServers } from "./mcp-legacy.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -105,12 +108,30 @@ async function detectBackend(repoConfig) {
   if (cfgBackend) return String(cfgBackend).toLowerCase();
 
   try {
-    const raw = await fs.readFile(projectYmlPath, "utf8");
-    const backendMatch = raw.match(/management:\s*[\s\S]*?backend\s*:\s*([^\s#]+)\s*(?:\n|$)/m);
-    if (backendMatch?.[1]) return String(backendMatch[1]).toLowerCase();
+    const backend = parseProjectYmlBackend(await fs.readFile(projectYmlPath, "utf8"));
+    if (backend) return backend;
   } catch {}
 
   return "github";
+}
+
+/**
+ * Non-blocking and offline: warns for every server in .cursor/mcp.json that
+ * still starts a legacy community MCP package. A missing or unreadable file
+ * is not an error.
+ */
+async function checkLegacyMcpServers() {
+  let config;
+  try {
+    config = JSON.parse(await fs.readFile(path.join(workspaceRoot, ".cursor", "mcp.json"), "utf8"));
+  } catch {
+    return;
+  }
+  for (const { server, pkg } of findLegacyMcpServers(config)) {
+    warn(
+      `MCP server "${server}" in .cursor/mcp.json runs the community package "${pkg}" (single maintainer, your token in its environment). Switch to the vendor's official server: see .github/mcp/README.md.`
+    );
+  }
 }
 
 function getMappedFieldNames(repoConfig) {
@@ -172,7 +193,7 @@ function normalizeText(value) {
     .trim();
 }
 
-function checkStatusOptions(statusField) {
+function checkStatusOptions(statusField, statusMap = {}) {
   if (!statusField || statusField.__typename !== "ProjectV2SingleSelectField") {
     warn("Status field was not found as a single-select field.");
     return false;
@@ -181,8 +202,8 @@ function checkStatusOptions(statusField) {
   const optionNames = (statusField.options || []).map((o) => o.name);
   const normalizedExisting = new Set(optionNames.map(normalizeText));
   const missing = EXPECTED_STATUS_OPTIONS.filter(
-    (name) => !normalizedExisting.has(normalizeText(name))
-  );
+    (name) => !normalizedExisting.has(normalizeText(name)) && !normalizedExisting.has(normalizeText(statusMap[name]))
+  ).map((name) => (statusMap[name] ? `${statusMap[name]} (${name})` : name));
 
   if (!missing.length) {
     ok("Status field options match Hyperion flow (7 columns).");
@@ -358,6 +379,8 @@ if (!projectYmlExists) {
   ok(`Found .github/project.yml`);
 }
 
+await checkLegacyMcpServers();
+
 // config shape checks
 if (!repoConfig.fieldMap || Object.keys(repoConfig.fieldMap).length === 0) {
   warn("projects-map.json.fieldMap is missing/empty. Field updates may fail.");
@@ -400,7 +423,20 @@ if (await fs.stat(statusColumnsOverlayPath).then(() => true).catch(() => false))
 
 // remote project checks (only if we have token + projectNumber)
 const projectOwner = process.env.PROJECT_OWNER || repoConfig.projectOwner || repoOwner;
-const projectNumber = Number(process.env.PROJECT_NUMBER || "0") || Number(repoConfig.projectNumber || "0");
+const envProjectNumber = Number(process.env.PROJECT_NUMBER || "0");
+const projectNumber = envProjectNumber || Number(repoConfig.projectNumber || "0");
+// The projects-map.json entry whose projectNumber is in effect (sync.mjs saves auto-created Projects there too).
+const fromRepoEntry = Object.hasOwn(config.repositories?.[repositorySlug] || {}, "projectNumber");
+const projectNumberKey = fromRepoEntry ? `repositories["${repositorySlug}"].projectNumber` : "default.projectNumber";
+
+function runSyncAndExit() {
+  const res = spawnSync(process.execPath, [path.join(__dirname, "sync.mjs")], {
+    cwd: workspaceRoot,
+    stdio: "inherit",
+    env: process.env,
+  });
+  process.exit(res.status ?? 1);
+}
 
 log("info", `Resolved project: owner="${projectOwner}", number=${projectNumber}`);
 
@@ -570,17 +606,15 @@ if (!projectNumber || projectNumber <= 0) {
   // before it ever considers creating one — check the same way here
   // (persist: false, so this stays a read-only preview) instead of
   // unconditionally reporting "missing".
-  const discovery = token
-    ? await discoverGitHubProjectNumber({
-        token,
-        owner: repoOwner,
-        repoName,
-        repoConfig,
-        configPath,
-        repositorySlug,
-        persist: false,
-      })
-    : { discovered: false, reason: "no_token" };
+  const discovery = await discoverGitHubProjectNumber({
+    token,
+    owner: repoOwner,
+    repoName,
+    repoConfig,
+    configPath,
+    repositorySlug,
+    persist: false,
+  });
 
   if (discovery.discovered) {
     ok(`sync.mjs would auto-discover GitHub Project #${discovery.projectNumber}: "${discovery.projectTitle}"`);
@@ -591,12 +625,7 @@ if (!projectNumber || projectNumber <= 0) {
   const wants = await askYesNo("Project number missing. Can I run sync.mjs to auto-create the GitHub Project?");
   if (wants) {
     log("info", "Running sync.mjs (real mode) to auto-create project/fields/labels...");
-    const res = spawnSync("node", ["scripts/cards-sync/sync.mjs"], {
-      cwd: workspaceRoot,
-      stdio: "inherit",
-      env: process.env,
-    });
-    process.exit(res.status ?? 1);
+    runSyncAndExit();
   }
   if (discovery.reason === "ambiguous") {
     warn("Multiple GitHub Projects found — set projectNumber in projects-map.json to disambiguate.");
@@ -616,31 +645,35 @@ if (!project) {
     process.exit(0);
   }
 
-  const wants = await askYesNo("Project not found. Can I set projects-map.json.projectNumber to 0 and re-run sync to auto-create?");
-  if (!wants) {
-    warn("Auto-create skipped. You can set projectNumber to 0 manually, then run sync.mjs.");
+  if (envProjectNumber) {
+    warn(`The number comes from the PROJECT_NUMBER environment variable (PROJECT_NUMBER=${process.env.PROJECT_NUMBER}), which overrides projects-map.json.`);
+    warn("Remove PROJECT_NUMBER (or set it to an existing Project) where it is defined — shell, .env file or CI variables — then re-run cards:doctor.");
     process.exit(0);
   }
 
-  // Edit config: set default.projectNumber = 0
+  const wants = await askYesNo(`Project not found. Can I set projects-map.json ${projectNumberKey} to 0 and re-run sync to auto-create?`);
+  if (!wants) {
+    warn(`Auto-create skipped. You can set ${projectNumberKey} to 0 in projects-map.json manually, then run sync.mjs.`);
+    process.exit(0);
+  }
+
   try {
     const raw = await fs.readFile(configPath, "utf8");
     const obj = JSON.parse(raw);
-    if (!obj.default) obj.default = {};
-    obj.default.projectNumber = 0;
+    if (fromRepoEntry) {
+      obj.repositories[repositorySlug].projectNumber = 0;
+    } else {
+      if (!obj.default) obj.default = {};
+      obj.default.projectNumber = 0;
+    }
     await fs.writeFile(configPath, JSON.stringify(obj, null, 2) + "\n", "utf8");
-    ok("projects-map.json updated: default.projectNumber=0");
+    ok(`projects-map.json updated: ${projectNumberKey}=0`);
   } catch (e) {
     error(`Could not edit projects-map.json: ${e.message}`);
     process.exit(1);
   }
 
-  const res = spawnSync("node", ["scripts/cards-sync/sync.mjs"], {
-    cwd: workspaceRoot,
-    stdio: "inherit",
-    env: process.env,
-  });
-  process.exit(res.status ?? 1);
+  runSyncAndExit();
 }
 
 ok(`Project found. Checking required fields...`);
@@ -658,15 +691,19 @@ for (const [key, configuredName] of Object.entries(required)) {
 if (missingFields.length) {
   warn(`Missing required Project fields: ${missingFields.join(", ")}`);
   warn("Fix options:");
-  warn("1) Create those fields manually in Project Settings");
-  warn("2) Or set projects-map.json.default.projectNumber=0 and let sync auto-create a fresh Project (if acceptable)");
+  warn("1) Run `npm run cards:project-fields-apply -- --yes` to create/rename them on this Project");
+  warn("2) Or create those fields manually in Project Settings");
+  const resetHint = envProjectNumber
+    ? `unset PROJECT_NUMBER, set projects-map.json ${projectNumberKey}=0`
+    : `set projects-map.json ${projectNumberKey}=0`;
+  warn(`3) Or ${resetHint} and let sync auto-create a fresh Project (if acceptable)`);
 } else {
   ok("All required Project fields exist.");
 }
 
 const statusCandidates = [required.status, ...(FIELD_NAME_ALIASES.status || [])];
 const statusField = findFieldByCandidates(byName, statusCandidates);
-const statusOk = checkStatusOptions(statusField);
+const statusOk = checkStatusOptions(statusField, repoConfig.optionMapByLocale?.[locale]?.status || {});
 
 const sprintCandidates = [required.sprint, ...(FIELD_NAME_ALIASES.sprint || [])];
 const sprintField = findFieldByCandidates(byName, sprintCandidates);

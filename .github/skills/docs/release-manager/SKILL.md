@@ -24,7 +24,7 @@ Skill companion to `release.agent.md`. Use for **partial** release tasks or when
 
 ## Steps
 
-1. Read `project.yml` → `locale`, manifest paths
+1. Read `project.yml` → `locale` / `languages` / `i18n.multilingual`, manifest paths (release notes in the primary language; extras as `<details>` when `release` is multilingual)
 2. Detect current version from manifest; list tags via git
 3. Collect commits since last tag (Conventional Commits)
 4. Draft CHANGELOG section (Added/Changed/Fixed/Security)

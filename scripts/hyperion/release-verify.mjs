@@ -9,6 +9,8 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { rootArg } from "./cli-args.mjs";
+import { recordEvent } from "./telemetry-lib.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const defaultRoot = join(__dirname, "../..");
@@ -47,7 +49,7 @@ function main() {
     process.exit(0);
   }
 
-  const rootDir = resolve(argValue("--root") || defaultRoot);
+  const rootDir = rootArg(defaultRoot);
   const changelogPath = resolve(argValue("--changelog") || join(rootDir, "CHANGELOG.md"));
 
   if (!existsSync(changelogPath)) {
@@ -103,6 +105,7 @@ function main() {
     console.error(`\nrelease-verify FAILED (${failed})`);
     process.exit(1);
   }
+  recordEvent(rootDir, "agent-gate", "release-verify");
   console.log("release-verify OK");
 }
 

@@ -3,14 +3,17 @@
  * Generate human skill catalog from commands.yml + catalog-meta.json + SKILL.md paths.
  * Run: npm run hyperion:skills-catalog
  * CI: npm run hyperion:skills-catalog -- --check
+ *     npm run hyperion:skills-catalog -- --check --root <kit-root>
  */
-import { readFileSync, writeFileSync, readdirSync, statSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { rootArg } from "./cli-args.mjs";
 import { buildSkillIndex, loadCommands } from "./commands-lib.mjs";
+import { ciError } from "./ci-annotate.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const root = join(__dirname, "../..");
+const root = rootArg(join(__dirname, "../.."));
 const metaPath = join(root, ".github/skills/catalog-meta.json");
 const outPt = join(root, ".github/docs/reference/catalogo-skills.md");
 const outEn = join(root, ".github/docs/reference/skills-catalog.md");
@@ -81,10 +84,10 @@ function render(locale, meta, commands, skillIndex) {
   lines.push("");
   lines.push('<p align="center">');
   lines.push(
-    '  <img src="https://img.shields.io/badge/skills-30-F5D76E?style=for-the-badge&labelColor=0B1220" alt="30 skills">'
+    `  <img src="https://img.shields.io/badge/skills-${skills.length}-F5D76E?style=for-the-badge&labelColor=0B1220" alt="${skills.length} skills">`
   );
   lines.push(
-    '  <img src="https://img.shields.io/badge/agents-8-F5D76E?style=for-the-badge&labelColor=0B1220" alt="8 agents">'
+    `  <img src="https://img.shields.io/badge/agents-${AGENTS.length}-F5D76E?style=for-the-badge&labelColor=0B1220" alt="${AGENTS.length} agents">`
   );
   if (isPt) {
     lines.push(
@@ -161,7 +164,7 @@ function render(locale, meta, commands, skillIndex) {
 
 const check = process.argv.includes("--check");
 const meta = loadMeta();
-const { commands } = loadCommands();
+const { commands } = loadCommands(root);
 const skillIndex = buildSkillIndex(root);
 const pt = render("pt", meta, commands, skillIndex);
 const en = render("en", meta, commands, skillIndex);
@@ -171,6 +174,10 @@ if (check) {
   const existingEn = readFileSync(outEn, "utf8");
   if (existingPt !== pt || existingEn !== en) {
     console.error("skills-catalog out of date — run: npm run hyperion:skills-catalog");
+    ciError(
+      "The skills catalog (.github/docs/reference/catalogo-skills.md and skills-catalog.md) is generated from .github/commands.yml, catalog-meta.json and the SKILL.md files. Run npm run hyperion:skills-catalog and commit both files.",
+      { title: "Skills catalog out of date" }
+    );
     process.exit(1);
   }
   console.log("skills-catalog OK (in sync)");

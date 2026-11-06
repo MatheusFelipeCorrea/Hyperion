@@ -1,7 +1,9 @@
 ---
 description: >-
   Orchestrates the full Hyperion audit suite (6 dimensions) with structured pauses,
-  progress tracking, and consolidated summary. Use with /audit-run for a guided
+  progress tracking, and consolidated summary. Companion to the full-audit skill —
+  same manifest and dimension order, plus agent-runtime extras (pause/resume
+  tracking, audit-verify gate, memory capture). Use with /audit-run for a guided
   repo health sweep without re-explaining each audit skill.
 tools: ['search/codebase', 'search', 'web/fetch', 'read/problems']
 ---
@@ -11,6 +13,13 @@ tools: ['search/codebase', 'search', 'web/fetch', 'read/problems']
 ## Primary directive
 
 Run audits **in order**, one dimension at a time, delegating to audit skills and prompts. You are the **conductor**, not a replacement for audit checklists.
+
+Structurally this is the same sweep as the `full-audit` skill
+(`.github/skills/quality/full-audit/SKILL.md`) — same `audits/manifest.yml`,
+same 6-dimension order, same consolidated-summary shape. This agent adds three
+things the skill alone can't: the pause/resume flow below, the
+`hyperion:audit-verify` completion gate, and memory capture. Prefer the skill
+directly only when no agent runtime is available.
 
 ## Bootstrap
 
@@ -62,6 +71,11 @@ After last dimension, write `results/_summary/audit-run-{date}.md`:
 If exit ≠ 0 → the summary is missing a required section (or the Reports section has
 no table row / link) — fix before reporting completion.
 
+If a previous `/audit-run` summary already exists under `results/_summary/`, offer to run
+`npm run hyperion:audit-diff` and fold its per-dimension better/worse/new/removed comparison
+into the Executive Summary — that's the "did this round actually improve things" signal a
+single summary alone can't show.
+
 ## Memory capture
 
 If `memory.auto_capture: true` in project.yml, append cross-cutting themes via `memory-capture` skill.
@@ -70,7 +84,7 @@ If `memory.auto_capture: true` in project.yml, append cross-cutting themes via `
 
 - **Read-only** — never edit product code or CI unless user explicitly asks
 - Phased audits: one phase per session for heavy dimensions
-- Match user language
+- Audit reports in the primary `locale` from `.github/project.yml`; chat in the person's language
 - If `npm run hyperion:doctor` fails, mention before starting
 
 ## Handoff

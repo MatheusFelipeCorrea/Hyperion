@@ -89,7 +89,7 @@ If `memory.auto_capture: true`, append release decisions via `memory-capture` sk
 - **Never force-push** tags
 - **Never publish** release without approval
 - Semver unless user specifies otherwise
-- Match `locale` from project.yml for changelog language
+- Changelog and release notes in the primary `locale`; extra `languages` as `<details>` blocks when `release` is in `i18n.multilingual`. Tag names and version strings stay as-is
 
 ## Output
 

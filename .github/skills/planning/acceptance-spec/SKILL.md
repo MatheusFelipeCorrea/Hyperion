@@ -147,6 +147,6 @@ Read `project.yml` → `outputs` if specs path is customized. `{story-id}` forma
 - Each scenario must map to at least one test when implemented.
 - Do not mix responsibilities — one feature per spec file.
 - If ambiguity arises, ask before assuming.
-- Match the user's language for scenarios and descriptions.
+- Scenarios and descriptions in the primary `locale` from `.github/project.yml`; Gherkin keywords (Given/When/Then) follow the test runner's configured language (English by default).
 - Reference the discovery when one exists.
 - Keep scenarios KISS — simple and focused.

@@ -3,7 +3,6 @@ import { collectHyperionHealth, fail, log, ok, runNodeScript, warn } from "./lib
 
 const argv = process.argv.slice(2);
 const dryRun = argv.includes("--dry-run");
-const syncArgs = dryRun ? argv : argv;
 
 async function main() {
   log("", "Hyperion sync — validate then push cards");
@@ -18,10 +17,10 @@ async function main() {
   const validateCode = runNodeScript("validate.mjs");
   if (validateCode !== 0) process.exit(validateCode);
 
-  let finalSyncArgs = [...syncArgs];
+  let finalSyncArgs = [...argv];
   if (!dryRun && !health.token) {
     warn("No GitHub token — running dry-run only. Use: gh auth login");
-    finalSyncArgs = ["--dry-run", ...syncArgs.filter((a) => a !== "--dry-run")];
+    finalSyncArgs = ["--dry-run", ...argv];
   }
 
   const syncCode = runNodeScript("sync.mjs", finalSyncArgs);

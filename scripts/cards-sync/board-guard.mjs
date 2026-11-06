@@ -2,8 +2,12 @@
  * Shared board ↔ repo alignment helpers for ci-sync and PR guard.
  */
 import fs from "node:fs/promises";
+import { readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import path from "node:path";
+import { resolveLanguages, t } from "../hyperion/i18n.mjs";
+import { resolveHyperionPaths } from "../hyperion/paths.mjs";
+import { BOARD_OWNED_FRONTMATTER } from "./reconcile.mjs";
 
 /** Frontmatter fields compared for directional drift (board vs git). */
 export const SYNC_FIELDS = [
@@ -111,13 +115,15 @@ export function normalizeSyncFieldValue(field, value) {
  * Detect board-driven drift: board ≠ HEAD while HEAD still matches base (merge-base / parent).
  * Forward-pending changes (HEAD ≠ base) are allowed through.
  */
-export function detectExternalDriftFields(headMeta, baseMeta, boardMeta) {
+export function detectExternalDriftFields(headMeta, baseMeta, boardMeta, { ignoreFields = [] } = {}) {
   const drifts = [];
   const head = headMeta || {};
   const base = baseMeta || {};
   const board = boardMeta || {};
+  const ignored = new Set(ignoreFields);
 
   for (const field of SYNC_FIELDS) {
+    if (ignored.has(field)) continue;
     const headVal = normalizeSyncFieldValue(field, head[field]);
     const baseVal = normalizeSyncFieldValue(field, base[field]);
     const boardVal = normalizeSyncFieldValue(field, board[field]);
@@ -128,6 +134,27 @@ export function detectExternalDriftFields(headMeta, baseMeta, boardMeta) {
   }
 
   return drifts;
+}
+
+/**
+ * "auto" when CARDS_SYNC_MODE=auto or ci.hyperion.cards_sync_mode: auto in project.yml,
+ * otherwise "pull-forward".
+ */
+export function resolveCardsSyncMode(workspaceRoot = process.cwd(), env = process.env) {
+  const fromEnv = String(env.CARDS_SYNC_MODE || "").trim().toLowerCase();
+  if (fromEnv) return fromEnv === "auto" ? "auto" : "pull-forward";
+  try {
+    const text = readFileSync(resolveHyperionPaths(workspaceRoot).projectYmlPath, "utf8");
+    const match = text.match(/^\s+cards_sync_mode:\s*["']?([\w-]+)/m);
+    return match?.[1]?.toLowerCase() === "auto" ? "auto" : "pull-forward";
+  } catch {
+    return "pull-forward";
+  }
+}
+
+/** In auto mode the board owns status/sprint — their drift is reconciled, not a merge blocker. */
+export function guardIgnoreFields(syncMode) {
+  return syncMode === "auto" ? [...BOARD_OWNED_FRONTMATTER] : [];
 }
 
 function gitShowAtRef(workspaceRoot, ref, relativePath) {
@@ -141,7 +168,7 @@ function gitShowAtRef(workspaceRoot, ref, relativePath) {
 
 function gitDiffCardFiles(workspaceRoot, cardsPrefix) {
   const cardsPath = String(cardsPrefix || ".github/cards").replace(/\\/g, "/").replace(/\/+$/, "");
-  const diff = spawnSync("git", ["diff", "--name-only", "--", `${cardsPath}/`], {
+  const diff = spawnSync("git", ["-c", "core.quotePath=false", "diff", "--name-only", "--", `${cardsPath}/`], {
     cwd: workspaceRoot,
     encoding: "utf8",
   });
@@ -206,8 +233,9 @@ export function resolveGuardBaseRef(workspaceRoot, context = "main-pre-forward")
 export async function checkDirectionalBoardAlignment(
   workspaceRoot,
   cardsPrefix,
-  { context = "main-pre-forward", baseRef = null, strictGit = false } = {}
+  { context = "main-pre-forward", baseRef = null, strictGit = false, ignoreFields = null } = {}
 ) {
+  const ignored = ignoreFields ?? guardIgnoreFields(resolveCardsSyncMode(workspaceRoot));
   const diffResult = gitDiffCardFiles(workspaceRoot, cardsPrefix);
 
   if (diffResult.error) {
@@ -263,7 +291,7 @@ export async function checkDirectionalBoardAlignment(
 
     if (!headMeta || !boardMeta) continue;
 
-    const fields = detectExternalDriftFields(headMeta, baseMeta, boardMeta);
+    const fields = detectExternalDriftFields(headMeta, baseMeta, boardMeta, { ignoreFields: ignored });
     if (fields.length) {
       driftFiles.push(normalized);
       externalDrifts.push({ file: normalized, fields });
@@ -283,37 +311,40 @@ export async function checkDirectionalBoardAlignment(
  * Print drift help for CI / PR contexts.
  * @param {"pr"|"main-pre-forward"|"post-forward"} context
  */
-export function printBoardDriftHelp(changedFiles, backend, context = "main-pre-forward", log = console.log, externalDrifts = []) {
-  const label = boardLabel(backend);
+export function printBoardDriftHelp(changedFiles, backend, context = "main-pre-forward", log = console.log, externalDrifts = [], lang = null) {
+  const root = resolveHyperionPaths(process.cwd()).workspaceRoot;
+  const language = lang || resolveLanguages(root).primary;
+  const m = (key, vars) => t(key, vars, language, { root });
+  const board = boardLabel(backend);
 
   log("");
-  log("=== BOARD DRIFT DETECTED ===");
+  log(m("guard.drift.header"));
 
   if (context === "pr") {
-    log(`The ${label} has external changes not reflected in this PR branch.`);
-    log("(Forward-pending card edits in this PR are allowed — only board moves block merge.)");
+    log(m("guard.drift.prChanges", { board }));
+    log(m("guard.drift.prAllowed"));
     log("");
-    log("Merge is blocked until you pull board state into this branch:");
+    log(m("guard.drift.prBlocked"));
     log("  npm run cards:reverse");
     log("  git add .github/cards/");
-    log('  git commit -m "chore(cards): pull board state into PR"');
+    log(`  git commit -m "chore(cards): ${m("guard.drift.prCommit")}"`);
     log("  git push");
   } else if (context === "post-forward") {
-    log(`After forward sync, the ${label} still differs from committed cards.`);
-    log("This may indicate a partial sync, API lag, or concurrent board edits.");
+    log(m("guard.drift.postDiffers", { board }));
+    log(m("guard.drift.postCause"));
   } else {
-    log(`The ${label} has external changes not in this commit.`);
-    log("(Intentional card edits waiting for forward sync are allowed.)");
+    log(m("guard.drift.mainChanges", { board }));
+    log(m("guard.drift.mainAllowed"));
     log("");
-    log("If the board moved independently, run locally:");
+    log(m("guard.drift.mainRun"));
     log("  npm run cards:reverse");
     log("  git add .github/cards/");
-    log('  git commit -m "chore(cards): pull board state before sync"');
+    log(`  git commit -m "chore(cards): ${m("guard.drift.mainCommit")}"`);
   }
 
   if (externalDrifts.length) {
     log("");
-    log("External drift (board changed, branch did not):");
+    log(m("guard.drift.external"));
     for (const entry of externalDrifts) {
       for (const f of entry.fields) {
         log(`  - ${entry.file} → ${f.field}: branch=${f.head ?? "null"} board=${f.board ?? "null"}`);
@@ -321,7 +352,7 @@ export function printBoardDriftHelp(changedFiles, backend, context = "main-pre-f
     }
   } else {
     log("");
-    log("Changed card files after reverse pull:");
+    log(m("guard.drift.changed"));
     for (const f of changedFiles) log(`  - ${f}`);
   }
   log("");

@@ -14,9 +14,10 @@ You **execute** — you do not reinvent the plan. The human already approved pha
 
 ## Bootstrap
 
-1. Read `.github/project.yml` and discover test/lint commands (`commands.test`, etc.) — **reuse the contract**; only run `hyperion:repo-detect` if `commands.test` is missing
-2. Open the plan file under `.github/plans/implementations/` (user provides name or card_id)
-3. Confirm which **single phase** to run (default: next incomplete phase)
+1. **Process guard.** Run `npm run hyperion:process-guard -- --check execute`. Without a BDD spec this is allowed but marks pending-sync — finish or write `.github/plans/specs/{card_id}/` with scenarios before `/review` or `/smoke`.
+2. Read `.github/project.yml` and discover test/lint commands (`commands.test`, etc.) — **reuse the contract**; only run `hyperion:repo-detect` if `commands.test` is missing
+3. Open the plan file under `.github/plans/implementations/` (user provides name or card_id)
+4. Confirm which **single phase** to run (default: next incomplete phase)
 
 ## Critical rules
 

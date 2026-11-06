@@ -47,16 +47,19 @@ Override: read `project.yml` → `outputs` and `docs.*` first; fall back to path
 | **tech-debt-tracker** | Debt inventory | `.github/docs/tech-debt-inventory.md` |
 | **pr-review** | PR review report | `.github/plans/reviews/pr-{id}-review.md` |
 | **dependency-health** | Dependency audit | `.github/audits/results/dependency/` |
+| **ai-fluency** | AI fluency report | `.github/audits/results/_summary/ai-fluency-report.md` |
+| **smoke** | Smoke report + screenshots | `.github/plans/specs/{story-id}/smoke/` |
 
 ## Docs
 
 | Skill | Primary output | Path |
 |-------|----------------|------|
 | **adr-generator** | ADR | `.github/docs/adr/ADR-{NNN}-{slug}.md` |
-| **plantuml-generator** | Full diagram set (11 types) | `.github/diagrams/{category}/` — see [diagrams/README.md](../../diagrams/README.md) |
+| **plantuml-generator** | Full diagram set (12 types, incl. CI/CD Pipeline via `hyperion:pipeline-diagram`) | `.github/diagrams/{category}/` — see [diagrams/README.md](../../diagrams/README.md) |
 | **readme-updater** | Updated README(s) | In place at detected README/docs files (root + apps) |
 | **changelog-generator** | Changelog | `CHANGELOG.md` (repo root) |
 | **release-manager** | Release checklist | `.github/plans/releases/release-{version}-checklist.md` + `CHANGELOG.md` |
+| **pr-writer** | PR body draft + opened PR (repo language) | `.github/plans/prs/pr-{branch}.md` |
 
 ## Agents (not skills, but produce files)
 
@@ -88,6 +91,7 @@ Override: read `project.yml` → `outputs` and `docs.*` first; fall back to path
 │   ├── cards/          ← card-refiner rollup + last-sync.md
 │   ├── specs/          ← acceptance-spec, testing-strategy
 │   ├── reviews/        ← spec-review, pr-reviewer
+│   ├── prs/            ← pr-writer
 │   ├── migrations/     ← migration agent, repo-migration
 │   ├── releases/       ← release-manager, release agent
 │   └── implementations/← implementation-plan, refactor-guide

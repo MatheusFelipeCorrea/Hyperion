@@ -1,0 +1,94 @@
+name: Internal branch sync (main → internal)
+
+# Keeps `internal` — this repo running its own kit, with a real board and real
+# cards — up to date with main after every release. internal only ever pulls:
+# its own files (cards, internal-*.yml workflows) never travel back, and
+# distribution-purity-check fails any PR to dev/qa/main that carries them.
+#
+# The board link is the PROJECT_NUMBER repository variable, never a committed
+# projectNumber, so every branch's projects-map.json stays null. Repository
+# variables only reach a step that maps them (env: PROJECT_NUMBER:
+# ${{ vars.PROJECT_NUMBER }}), and only internal's own workflows do that.
+#
+# Not named hyperion-*.yml on purpose: hyperion:upgrade copies those into
+# products. Runs only in MatheusFelipeCorrea/Hyperion (never in forks), and is
+# a no-op when the repository has no `internal` branch.
+#
+# Merge path: direct merge through the API; when that fails (a workflow changed
+# and the token can't write workflows, or the merge conflicts) this opens a
+# main → internal PR to merge by hand instead.
+#
+# Token: the INTERNAL_SYNC_TOKEN secret (fine-grained PAT or GitHub App token
+# on this repo with Contents, Pull requests and Workflows: read & write) when
+# set, GITHUB_TOKEN otherwise. GitHub fires no workflow for events created with
+# GITHUB_TOKEN, so without the secret the sync PR gets no checks, the merge
+# commit doesn't run internal's push workflows, and every workflow change from
+# main ends up as a manual PR. The run warns about it.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: internal-sync
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  merge-main:
+    if: github.repository == 'MatheusFelipeCorrea/Hyperion'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Merge main into internal
+        env:
+          GH_TOKEN: ${{ secrets.INTERNAL_SYNC_TOKEN || github.token }}
+          HAS_SYNC_TOKEN: ${{ secrets.INTERNAL_SYNC_TOKEN != '' }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -uo pipefail
+          api="https://api.github.com/repos/$REPO"
+          auth=(-H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json")
+
+          branch=$(curl -sS -o branch.json -w '%{http_code}' "${auth[@]}" "$api/branches/internal")
+          case "$branch" in
+            200) ;;
+            404) echo "No internal branch in $REPO — nothing to sync."; exit 0 ;;
+            *)
+              detail=$(jq -r '.message // empty' branch.json 2>/dev/null || true)
+              echo "::error::Could not check whether $REPO has an internal branch (HTTP $branch${detail:+: $detail}). Not merging; re-run once the API answers 200 (branch exists) or 404 (no branch)."
+              exit 1 ;;
+          esac
+
+          token_note=""
+          if [ "$HAS_SYNC_TOKEN" != "true" ]; then
+            echo "::warning title=INTERNAL_SYNC_TOKEN not set::Syncing with GITHUB_TOKEN. GitHub runs no workflow for events created by GITHUB_TOKEN: a main → internal PR opened here gets no checks, a direct merge doesn't run internal's push workflows (internal-cards-sync.yml), and merges that touch .github/workflows fall back to a manual PR. Add a fine-grained PAT or GitHub App token for $REPO with Contents, Pull requests and Workflows (read & write) as the INTERNAL_SYNC_TOKEN secret (Settings → Secrets and variables → Actions)."
+            token_note="
+
+          Opened with \`GITHUB_TOKEN\`, so no checks ran on this PR: close and reopen it to trigger them. Set the \`INTERNAL_SYNC_TOKEN\` secret to avoid this (see CONTRIBUTING, branch \`internal\`)."
+          fi
+
+          code=$(curl -sS -o merge.json -w '%{http_code}' -X POST "${auth[@]}" "$api/merges" \
+            -d '{"base":"internal","head":"main","commit_message":"chore(internal): sync main into internal"}')
+          case "$code" in
+            201) echo "Merged main into internal: $(jq -r .sha merge.json)"; exit 0 ;;
+            204) echo "internal already has everything from main."; exit 0 ;;
+          esac
+
+          reason=$(jq -r '.message // "unknown error"' merge.json 2>/dev/null || echo "HTTP $code")
+          echo "::warning::Direct merge failed (HTTP $code: $reason) — falling back to a main → internal PR."
+
+          open=$(gh pr list --repo "$REPO" --base internal --head main --state open --json url --jq '.[0].url')
+          if [ -n "$open" ]; then
+            echo "Sync PR already open (it follows main automatically): $open"
+            exit 0
+          fi
+          gh pr create --repo "$REPO" --base internal --head main \
+            --title "chore(internal): sync main into internal" \
+            --body "Automatic sync after a release to \`main\` (direct merge failed: HTTP $code — $reason).
+
+          Merge with **Create a merge commit**. If it conflicts, resolve keeping \`main\`'s kit files and \`internal\`'s own files (cards, \`internal-*.yml\`). Never merge \`internal\` back into \`dev\`/\`qa\`/\`main\`.$token_note"

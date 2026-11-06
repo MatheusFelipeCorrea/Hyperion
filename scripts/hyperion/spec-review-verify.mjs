@@ -7,6 +7,8 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { rootArg } from "./cli-args.mjs";
+import { recordEvent } from "./telemetry-lib.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const root = join(__dirname, "../..");
@@ -20,7 +22,7 @@ function argValue(flag) {
 function usage() {
   console.log(`Usage:
   npm run hyperion:spec-review-verify -- --review <path.md>
-  npm run hyperion:spec-review-verify -- --latest
+  npm run hyperion:spec-review-verify -- --latest [--root <repo-root>]
 
 Requires frontmatter/body: card_id, verdict (APPROVED|APPROVED WITH WARNINGS|BLOCKED),
 ## Summary, ## Checklist, ## Blocking issues, ## Recommended next step.
@@ -32,8 +34,8 @@ files are covered by hyperion:review-verify instead).
 
 /** Spec-review and pr-reviewer both write into .github/plans/reviews/ — only
  * consider spec-review's own naming (anything NOT prefixed pr-<number>-review). */
-function findLatestSpecReview() {
-  const dir = join(root, ".github/plans/reviews");
+function findLatestSpecReview(repoRoot) {
+  const dir = join(repoRoot, ".github/plans/reviews");
   if (!existsSync(dir)) return null;
   const files = readdirSync(dir)
     .filter((f) => f.endsWith("-review.md") && !f.startsWith(".") && !/^pr-.+-review\.md$/i.test(f))
@@ -60,9 +62,10 @@ function main() {
     process.exit(0);
   }
 
+  const repoRoot = rootArg(root);
   let reviewPath = argValue("--review");
   if (process.argv.includes("--latest") || !reviewPath) {
-    if (!reviewPath) reviewPath = findLatestSpecReview();
+    if (!reviewPath) reviewPath = findLatestSpecReview(repoRoot);
   }
   if (!reviewPath) {
     console.error("No review specified and none found under .github/plans/reviews/ (spec-review naming)");
@@ -132,6 +135,7 @@ function main() {
     console.error(`\nspec-review-verify FAILED (${failed})`);
     process.exit(1);
   }
+  recordEvent(repoRoot, "agent-gate", "spec-review-verify");
   console.log("spec-review-verify OK");
 }
 
