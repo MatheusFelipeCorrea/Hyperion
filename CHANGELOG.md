@@ -10,11 +10,10 @@ Format inspired by [Keep a Changelog](https://keepachangelog.com/). Versioning f
 ## [Unreleased]
 
 ### Added
-- **MCP server tools expanded** — `hyperion_pipeline_gates`, `hyperion_detect_language`, `hyperion_process_guard_status`, `hyperion_adopt_check`, `hyperion_distribution_purity_check` alongside doctor/project-verify (still read-only).
-- **Coverage gate opt-in in `project.example.yml`** — `ci.gates.preset: balanced` enabled by default in the example (coverage warn + sticky comment); local one-liner `npm run hyperion:coverage-gate -- --mode warn --min 80`.
+- **CLI first-run demo GIF** (`docs/demo/hyperion-first-run.gif`) — Charm VHS recording linked from README Quickstart; regenerate with the tape under `docs/demo/`.
 
 ### Fixed
-- **`detect-language` CLI test flaked on Windows** — `execFileSync("gh")` cannot run `.cmd` stubs; tests inject PR titles via `HYPERION_DETECT_PR_TITLES`.
+- **`install-product-shims --help`** — exits 0 with usage (Docker image smoke was treating `--help` as a real install and failing the `v0.3.0` publish).
 
 ## [0.3.0] — 2026-11-06
 
