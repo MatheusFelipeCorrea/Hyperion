@@ -3,6 +3,7 @@
  * Client repo stays cwd; --from points at a newer kit checkout.
  */
 import fs from "node:fs/promises";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
 import { spawnSync } from "node:child_process";
@@ -352,7 +353,83 @@ export async function applyUpgradePlan(
 
   await recordUpgradeChangelog(targetRoot, meta, applied.length);
 
-  return { applied, backedUp };
+  // Legacy heal: main once shipped project.example.yml with docs.* paths that
+  // do not exist until the product creates them. project.yml is preserved
+  // byte-for-byte from kit copy, but missing declared paths fail project-verify.
+  // Null them so adopters who downloaded from that main stay green after upgrade.
+  const healedDocs = await healProductDocsPaths(targetRoot);
+
+  return { applied, backedUp, healedDocs };
+}
+
+/**
+ * Product root that owns `.github/project.yml` for a kit upgrade target.
+ * Nested: <product>/Hyperion → <product>. Flat: kit root is the product.
+ */
+export function resolveProductRootForUpgrade(kitTargetRoot) {
+  const kitName = path.basename(path.resolve(kitTargetRoot));
+  const parent = path.dirname(path.resolve(kitTargetRoot));
+  const parentYml = path.join(parent, ".github", "project.yml");
+  if (existsSync(parentYml)) {
+    try {
+      const text = readFileSync(parentYml, "utf8");
+      const rootMatch = text.match(/^\s+root\s*:\s*["']?([^\s#"']+)/m);
+      if (rootMatch && rootMatch[1] === kitName) return parent;
+      // Nested adopt often has kit.root set; also accept kit: with matching folder on disk.
+      if (/^\s*kit\s*:/m.test(text)) return parent;
+    } catch {
+      /* fall through */
+    }
+  }
+  if (existsSync(path.join(kitTargetRoot, ".github", "project.yml"))) return kitTargetRoot;
+  return null;
+}
+
+/**
+ * Null `docs.*` entries whose paths are missing on disk (legacy main example).
+ * @returns {{ text: string, healed: { key: string, was: string }[] }}
+ */
+export function healMissingDocsPathsInProjectYml(text, productRoot, pathExists = existsSync) {
+  const lines = String(text || "").split(/\r?\n/);
+  let inDocs = false;
+  const healed = [];
+  const out = lines.map((line) => {
+    if (/^docs:\s*$/.test(line)) {
+      inDocs = true;
+      return line;
+    }
+    if (/^[a-zA-Z_]/.test(line)) inDocs = false;
+    if (!inDocs) return line;
+    const m = line.match(/^(\s{2})(\w+):\s*(.+)$/);
+    if (!m) return line;
+    let raw = m[3].trim();
+    const hash = raw.indexOf(" #");
+    if (hash >= 0) raw = raw.slice(0, hash).trim();
+    const unquoted = raw.replace(/^["']|["']$/g, "");
+    if (!unquoted || unquoted === "null" || unquoted === "~") return line;
+    const abs = path.join(productRoot, unquoted);
+    if (pathExists(abs)) return line;
+    healed.push({ key: m[2], was: unquoted });
+    return `${m[1]}${m[2]}: null`;
+  });
+  return { text: out.join("\n"), healed };
+}
+
+/** Apply docs-path heal to the product project.yml for this kit target (if any). */
+export async function healProductDocsPaths(kitTargetRoot) {
+  const productRoot = resolveProductRootForUpgrade(kitTargetRoot);
+  if (!productRoot) return [];
+  const ymlPath = path.join(productRoot, ".github", "project.yml");
+  let text;
+  try {
+    text = await fs.readFile(ymlPath, "utf8");
+  } catch {
+    return [];
+  }
+  const { text: next, healed } = healMissingDocsPathsInProjectYml(text, productRoot);
+  if (!healed.length) return [];
+  await fs.writeFile(ymlPath, next.endsWith("\n") ? next : `${next}\n`, "utf8");
+  return healed.map((h) => ({ ...h, file: path.relative(kitTargetRoot, ymlPath).replace(/\\/g, "/") }));
 }
 
 /**

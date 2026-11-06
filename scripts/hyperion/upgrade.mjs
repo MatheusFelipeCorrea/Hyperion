@@ -71,6 +71,7 @@ function printHelp() {
   log("", "Pin file:    .github/hyperion-kit.json (written after --yes)");
   log("", "");
   log("", "Preserved: project.yml, memory/, cards/, plans/, .env, .github/workflows/");
+  log("", "Heal: docs.* paths in project.yml that do not exist are set to null (legacy main example).");
   log("", `A managed file you've locally modified is backed up to ${UPGRADE_BACKUP_DIR}/ before being overwritten.`);
 }
 
@@ -186,7 +187,7 @@ async function main() {
       return;
     }
 
-    const { applied, backedUp } = await applyUpgradePlan(kitRoot, targetRoot, items, {
+    const { applied, backedUp, healedDocs = [] } = await applyUpgradePlan(kitRoot, targetRoot, items, {
       yes: true,
       remoteMeta,
       sourceLabel,
@@ -197,6 +198,12 @@ async function main() {
         `${backedUp.length} locally-modified file(s) were overwritten — your previous version is saved under ${UPGRADE_BACKUP_DIR}/ (gitignored, safe to diff/restore/delete):`
       );
       for (const b of backedUp) log("", `  ${b.rel}  →  ${b.backup}`);
+    }
+    if (healedDocs.length) {
+      warn(
+        `Nulled ${healedDocs.length} docs.* path(s) in project.yml that do not exist on disk (legacy example from older main). Re-set them after you create the folders:`
+      );
+      for (const h of healedDocs) log("", `  docs.${h.key}: ${h.was} → null`);
     }
     log("", "Next: npm run hyperion:doctor");
     for (const line of formatWorkflowRefreshHelp()) log("", line);
