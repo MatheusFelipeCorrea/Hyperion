@@ -216,6 +216,12 @@ Tests use `commands.test` from **your** `project.yml` — nothing hardcoded.
 
 `/audit` and `/audit-run` cover the **same 6 dimensions**. Use `/audit` day to day; `/audit-run` when you want the long flow with gates.
 
+**Coverage (opt-in):** `project.example.yml` ships with `ci.gates.preset: balanced` (coverage in `warn`, does not fail the build). After `/pipeline` / `npm run hyperion:pipeline-apply -- --refresh-gates --yes`, product CI runs the gate. Locally, without CI:
+
+```bash
+npm run hyperion:coverage-gate -- --mode warn --min 80
+```
+
 ---
 
 ## 🗺️ Full journey (not day one)

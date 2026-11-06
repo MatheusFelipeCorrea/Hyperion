@@ -7,12 +7,12 @@ Copy [servers.example.json](./servers.example.json) to your product repo as
 ## First-party: Hyperion itself (read-only)
 
 Unlike the backend connectors below, `scripts/hyperion/mcp-server.mjs` isn't a
-board integration — it exposes the kit's own **read-only** commands
-(`doctor`, `project-verify`) as MCP tools, so any MCP-capable client (Claude
-Desktop, Cursor, etc.) can run them directly instead of shelling out. No
-third-party package, no new dependency — it implements the MCP stdio
-JSON-RPC transport by hand, the same way this kit's other protocol clients
-(GitHub/Jira/Linear/GitLab) are raw `fetch` calls instead of vendor SDKs.
+board integration — it exposes the kit's own **read-only** commands as MCP
+tools, so any MCP-capable client (Claude Desktop, Cursor, etc.) can run them
+directly instead of shelling out. No third-party package, no new dependency —
+it implements the MCP stdio JSON-RPC transport by hand, the same way this
+kit's other protocol clients (GitHub/Jira/Linear/GitLab) are raw `fetch`
+calls instead of vendor SDKs.
 
 ```json
 {
@@ -32,11 +32,19 @@ Cursor variable; Claude Desktop doesn't expand it, so there write the full path
 `/opt/code/my-product/scripts/hyperion/mcp-server.mjs`). If the kit lives in a
 subfolder (for example `Hyperion/`), add it to the path.
 
-Tools exposed: `hyperion_doctor` (kit + cards-sync health check — may make
-real read-only GitHub API calls via your `gh` session/token, never writes;
-its "create the Project?" prompts only appear in a terminal, so under MCP
-they are always skipped), `hyperion_project_verify` (validates `project.yml`
-against its schema, no network calls). Neither tool mutates anything.
+Tools exposed (all read-only — none take `--fix` / `--yes`):
+
+| Tool | What it runs |
+|------|----------------|
+| `hyperion_doctor` | Kit + cards-sync health check (may call GitHub read-only via `gh`; "create the Project?" prompts are skipped under MCP) |
+| `hyperion_project_verify` | Validates `project.yml` against its schema (`root` optional) |
+| `hyperion_pipeline_gates` | `pipeline-gates --json` scan + CI-minutes estimate (`preset` optional) |
+| `hyperion_detect_language` | Language suggestion JSON (`no_gh` skips PR titles) |
+| `hyperion_process_guard_status` | SDD pending-sync / card / spec status |
+| `hyperion_adopt_check` | Scans for leftover Hyperion maintainer identity after a selective copy |
+| `hyperion_distribution_purity_check` | Kit purity gate (no `--fix`) |
+
+None of these tools mutate the repo or the board.
 
 ## Backend servers (official)
 

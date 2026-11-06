@@ -14,8 +14,6 @@ let repo;
 before(() => {
   repo = writeFiles(makeTmp("detect-lang-"), {
     "README.md": README_PT,
-    // `gh pr list ...` runs this file when gh is the fake node-backed gh (see makeBin).
-    pr: `process.stdout.write(${JSON.stringify(PR_ES)});\n`,
   });
   gitCommitAll(repo, "fix the parser and update the docs for the release with the new flag");
 });
@@ -46,12 +44,17 @@ describe("detect-language", () => {
   });
 
   it("CLI prints the suggestion, per-source detail and the languages hint (PR titles via gh)", () => {
-    const r = runNode(cli, [], { cwd: repo, binDir: makeBin({ gh: "node" }) });
+    // HYPERION_DETECT_PR_TITLES stubs gh output (execFileSync("gh") cannot run .cmd on Windows).
+    const r = runNode(cli, [], {
+      cwd: repo,
+      binDir: makeBin({ gh: "fail" }),
+      env: { HYPERION_DETECT_PR_TITLES: PR_ES },
+    });
     assert.equal(r.status, 0, r.out);
     assert.match(r.stdout, /Suggested language: \S+ \(confidence [\d.]+\)/);
     assert.match(r.stdout, /readme {3}pt-BR/);
     assert.match(r.stdout, /commits {2}en/);
-    assert.match(r.stdout, /prs {6}es/);
+    assert.match(r.stdout, /prs {6}es/, r.stdout);
     assert.match(r.stdout, /also seen: .* — consider languages: \[/);
   });
 
