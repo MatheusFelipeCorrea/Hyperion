@@ -1,6 +1,6 @@
 {
   "name": "hyperion",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "description": "Hyperion — portable AI agents and skills for software projects",
   "repository": {
@@ -85,6 +85,6 @@
   },
   "dependencies": {
     "ajv": "^8.20.0",
-    "js-yaml": "^5.4.2"
+    "js-yaml": "^5.5.0"
   }
 }

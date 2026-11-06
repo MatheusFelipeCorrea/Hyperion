@@ -81,6 +81,10 @@ function gitSubjects(root, n = 30) {
 }
 
 function prTitles(root, n = 20) {
+  // Test / offline override — avoids flaky PATH stubs for `gh` on Windows.
+  if (Object.prototype.hasOwnProperty.call(process.env, "HYPERION_DETECT_PR_TITLES")) {
+    return String(process.env.HYPERION_DETECT_PR_TITLES ?? "");
+  }
   try {
     return execFileSync("gh", ["pr", "list", "--state", "all", "--limit", String(n), "--json", "title", "--jq", ".[].title"], {
       cwd: root,

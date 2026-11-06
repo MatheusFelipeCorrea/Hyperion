@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 /**
  * Minimal, first-party MCP server exposing Hyperion's own read-only
- * commands (doctor, project-verify) as MCP tools — no mutations, no board
- * writes. The backend servers in .github/mcp/README.md are the vendors'
- * own; this one covers the kit itself and needs no third-party dependency.
+ * commands as MCP tools — no mutations, no board writes. The backend
+ * servers in .github/mcp/README.md are the vendors' own; this one covers
+ * the kit itself and needs no third-party dependency.
  *
  * Implements the MCP stdio JSON-RPC transport by hand (newline-delimited
  * JSON-RPC 2.0 messages, no @modelcontextprotocol/sdk dependency) — this
@@ -27,12 +27,24 @@ import readline from "node:readline";
 import path from "node:path";
 import process from "node:process";
 import { spawnSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
+const repoRoot = path.resolve(scriptDir, "..", "..");
 const PROTOCOL_VERSION = "2024-11-05";
 const SERVER_NAME = "hyperion";
-const SERVER_VERSION = "0.2.0";
+
+function readPackageVersion() {
+  try {
+    const pkg = JSON.parse(readFileSync(path.join(repoRoot, "package.json"), "utf8"));
+    return typeof pkg.version === "string" ? pkg.version : "0.0.0";
+  } catch {
+    return "0.0.0";
+  }
+}
+
+const SERVER_VERSION = readPackageVersion();
 
 function logErr(msg) {
   process.stderr.write(`[hyperion-mcp] ${msg}\n`);
@@ -50,14 +62,13 @@ function sendError(id, code, message) {
   send({ jsonrpc: "2.0", id, error: { code, message } });
 }
 
-/** Runs a kit script as a subprocess and returns its combined output —
- * both doctor.mjs and project-verify.mjs are non-interactive and read-only,
- * so a plain spawnSync capture is safe (no stdin to forward, no prompts to
- * hang on). */
-function runKitScript(scriptName, args = []) {
+/** Runs a kit script as a subprocess and returns its combined output.
+ * All exposed tools are non-interactive and read-only (no --fix/--yes),
+ * so a plain spawnSync capture is safe. */
+function runKitScript(scriptName, args = [], { cwd = repoRoot } = {}) {
   const scriptPath = path.join(scriptDir, scriptName);
   const result = spawnSync(process.execPath, [scriptPath, ...args], {
-    cwd: path.resolve(scriptDir, "..", ".."),
+    cwd,
     encoding: "utf8",
     env: process.env,
   });
@@ -89,6 +100,87 @@ const TOOLS = [
       additionalProperties: false,
     },
     run: (args) => runKitScript("project-verify.mjs", args?.root ? ["--root", String(args.root)] : []),
+  },
+  {
+    name: "hyperion_pipeline_gates",
+    description:
+      "Scans the repository for detected quality gates (lint/test/coverage/build/…) and returns JSON: scan results, interview questions and a CI-minutes estimate. Read-only; does not write ci.gates or workflows. Equivalent to `npm run hyperion:pipeline-gates -- --json`.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        root: { type: "string", description: "Repo root to scan (defaults to the kit/product cwd)." },
+        preset: {
+          type: "string",
+          enum: ["minimal", "balanced", "strict"],
+          description: "Optional preset overlay for the estimate (does not write project.yml).",
+        },
+      },
+      additionalProperties: false,
+    },
+    run: (args) => {
+      const argv = ["--json"];
+      if (args?.preset) argv.push("--preset", String(args.preset));
+      const cwd = args?.root ? path.resolve(String(args.root)) : repoRoot;
+      return runKitScript("pipeline-gates.mjs", argv, { cwd });
+    },
+  },
+  {
+    name: "hyperion_detect_language",
+    description:
+      "Suggests the repository's primary language (and also-seen languages) from README, recent commit subjects and optional PR titles. Returns JSON. Read-only. Pass no_gh=true to skip the gh CLI (offline / no network).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        root: { type: "string", description: "Repo root (defaults to kit/product cwd)." },
+        no_gh: { type: "boolean", description: "Skip `gh pr list` (default false)." },
+      },
+      additionalProperties: false,
+    },
+    run: (args) => {
+      const argv = ["--json"];
+      if (args?.no_gh) argv.push("--no-gh");
+      const cwd = args?.root ? path.resolve(String(args.root)) : repoRoot;
+      return runKitScript("detect-language.mjs", argv, { cwd });
+    },
+  },
+  {
+    name: "hyperion_process_guard_status",
+    description:
+      "Reports SDD process-guard state for a card: whether a CARD_ID is known, whether a BDD spec with Scenario/Cenário exists, and whether implement/execute left a pending-sync marker. Read-only (`--status`); never clears or sets the marker.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        card: { type: "string", description: "CARD_ID (optional; otherwise inferred from branch name)." },
+        root: { type: "string", description: "Repo root (defaults to kit/product cwd)." },
+      },
+      additionalProperties: false,
+    },
+    run: (args) => {
+      const argv = ["--status"];
+      if (args?.card) argv.push("--card", String(args.card));
+      if (args?.root) argv.push("--root", path.resolve(String(args.root)));
+      return runKitScript("process-guard.mjs", argv);
+    },
+  },
+  {
+    name: "hyperion_adopt_check",
+    description:
+      "Adopter-side scan: fails when LICENSE/CONTRIBUTING/CODEOWNERS/templates still carry Hyperion's own maintainer identity (files never to copy). Read-only. Useful after a selective copy of the kit into a product repo.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        root: { type: "string", description: "Product repo root to scan." },
+      },
+      additionalProperties: false,
+    },
+    run: (args) => runKitScript("adopt-check.mjs", args?.root ? ["--root", String(args.root)] : []),
+  },
+  {
+    name: "hyperion_distribution_purity_check",
+    description:
+      "Kit purity gate (read-only): fails if the Hyperion kit repo itself is bound to a real board, has real cards outside _examples, leaked personal paths, or kit workflows that must not ship. Never runs --fix. Outside the kit repo this is typically a no-op / skip.",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+    run: () => runKitScript("distribution-purity-check.mjs"),
   },
 ];
 
